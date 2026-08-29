@@ -1,4 +1,9 @@
+# Configuration
 /config/database.local.php
+.env
+.env.local
+
+# Storage & Logs
 /storage/installed.lock
 /storage/logs/*.log
 /storage/cache/*
@@ -7,4 +12,39 @@
 !/storage/**/
 !/storage/**/.gitkeep
 !/storage/.htaccess
+
+# Dependencies
+node_modules/
+vendor/
+composer.lock
+
+# Build & Compiled
+dist/
+build/
+*.min.js
+*.min.css
+
+# IDE & Editor
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+Thumbs.db
+
+# Temporary files
+temp/
+tmp/
+*.tmp
+*.log
 *.zip
+
+# System files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+desktop.ini
