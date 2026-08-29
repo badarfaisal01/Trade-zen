@@ -1,0 +1,10 @@
+/config/database.local.php
+/storage/installed.lock
+/storage/logs/*.log
+/storage/cache/*
+!/storage/cache/.gitkeep
+/storage/**
+!/storage/**/
+!/storage/**/.gitkeep
+!/storage/.htaccess
+*.zip

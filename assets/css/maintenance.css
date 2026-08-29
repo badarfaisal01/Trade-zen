@@ -1,0 +1,7 @@
+.maintenance-page { min-height:100vh; background:radial-gradient(circle at 50% 45%,rgba(43,153,255,.12),transparent 36%),#1c1f2d; }
+.maintenance-shell { min-height:100vh; display:flex; flex-direction:column; padding:24px clamp(20px,5vw,70px); }
+.maintenance-shell > section { width:min(620px,100%); margin:auto; display:flex; align-items:center; flex-direction:column; text-align:center; }
+.maintenance-icon { width:86px; height:86px; display:grid; place-items:center; margin-bottom:22px; border:1px solid rgba(43,153,255,.24); border-radius:50%; color:#64b7ff; background:rgba(2,111,211,.1); box-shadow:0 0 70px rgba(2,111,211,.16); }
+.maintenance-shell h1 { margin:8px 0 10px; font-size:clamp(38px,7vw,68px); }
+.maintenance-shell p { max-width:560px; margin:0 0 24px; color:#8d9aae; }
+.maintenance-shell section > div { display:flex; gap:9px; }

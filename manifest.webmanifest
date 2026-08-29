@@ -1,0 +1,17 @@
+{
+  "name": "55AK Trade",
+  "short_name": "55AK Trade",
+  "description": "55AK Trade responsive market trading platform.",
+  "start_url": "/en/trade/",
+  "display": "standalone",
+  "background_color": "#1c1f2d",
+  "theme_color": "#1c1f2d",
+  "icons": [
+    {
+      "src": "/assets/img/logo.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}

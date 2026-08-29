@@ -1,0 +1,18 @@
+Canonical user routes
+/en/trade/        -> Trade
+/en/balance/      -> Deposit
+/en/withdrawal/   -> Withdrawal
+/en/settings/     -> Account
+/en/history/      -> History
+/en/analytics/    -> Analytics
+/en/support/      -> Support
+
+Compatibility redirects
+/en/wallet/                    -> /en/balance/
+/en/wallet/?action=deposit     -> /en/balance/
+/en/wallet/?action=withdrawal  -> /en/withdrawal/
+/en/payments/                  -> /en/balance/
+
+Insufficient trade balance
+Frontend bridge -> /en/balance/?deposit=true&from=trade[&amount=...]
+Backend API code -> INSUFFICIENT_BALANCE + Deposit redirect

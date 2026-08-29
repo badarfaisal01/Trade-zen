@@ -1,0 +1,31 @@
+55AK TRADE v4.4.6 — IMPORTANT DEPLOYMENT STEPS
+
+1) Open the ACTUAL document root assigned to trading.55ak.xyz in cPanel.
+2) Back up config/database.local.php and the storage/ folder if this site is already installed.
+3) Remove/rename the old application files. Do NOT leave old hashed React bundles mixed with the new build.
+4) Upload 55AK-Trade-v4.4.6-AFFILIATE-NAV-DEPOSIT-DEBIT-FIX.zip into that document root and click Extract.
+5) IMPORTANT: after extraction, the SAME directory must directly show:
+   .htaccess
+   index.php
+   diagnostics.php
+   trade-room/
+   assets/
+   profile/
+   en/
+   app/
+   config/
+   database/
+   storage/
+   There must NOT be another 55AK-Trade-v4... folder between the document root and these files.
+6) Restore the previous config/database.local.php and storage/ if you are keeping an existing installation.
+   For a fresh install, open /install/. Database defaults requested for this deployment are preconfigured server-side; the DB password field can be left blank to use that saved deployment password.
+7) Open /diagnostics.php.
+   - Document-root check must PASS.
+   - Every critical trade file must show Disk PASS.
+   - Every HTTP asset row must become 200.
+   - PDO MySQL must PASS.
+   - Database connection and essential tables should PASS after installation.
+8) Only after the asset rows are 200, open /cache-reset.php once, then /en/trade/.
+9) After successful setup, delete or rename diagnostics.php and remove/lock the installer as appropriate.
+
+If /trade-room/react/vendor.ae7d8f8a004fd2feac4d.js is 404, do not debug React code yet. The server still has a document-root/extraction problem.

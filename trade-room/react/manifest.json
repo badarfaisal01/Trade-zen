@@ -1,0 +1,26 @@
+{
+  "icons": [
+    {
+      "src": "/trade-room/react/quotex-pwa-icons/icon_144x144.png",
+      "sizes": "144x144",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "name": "55AK Trade",
+  "short_name": "55AK Trade",
+  "orientation": "any",
+  "display": "standalone",
+  "start_url": "/en/trade/",
+  "description": "55AK Trade responsive market trading platform",
+  "background_color": "#1C1F2D",
+  "theme_color": "#1C1F2D",
+  "scope": "/",
+  "id": "55ak_trade_app",
+  "related_applications": [
+    {
+      "id": "55ak_trade_app",
+      "platform": "webapp"
+    }
+  ]
+}

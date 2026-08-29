@@ -1,0 +1,60 @@
+Options -Indexes -MultiViews
+DirectoryIndex index.php index.html
+
+RewriteEngine On
+RewriteRule ^\.well-known/(?:acme-challenge|pki-validation)/[A-Za-z0-9._-]+$ - [L]
+RewriteRule (^|/)\. - [F,L]
+RewriteRule ^(?:app|config|cron|database|storage)(?:/|$) - [F,L,NC]
+RewriteRule ^en/(?:sign-in|sign-up)/index\.html$ - [F,L,NC]
+
+# The supplied React router has one exact Demo pathname: /en/demo-trade.
+# Handle it before the physical-directory bypass so Apache DirectorySlash does
+# not append `/`, and retire the legacy .html URL with one one-way redirect.
+RewriteRule ^en/demo-trade\.html$ /en/demo-trade [R=302,L,NE]
+RewriteRule ^en/demo-trade/$ /en/demo-trade [R=302,L,NE]
+RewriteRule ^en/demo-trade$ en/demo-trade/index.php [L,QSA]
+
+# Serve existing static assets/directories exactly as uploaded before route rewrites.
+RewriteCond %{REQUEST_FILENAME} -f [OR]
+RewriteCond %{REQUEST_FILENAME} -d
+RewriteRule ^ - [L]
+RewriteRule ^install/?$ install/index.php [L,QSA]
+RewriteRule ^api/v1/cabinets/digest/?$ api/v1/cabinets/digest/index.php [L,QSA]
+RewriteRule ^api/v1/cabinets/trades/settings/high-low/?$ api/v1/cabinets/trades/settings/high-low/index.php [L,QSA]
+RewriteRule ^en/sign-up/modal/?$ en/sign-up/modal/index.php [L,QSA]
+RewriteRule ^en/profile/?$ en/profile/index.php [L,QSA]
+RewriteRule ^en/site-logo/?$ en/site-logo/index.php [L,QSA]
+RewriteRule ^en/about/?$ en/about/index.php [L,QSA]
+RewriteRule ^en/blog/?$ en/blog/index.php [L,QSA]
+RewriteRule ^en/faq/?$ en/faq/index.php [L,QSA]
+RewriteRule ^en/contact/?$ en/contact/index.php [L,QSA]
+RewriteRule ^en/terms/?$ en/terms/index.php [L,QSA]
+RewriteRule ^en/privacy/?$ en/privacy/index.php [L,QSA]
+RewriteRule ^en/risk/?$ en/risk/index.php [L,QSA]
+RewriteRule ^en/trade/?$ en/trade/index.php [L,QSA]
+RewriteRule ^en/balance/?$ en/balance/index.php [L,QSA]
+RewriteRule ^en/payments/?$ en/payments/index.php [L,QSA]
+RewriteRule ^en/trades/?$ en/trades/index.php [L,QSA]
+RewriteRule ^en/withdrawal\.html$ /en/withdrawal/ [R=302,L,NE]
+
+<FilesMatch "(?i)^(?:\.env|composer\.(?:json|lock)|package(?:-lock)?\.json|README(?:\.md)?|.*\.(?:sql|log|ini|bak|dist))$">
+    Require all denied
+</FilesMatch>
+
+<IfModule mod_headers.c>
+    Header always set X-Content-Type-Options "nosniff"
+    Header always set X-Frame-Options "DENY"
+    Header always set Referrer-Policy "strict-origin-when-cross-origin"
+    Header always set Permissions-Policy "camera=(), microphone=(), geolocation=(), payment=()"
+</IfModule>
+
+<IfModule mod_deflate.c>
+    AddOutputFilterByType DEFLATE text/html text/plain text/css text/javascript application/javascript application/json image/svg+xml
+</IfModule>
+
+<IfModule mod_expires.c>
+    ExpiresActive On
+    ExpiresByType text/css "access plus 7 days"
+    ExpiresByType application/javascript "access plus 7 days"
+    ExpiresByType image/svg+xml "access plus 30 days"
+</IfModule>
