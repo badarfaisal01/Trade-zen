@@ -190,6 +190,25 @@ if (is_post()) {
             $assetId = (int)db()->lastInsertId();
             admin_audit((int)$admin['id'], 'market_created', 'market_asset', $assetId, ['symbol'=>$symbol,'source'=>$source]);
             flash('success', 'Market added. Its source applies globally to all users.');
+        } elseif ($action === 'market_delete') {
+            require_admin_capability($admin, 'manage_markets');
+            $assetId = (int)($_POST['asset_id'] ?? 0);
+            if ($assetId < 1) {
+                throw new InvalidArgumentException('Choose a valid market to delete.');
+            }
+            $assetStmt = db()->prepare('SELECT symbol, display_name FROM market_assets WHERE id=? LIMIT 1');
+            $assetStmt->execute([$assetId]);
+            $asset = $assetStmt->fetch();
+            if (!$asset) {
+                throw new RuntimeException('Market not found.');
+            }
+            $tradeCount = (int)db()->prepare('SELECT COUNT(*) FROM trades WHERE asset_id=?')->execute([$assetId]);
+            if ($tradeCount > 0) {
+                throw new RuntimeException('This market has trade history and cannot be deleted. Disable it instead.');
+            }
+            db()->prepare('DELETE FROM market_assets WHERE id=?')->execute([$assetId]);
+            admin_audit((int)$admin['id'], 'market_deleted', 'market_asset', $assetId, ['symbol' => $asset['symbol'], 'name' => $asset['display_name']]);
+            flash('success', 'Market deleted: ' . $asset['display_name'] . '.');
         } elseif ($action === 'asset_update') {
             require_admin_capability($admin, 'manage_markets');
             $assetId = (int)($_POST['asset_id'] ?? 0);
@@ -201,7 +220,7 @@ if (is_post()) {
             $apiSymbol = strtoupper(trim((string)($_POST['api_symbol'] ?? '')));
             $sort = max(-9999, min(9999, (int)($_POST['sort_order'] ?? 0)));
             $active = isset($_POST['is_active']) ? 1 : 0;
-            if ($assetId < 1 || strlen($name) < 3 || strlen($name) > 80 || $payout < 1 || $payout > 95 || $basePrice <= 0 || $basePrice > 1000000000000 || $volatility < 0.00001 || $volatility > 0.2 || !in_array($source, ['internal','manual','api'], true) || ($apiSymbol !== '' && !preg_match('/^[A-Z0-9._:-]{2,60}$/', $apiSymbol))) {
+            if ($assetId < 1 || strlen($name) < 3 || strlen($name) > 80 || $payout < 1 || $payout > 95 || $basePrice <= 0 || $basePrice > 1000000000000 || $volatility < 0.00001 || $volatility > 0.2 || !in_array($source, ['internal','manual','api'], true) || ($apiSymbol !== '' && !preg_match('/^[A-Z0-9._:\/-]{2,60}$/', $apiSymbol))) {
                 throw new InvalidArgumentException('Market name, payout, price, volatility, or source is invalid.');
             }
             $stmt = db()->prepare('UPDATE market_assets SET display_name=?,payout_percent=?,base_price=?,volatility=?,price_source=?,api_symbol=?,sort_order=?,is_active=?,updated_at=NOW() WHERE id=?');
