@@ -13,9 +13,7 @@ if (file_exists($envFile)) {
         [$key, $value] = explode('=', $line, 2);
         $key = trim($key);
         $value = trim($value);
-        if (!getenv($key)) {
-            putenv("$key=$value");
-        }
+        putenv("$key=$value");
     }
 }
 
@@ -69,6 +67,7 @@ if (!$isInstaller) {
     run_auto_migrations();
 }
 require_once BASE_PATH . '/app/market.php';
+require_once BASE_PATH . '/app/market_api.php';
 require_once BASE_PATH . '/app/finance.php';
 require_once BASE_PATH . '/app/trading.php';
 require_once BASE_PATH . '/app/currency.php';

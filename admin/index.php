@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__) . '/app/bootstrap.php';
 require_once BASE_PATH . '/app/admin_features.php';
+require_once BASE_PATH . '/app/admin_market_api.php';
 
 $admin = current_user();
 if (!$admin) {
@@ -11,7 +12,7 @@ if (!$admin) {
 $admin = require_admin();
 expire_deposit_orders();
 
-$allowedPages = ['dashboard','users','trades','requests','finance','payments','coupons','support','assets','agents','notifications','branding','admins','settings','audit','trading'];
+$allowedPages = ['dashboard','users','trades','requests','finance','payments','coupons','support','assets','agents','notifications','branding','admins','settings','audit','trading','market_api'];
 $page = (string)($_GET['page'] ?? 'dashboard');
 if (!in_array($page, $allowedPages, true)) {
     $page = 'dashboard';
@@ -355,6 +356,22 @@ if (is_post()) {
             db()->exec('UPDATE announcements SET is_active=0,updated_at=NOW() WHERE is_active=1');
             admin_audit((int)$admin['id'], 'announcement_disabled', 'announcement');
             flash('success', 'Trade-room announcement disabled.');
+        } elseif ($action === 'test_api') {
+            require_admin_capability($admin, 'manage_markets');
+            $testResults = test_market_api_connection();
+            $messages = [];
+            if ($testResults['twelvedata']) {
+                $messages[] = 'Twelve Data API connected successfully!';
+            } elseif (!empty($testResults['errors']['twelvedata'])) {
+                $messages[] = 'Twelve Data error: ' . $testResults['errors']['twelvedata'];
+            }
+            if ($testResults['metals']) {
+                $messages[] = 'Metals API connected successfully!';
+            } elseif (!empty($testResults['errors']['metals'])) {
+                $messages[] = 'Metals API error: ' . $testResults['errors']['metals'];
+            }
+            $resultMessage = implode(' | ', $messages);
+            flash('success', $resultMessage);
         } else {
             $extensionMessage = admin_handle_trading_control_action($admin, $action);
             if ($extensionMessage === null) {
@@ -395,13 +412,13 @@ if (is_post()) {
     redirect('/admin/?page=' . rawurlencode($returnPage));
 }
 
-$restrictedPageCapabilities = ['users'=>'manage_users','payments'=>'manage_payments','coupons'=>'manage_promos','assets'=>'manage_markets','trading'=>'manage_markets','agents'=>'manage_agents','notifications'=>'manage_notifications','branding'=>'manage_branding','admins'=>'manage_admins','settings'=>'manage_settings'];
+$restrictedPageCapabilities = ['users'=>'manage_users','payments'=>'manage_payments','coupons'=>'manage_promos','assets'=>'manage_markets','trading'=>'manage_markets','market_api'=>'manage_markets','agents'=>'manage_agents','notifications'=>'manage_notifications','branding'=>'manage_branding','admins'=>'manage_admins','settings'=>'manage_settings'];
 if (isset($restrictedPageCapabilities[$page]) && !admin_can($admin, $restrictedPageCapabilities[$page])) {
     flash('error', 'Your administrator role does not allow access to that page.');
     redirect('/admin/');
 }
 
-$titles = ['dashboard'=>'Dashboard','users'=>'Users','trades'=>'Trades','requests'=>'Fund requests','finance'=>'Finance','payments'=>'Payment methods','coupons'=>'Gift & coupons','support'=>'Support desk','assets'=>'Trading control','trading'=>'Trading Control Center','agents'=>'Agents & referrals','notifications'=>'Notifications','branding'=>'Branding','admins'=>'Administrators','settings'=>'Platform settings','audit'=>'Audit log'];
+$titles = ['dashboard'=>'Dashboard','users'=>'Users','trades'=>'Trades','requests'=>'Fund requests','finance'=>'Finance','payments'=>'Payment methods','coupons'=>'Gift & coupons','support'=>'Support desk','assets'=>'Trading control','trading'=>'Trading Control Center','market_api'=>'Market APIs','agents'=>'Agents & referrals','notifications'=>'Notifications','branding'=>'Branding','admins'=>'Administrators','settings'=>'Platform settings','audit'=>'Audit log'];
 render_admin_start($titles[$page], $page, $admin);
 
 if ($page === 'dashboard'):
@@ -543,6 +560,8 @@ elseif ($page === 'branding'):
     render_admin_branding_page();
 elseif ($page === 'trading'):
     render_admin_trading_control_page();
+elseif ($page === 'market_api'):
+    render_admin_market_api_page();
 elseif ($page === 'audit'):
     $logs=db()->query('SELECT l.*,u.name admin_name,u.email admin_email FROM admin_audit_logs l LEFT JOIN users u ON u.id=l.admin_id ORDER BY l.id DESC LIMIT 300')->fetchAll();
 ?>
