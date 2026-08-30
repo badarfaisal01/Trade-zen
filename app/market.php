@@ -34,6 +34,25 @@ function market_noise(int $seed, int $bucket): float
 
 function market_price_at(array $asset, int $timestampMs): float
 {
+    if (($asset['price_source'] ?? 'internal') === 'api') {
+        $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+        if ($symbol !== '') {
+            try {
+                $livePrice = fetch_market_price($symbol);
+                if (is_numeric($livePrice) && $livePrice > 0) {
+                    $assetId = isset($asset['id']) ? (int)$asset['id'] : 0;
+                    if ($assetId > 0) {
+                        $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()');
+                        $upsert->execute([$assetId, (float)$livePrice, 'api']);
+                    }
+                    return round((float)$livePrice, (int)$asset['decimal_places']);
+                }
+            } catch (Throwable $exception) {
+                error_log('Live API price request failed for ' . $symbol . ': ' . $exception->getMessage());
+            }
+        }
+    }
+
     $seconds = $timestampMs / 1000.0;
     $seed = (int)$asset['market_seed'];
     $base = market_reference_price($asset);
@@ -132,9 +151,30 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 72,
 
 function market_reference_price(array $asset): float
 {
-    if (($asset['price_source'] ?? 'internal') === 'api' && isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
-        return (float)$asset['source_price'];
+    if (($asset['price_source'] ?? 'internal') === 'api') {
+        $sourcePrice = isset($asset['source_price']) ? (float)$asset['source_price'] : 0.0;
+        if ($sourcePrice > 0) {
+            return $sourcePrice;
+        }
+
+        $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+        if ($symbol !== '') {
+            try {
+                $livePrice = fetch_market_price($symbol);
+                if (is_numeric($livePrice) && $livePrice > 0) {
+                    $assetId = isset($asset['id']) ? (int)$asset['id'] : 0;
+                    if ($assetId > 0) {
+                        $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()');
+                        $upsert->execute([$assetId, (float)$livePrice, 'api']);
+                    }
+                    return (float)$livePrice;
+                }
+            } catch (Throwable $exception) {
+                error_log('API-fed market refresh failed for ' . $symbol . ': ' . $exception->getMessage());
+            }
+        }
     }
+
     return max(0.00000001, (float)$asset['base_price']);
 }
 
@@ -194,64 +234,96 @@ function refresh_market_api_price(int $assetId): float
     }
 
     $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
-    $template = trim((string)setting('market_api_url', ''));
-    $path = str_replace('{symbol}', $symbol, trim((string)setting('market_api_price_path', 'price')));
-    $url = str_replace('{symbol}', rawurlencode($symbol), $template);
-    if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
-        throw new InvalidArgumentException('Configure a valid market API URL containing {symbol}.');
-    }
-    $parts = parse_url($url);
-    $host = strtolower((string)($parts['host'] ?? ''));
-    $scheme = strtolower((string)($parts['scheme'] ?? ''));
-    $port = (int)($parts['port'] ?? 443);
-    if ($scheme !== 'https' || $host === '' || isset($parts['user']) || isset($parts['pass']) || $port !== 443) {
-        throw new InvalidArgumentException('Market API must use HTTPS on port 443 without URL credentials.');
-    }
-    $ip = market_public_ip_for_host($host);
-    $headers = ['Accept: application/json'];
-    $apiKey = trim((string)setting('market_api_key', ''));
-    if ($apiKey !== '') {
-        $headers[] = 'Authorization: Bearer ' . $apiKey;
+    $price = null;
+    $source = 'unknown';
+
+    // Try Twelve Data API first (for Forex, Crypto)
+    $twelvedataKey = getenv('TWELVEDATA_API_KEY');
+    if (!empty($twelvedataKey)) {
+        try {
+            $price = fetch_twelvedata_price($symbol, $twelvedataKey);
+            $source = 'twelvedata.com';
+        } catch (Exception $e) {
+            // Fall through to try other providers
+        }
     }
 
-    $curl = curl_init($url);
-    if ($curl === false) {
-        throw new RuntimeException('Could not initialize the market API request.');
+    // Try Metals API for precious metals
+    if ($price === null && (stripos($symbol, 'XAU') !== false || stripos($symbol, 'XAG') !== false || stripos($symbol, 'GOLD') !== false || stripos($symbol, 'SILVER') !== false)) {
+        $metalsKey = getenv('METALS_API_KEY');
+        if (!empty($metalsKey)) {
+            try {
+                $price = fetch_metals_api_price($symbol, 'USD', $metalsKey);
+                $source = 'metals-api.com';
+            } catch (Exception $e) {
+                // Fall through to try custom API
+            }
+        }
     }
-    $resolvedAddress = strpos($ip, ':') !== false ? '[' . $ip . ']' : $ip;
-    curl_setopt_array($curl, [
-        CURLOPT_RETURNTRANSFER => true,
-        CURLOPT_FOLLOWLOCATION => false,
-        CURLOPT_CONNECTTIMEOUT => 4,
-        CURLOPT_TIMEOUT => 8,
-        CURLOPT_HTTPHEADER => $headers,
-        CURLOPT_SSL_VERIFYPEER => true,
-        CURLOPT_SSL_VERIFYHOST => 2,
-        CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
-        CURLOPT_RESOLVE => [$host . ':443:' . $resolvedAddress],
-        CURLOPT_USERAGENT => '55AK-Market-Feed/1.0',
-    ]);
-    $raw = curl_exec($curl);
-    $httpCode = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
-    $error = curl_error($curl);
-    curl_close($curl);
-    if (!is_string($raw) || $httpCode < 200 || $httpCode >= 300) {
-        throw new RuntimeException('Market API request failed' . ($error !== '' ? ': ' . $error : ' with HTTP ' . $httpCode) . '.');
+
+    // Fall back to custom market API URL if configured
+    if ($price === null) {
+        $template = trim((string)setting('market_api_url', ''));
+        $path = str_replace('{symbol}', $symbol, trim((string)setting('market_api_price_path', 'price')));
+        $url = str_replace('{symbol}', rawurlencode($symbol), $template);
+        if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
+            throw new InvalidArgumentException('Configure Twelve Data API key in .env file (TWELVEDATA_API_KEY) or set up a custom market API URL with {symbol} placeholder in Settings.');
+        }
+        $parts = parse_url($url);
+        $host = strtolower((string)($parts['host'] ?? ''));
+        $scheme = strtolower((string)($parts['scheme'] ?? ''));
+        $port = (int)($parts['port'] ?? 443);
+        if ($scheme !== 'https' || $host === '' || isset($parts['user']) || isset($parts['pass']) || $port !== 443) {
+            throw new InvalidArgumentException('Market API must use HTTPS on port 443 without URL credentials.');
+        }
+        $ip = market_public_ip_for_host($host);
+        $headers = ['Accept: application/json'];
+        $apiKey = trim((string)setting('market_api_key', ''));
+        if ($apiKey !== '') {
+            $headers[] = 'Authorization: Bearer ' . $apiKey;
+        }
+
+        $curl = curl_init($url);
+        if ($curl === false) {
+            throw new RuntimeException('Could not initialize the market API request.');
+        }
+        $resolvedAddress = strpos($ip, ':') !== false ? '[' . $ip . ']' : $ip;
+        curl_setopt_array($curl, [
+            CURLOPT_RETURNTRANSFER => true,
+            CURLOPT_FOLLOWLOCATION => false,
+            CURLOPT_CONNECTTIMEOUT => 4,
+            CURLOPT_TIMEOUT => 8,
+            CURLOPT_HTTPHEADER => $headers,
+            CURLOPT_SSL_VERIFYPEER => true,
+            CURLOPT_SSL_VERIFYHOST => 2,
+            CURLOPT_PROTOCOLS => CURLPROTO_HTTPS,
+            CURLOPT_RESOLVE => [$host . ':443:' . $resolvedAddress],
+            CURLOPT_USERAGENT => '55AK-Market-Feed/1.0',
+        ]);
+        $raw = curl_exec($curl);
+        $httpCode = (int)curl_getinfo($curl, CURLINFO_RESPONSE_CODE);
+        $error = curl_error($curl);
+        curl_close($curl);
+        if (!is_string($raw) || $httpCode < 200 || $httpCode >= 300) {
+            throw new RuntimeException('Market API request failed' . ($error !== '' ? ': ' . $error : ' with HTTP ' . $httpCode) . '.');
+        }
+        if (strlen($raw) > 1048576) {
+            throw new RuntimeException('Market API response is too large.');
+        }
+        $payload = json_decode($raw, true, 64, JSON_THROW_ON_ERROR);
+        if (!is_array($payload)) {
+            throw new RuntimeException('Market API did not return a JSON object or array.');
+        }
+        $price = (float)market_json_path_value($payload, $path);
+        $source = $host;
     }
-    if (strlen($raw) > 1048576) {
-        throw new RuntimeException('Market API response is too large.');
-    }
-    $payload = json_decode($raw, true, 64, JSON_THROW_ON_ERROR);
-    if (!is_array($payload)) {
-        throw new RuntimeException('Market API did not return a JSON object or array.');
-    }
-    $price = (float)market_json_path_value($payload, $path);
-    if (!is_finite($price) || $price <= 0 || $price > 1000000000000) {
+
+    if (!is_numeric($price) || !is_finite($price) || $price <= 0 || $price > 1000000000000) {
         throw new RuntimeException('Market API returned an invalid price.');
     }
-    $price = round($price, (int)$asset['decimal_places']);
-    $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at,raw_response_hash) VALUES (?,? ,?,NOW(),?) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW(),raw_response_hash=VALUES(raw_response_hash)');
-    $upsert->execute([$assetId, $price, $host, hash('sha256', $raw)]);
+    $price = round((float)$price, (int)$asset['decimal_places']);
+    $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()');
+    $upsert->execute([$assetId, $price, $source]);
     return $price;
 }
 

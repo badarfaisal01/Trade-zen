@@ -17,6 +17,34 @@ function original_trade_settings(array $user): array
     $demoBalance = (float)$user['demo_trade_balance'];
     $balance = $accountType === 'demo' ? $demoBalance : $liveBalance;
 
+    // Build modals with market assets
+    $assets = market_assets(true);
+    $byCategory = [];
+    foreach ($assets as $asset) {
+        $category = (string)($asset['category'] ?? 'forex');
+        if (!isset($byCategory[$category])) {
+            $byCategory[$category] = [];
+        }
+        $byCategory[$category][] = $asset;
+    }
+    $modals = [];
+    foreach ($byCategory as $category => $categoryAssets) {
+        $modals[] = [
+            'id' => $category,
+            'title' => ucfirst($category),
+            'type' => 'market_list',
+            'items' => array_map(static function(array $asset): array {
+                return [
+                    'symbol' => (string)$asset['symbol'],
+                    'name' => (string)$asset['display_name'],
+                    'category' => (string)$asset['category'],
+                    'payout' => (float)$asset['payout_percent'],
+                    'volatility' => (float)$asset['volatility'],
+                ];
+            }, $categoryAssets),
+        ];
+    }
+
     return [
         'fpjsDomain' => null,
         'liveBalance' => number_format($liveBalance, 8, '.', ''),
@@ -81,6 +109,7 @@ function original_trade_settings(array $user): array
         'showAccountBlockedModal' => false,
         'activeTournaments' => ['data' => []],
         'currencyFlags' => [(string)$user['currency'] => ['INR' => 'in', 'GBP' => 'gb', 'EUR' => 'eu'][$user['currency']] ?? 'us'],
+        'modals' => $modals,
     ];
 }
 

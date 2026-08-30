@@ -95,6 +95,42 @@
 
   var bootstrapAssets = parseBootstrapAssets();
 
+  function normalizeModalCategory(category) {
+    var key = String(category || 'Currencies').trim();
+    var lowered = key.toLowerCase();
+    if (lowered === 'forex') return 'currencies';
+    if (lowered === 'currency' || lowered === 'currencies') return 'currencies';
+    if (lowered === 'crypto' || lowered === 'cryptocurrency') return 'crypto';
+    if (lowered === 'commodity' || lowered === 'commodities') return 'commodities';
+    if (lowered === 'stock' || lowered === 'stocks') return 'stocks';
+    return lowered;
+  }
+
+  function buildModalsFromAssets() {
+    var grouped = {};
+    bootstrapAssets.forEach(function (asset) {
+      var category = String(asset && asset.category ? asset.category : 'Currencies');
+      var key = normalizeModalCategory(category);
+      if (!grouped[key]) {
+        grouped[key] = {id: key, title: category, type: 'market_list', items: []};
+      }
+      grouped[key].items.push({
+        symbol: String(asset.symbol || ''),
+        name: String(asset.name || asset.symbol || ''),
+        category: category,
+        payout: number(asset.payout, 0),
+        volatility: number(asset.volatility, 0)
+      });
+    });
+
+    var order = ['currencies', 'crypto', 'commodities', 'stocks'];
+    return order.filter(function (key) { return grouped[key]; }).map(function (key) {
+      return grouped[key];
+    }).concat(Object.keys(grouped).filter(function (key) { return order.indexOf(key) === -1; }).map(function (key) {
+      return grouped[key];
+    }));
+  }
+
   function currencySymbol(code) {
     var symbols = {USD: '$', INR: '₹', EUR: '€', GBP: '£'};
     return symbols[code] || code;
@@ -208,7 +244,8 @@
     isAiTradingEnabled: false,
     showAccountBlockedModal: false,
     activeTournaments: {data: []},
-    currencyFlags: (function () { var value = {}; value[user.currency] = 'us'; return value; }())
+    currencyFlags: (function () { var value = {}; value[user.currency] = 'us'; return value; }()),
+    modals: buildModalsFromAssets()
   };
 
   window.tJSON = window.tJSON || {};

@@ -14,10 +14,29 @@ declare(strict_types=1);
  * @param string|null $apiKey Optional API key (uses env by default)
  * @return float The current price
  */
-function normalize_twelvedata_symbol(string $symbol): string
+function normalize_market_api_symbol(string $symbol): string
 {
     $normalized = strtoupper(trim($symbol));
-    $normalized = str_replace([' ', '_', '-'], '', $normalized);
+    $normalized = str_replace([' ', '_', '-', '/'], '', $normalized);
+
+    if ($normalized === 'GOLD') {
+        return 'XAUUSD';
+    }
+
+    if ($normalized === 'XAU') {
+        return 'XAUUSD';
+    }
+
+    if ($normalized === 'XAG') {
+        return 'XAGUSD';
+    }
+
+    return $normalized;
+}
+
+function normalize_twelvedata_symbol(string $symbol): string
+{
+    $normalized = normalize_market_api_symbol($symbol);
 
     if (preg_match('/^[A-Z]{6}$/', $normalized)) {
         return substr($normalized, 0, 3) . '/' . substr($normalized, 3);
@@ -150,24 +169,26 @@ function fetch_metals_api_price(string $symbol, string $baseCurrency = 'USD', ?s
  */
 function fetch_market_price(string $symbol): float
 {
+    $normalized = normalize_market_api_symbol($symbol);
+
     // Determine which API to use based on symbol
-    if (in_array($symbol, ['XAUUSD', 'XAU', 'GOLD'], true)) {
+    if (in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {
         // Gold/Precious metals
         try {
             return fetch_metals_api_price('XAU', 'USD');
         } catch (Exception $e) {
             error_log('Metals API failed for XAUUSD: ' . $e->getMessage());
         }
-    } elseif (in_array($symbol, ['EURUSD', 'GBPUSD', 'USDJPY', 'BTCUSD', 'ETHUSD'], true)) {
+    } elseif (in_array($normalized, ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDCAD', 'EURJPY', 'BTCUSD', 'ETHUSD'], true)) {
         // Forex and Crypto
         try {
-            return fetch_twelvedata_price($symbol);
+            return fetch_twelvedata_price($normalized);
         } catch (Exception $e) {
-            error_log('Twelve Data API failed for ' . $symbol . ': ' . $e->getMessage());
+            error_log('Twelve Data API failed for ' . $normalized . ': ' . $e->getMessage());
         }
     }
 
-    throw new RuntimeException('No API provider configured for symbol: ' . $symbol);
+    throw new RuntimeException('No API provider configured for symbol: ' . $normalized);
 }
 
 /**
