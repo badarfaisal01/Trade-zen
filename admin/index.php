@@ -545,7 +545,7 @@ elseif ($page === 'assets'):
 <section class="admin-trading-control-strip">
     <article class="is-<?= (bool)setting('trading_enabled',true)?'live':'paused' ?>"><span><?= icon('activity',21) ?></span><div><small>Global trading</small><strong><?= (bool)setting('trading_enabled',true)?'Live':'Paused' ?></strong></div></article>
     <article class="is-demo"><span><?= icon('user',21) ?></span><div><small>Demo Account</small><strong><?= (bool)setting('demo_trading_enabled',true)?'Enabled':'Disabled' ?></strong></div></article>
-    <article class="is-chart"><span><?= icon('chart',21) ?></span><div><small>Chart engine</small><strong><?= (int)setting('chart_history_candles',140) ?> candles · <?= (int)setting('chart_tick_density',10) ?> ticks</strong></div></article>
+    <article class="is-chart"><span><?= icon('chart',21) ?></span><div><small>Chart engine</small><strong><?= (int)setting('chart_history_candles',500) ?> candles · <?= (int)setting('chart_tick_density',10) ?> ticks</strong></div></article>
     <article class="is-speed"><span><?= icon('clock',21) ?></span><div><small>Quote refresh</small><strong><?= (int)setting('chart_quote_interval_ms',650) ?> ms</strong></div></article>
     <a href="?page=settings"><?= icon('settings',17) ?> Advanced controls</a>
 </section>
