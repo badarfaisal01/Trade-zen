@@ -82,7 +82,7 @@ function market_price_at(array $asset, int $timestampMs): float
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 72, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
-    $count = max(10, min(180, $count));
+    $count = max(10, min(1000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $intervalMs = $intervalSeconds * 1000;
     $currentBucketMs = (int)(floor($endMs / $intervalMs) * $intervalMs);

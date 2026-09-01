@@ -275,12 +275,12 @@ if (is_post()) {
                 'minimum_demo_withdrawal' => (float)($_POST['minimum_demo_withdrawal'] ?? 0),
                 'payment_proof_max_mb' => (float)($_POST['payment_proof_max_mb'] ?? 5),
                 'payment_order_minutes' => (float)($_POST['payment_order_minutes'] ?? 15),
-                'chart_history_candles' => (float)($_POST['chart_history_candles'] ?? 140),
+                'chart_history_candles' => (float)($_POST['chart_history_candles'] ?? 500),
                 'chart_tick_density' => (float)($_POST['chart_tick_density'] ?? 10),
                 'chart_quote_interval_ms' => (float)($_POST['chart_quote_interval_ms'] ?? 650),
                 'currency_exchange_fee_percent' => (float)($_POST['currency_exchange_fee_percent'] ?? 3),
             ];
-            if ($numbers['demo_starting_balance'] < 0 || $numbers['practice_starting_balance'] < 0 || $numbers['practice_starting_balance'] > 100000000 || $numbers['minimum_trade_amount'] <= 0 || $numbers['maximum_trade_amount'] < $numbers['minimum_trade_amount'] || $numbers['maximum_trade_amount'] > 100000 || $numbers['minimum_demo_deposit'] <= 0 || $numbers['minimum_demo_withdrawal'] <= 0 || $numbers['payment_proof_max_mb'] < 1 || $numbers['payment_proof_max_mb'] > 10 || $numbers['payment_order_minutes'] < 5 || $numbers['payment_order_minutes'] > 60 || $numbers['chart_history_candles'] < 60 || $numbers['chart_history_candles'] > 180 || $numbers['chart_tick_density'] < 4 || $numbers['chart_tick_density'] > 16 || $numbers['chart_quote_interval_ms'] < 250 || $numbers['chart_quote_interval_ms'] > 2000 || $numbers['currency_exchange_fee_percent'] < 0 || $numbers['currency_exchange_fee_percent'] > 25) {
+            if ($numbers['demo_starting_balance'] < 0 || $numbers['practice_starting_balance'] < 0 || $numbers['practice_starting_balance'] > 100000000 || $numbers['minimum_trade_amount'] <= 0 || $numbers['maximum_trade_amount'] < $numbers['minimum_trade_amount'] || $numbers['maximum_trade_amount'] > 100000 || $numbers['minimum_demo_deposit'] <= 0 || $numbers['minimum_demo_withdrawal'] <= 0 || $numbers['payment_proof_max_mb'] < 1 || $numbers['payment_proof_max_mb'] > 10 || $numbers['payment_order_minutes'] < 5 || $numbers['payment_order_minutes'] > 60 || $numbers['chart_history_candles'] < 60 || $numbers['chart_history_candles'] > 1000 || $numbers['chart_tick_density'] < 4 || $numbers['chart_tick_density'] > 16 || $numbers['chart_quote_interval_ms'] < 250 || $numbers['chart_quote_interval_ms'] > 2000 || $numbers['currency_exchange_fee_percent'] < 0 || $numbers['currency_exchange_fee_percent'] > 25) {
                 throw new InvalidArgumentException('Wallet, upload, or trade limits are invalid.');
             }
             $exchangeRates = [];

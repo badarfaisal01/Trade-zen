@@ -19,7 +19,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(180, Math.floor(number(meta('trade-chart-history-count', '140'), 140))));
+  var chartHistoryCount = Math.max(60, Math.min(1000, Math.floor(number(meta('trade-chart-history-count', '500'), 500))));
   var marketPollIntervalMs = Math.max(250, Math.min(2000, Math.floor(number(meta('trade-quote-poll-ms', '650'), 650))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
