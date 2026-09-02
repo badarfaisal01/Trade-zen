@@ -161,6 +161,144 @@ function fetch_metals_api_price(string $symbol, string $baseCurrency = 'USD', ?s
 }
 
 /**
+ * Map standard symbol to Binance API symbol
+ */
+function binance_api_symbol_map(string $symbol): string
+{
+    $normalized = normalize_market_api_symbol($symbol);
+    $map = [
+        'BTCUSD' => 'BTCUSDT',
+        'ETHUSD' => 'ETHUSDT',
+        'SOLUSD' => 'SOLUSDT',
+        'BNBUSD' => 'BNBUSDT',
+        'XRPUSD' => 'XRPUSDT',
+        'DOGEUSD' => 'DOGEUSDT',
+        'EURUSD' => 'EURUSDT',
+        'GBPUSD' => 'GBPUSDT',
+        'XAUUSD' => 'PAXGUSDT',
+        'GOLD'   => 'PAXGUSDT',
+    ];
+    return $map[$normalized] ?? $normalized;
+}
+
+/**
+ * Fetch real live market price from Binance public API
+ * 
+ * @param string $symbol Trading symbol or Binance symbol
+ * @return float Current price
+ */
+function fetch_binance_price(string $symbol): float
+{
+    $apiSymbol = binance_api_symbol_map($symbol);
+
+    if (!function_exists('curl_init')) {
+        throw new RuntimeException('PHP cURL is required for market API feeds.');
+    }
+
+    $url = "https://api.binance.com/api/v3/ticker/price?symbol=" . urlencode($apiSymbol);
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) {
+        throw new RuntimeException('Binance API error: ' . $curlError);
+    }
+
+    if ($httpCode !== 200) {
+        throw new RuntimeException('Binance API returned HTTP ' . $httpCode);
+    }
+
+    $data = json_decode($response, true);
+    if (!is_array($data) || !isset($data['price']) || !is_numeric($data['price'])) {
+        throw new RuntimeException('Binance API: No valid price data for ' . $symbol);
+    }
+
+    return (float)$data['price'];
+}
+
+/**
+ * Fetch historical klines (candles) from Binance public API
+ * 
+ * @param string $symbol Trading symbol or Binance symbol
+ * @param int $intervalSeconds Candle interval in seconds (5, 10, 15, 30, 60, 300, etc.)
+ * @param int $count Number of candles to fetch (up to 1000)
+ * @return array Array of klines [openTime, open, high, low, close, closeTime]
+ */
+function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 500): array
+{
+    $apiSymbol = binance_api_symbol_map($symbol);
+    $count = max(10, min(1000, $count));
+
+    // Map interval seconds to Binance interval string
+    if ($intervalSeconds <= 60) {
+        $binanceInterval = '1m';
+    } elseif ($intervalSeconds <= 180) {
+        $binanceInterval = '3m';
+    } elseif ($intervalSeconds <= 300) {
+        $binanceInterval = '5m';
+    } elseif ($intervalSeconds <= 900) {
+        $binanceInterval = '15m';
+    } elseif ($intervalSeconds <= 1800) {
+        $binanceInterval = '30m';
+    } elseif ($intervalSeconds <= 3600) {
+        $binanceInterval = '1h';
+    } else {
+        $binanceInterval = '1d';
+    }
+
+    $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=" . $count;
+
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError || $httpCode !== 200) {
+        throw new RuntimeException('Binance Klines API request failed' . ($curlError ? ': ' . $curlError : ' (HTTP ' . $httpCode . ')'));
+    }
+
+    $klines = json_decode($response, true);
+    if (!is_array($klines)) {
+        throw new RuntimeException('Binance Klines API returned invalid JSON');
+    }
+
+    $result = [];
+    foreach ($klines as $k) {
+        if (!is_array($k) || count($k) < 6) continue;
+        $result[] = [
+            'openTime'  => (int)$k[0],
+            'open'      => (float)$k[1],
+            'high'      => (float)$k[2],
+            'low'       => (float)$k[3],
+            'close'     => (float)$k[4],
+            'closeTime' => (int)$k[6],
+        ];
+    }
+
+    return $result;
+}
+
+/**
  * Get price from configured market API provider
  * Automatically routes to the correct API based on symbol and configuration
  * 
@@ -171,24 +309,30 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    // Determine which API to use based on symbol
+    // 1. First try Binance API (free, reliable, real-time for Crypto, Metals/PAXG, Forex/USDT)
+    try {
+        return fetch_binance_price($normalized);
+    } catch (Exception $e) {
+        error_log('Binance API failed for ' . $normalized . ': ' . $e->getMessage());
+    }
+
+    // 2. Fall back to Metals API for Gold/Precious metals
     if (in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {
-        // Gold/Precious metals
         try {
             return fetch_metals_api_price('XAU', 'USD');
         } catch (Exception $e) {
             error_log('Metals API failed for XAUUSD: ' . $e->getMessage());
         }
-    } elseif (in_array($normalized, ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDCAD', 'EURJPY', 'BTCUSD', 'ETHUSD'], true)) {
-        // Forex and Crypto
-        try {
-            return fetch_twelvedata_price($normalized);
-        } catch (Exception $e) {
-            error_log('Twelve Data API failed for ' . $normalized . ': ' . $e->getMessage());
-        }
     }
 
-    throw new RuntimeException('No API provider configured for symbol: ' . $normalized);
+    // 3. Fall back to Twelve Data
+    try {
+        return fetch_twelvedata_price($normalized);
+    } catch (Exception $e) {
+        error_log('Twelve Data API failed for ' . $normalized . ': ' . $e->getMessage());
+    }
+
+    throw new RuntimeException('No API provider configured or available for symbol: ' . $normalized);
 }
 
 /**
@@ -199,10 +343,22 @@ function fetch_market_price(string $symbol): float
 function test_market_api_connection(): array
 {
     $results = [
+        'binance' => false,
         'twelvedata' => false,
         'metals' => false,
         'errors' => []
     ];
+
+    // Test Binance API
+    try {
+        $price = fetch_binance_price('BTCUSD');
+        if ($price > 0) {
+            $results['binance'] = true;
+            error_log('✓ Binance API connected successfully. BTC/USD: ' . $price);
+        }
+    } catch (Exception $e) {
+        $results['errors']['binance'] = $e->getMessage();
+    }
 
     // Test Twelve Data
     try {
@@ -232,3 +388,4 @@ function test_market_api_connection(): array
 
     return $results;
 }
+
