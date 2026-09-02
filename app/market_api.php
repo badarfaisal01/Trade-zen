@@ -182,6 +182,55 @@ function binance_api_symbol_map(string $symbol): string
 }
 
 /**
+ * Fetch all ticker prices from Binance in a single fast call
+ */
+function fetch_binance_all_prices(): array
+{
+    static $cache = null;
+    static $cacheTime = 0;
+    $now = time();
+
+    if ($cache !== null && ($now - $cacheTime) < 3) {
+        return $cache;
+    }
+
+    if (!function_exists('curl_init')) {
+        return $cache ?? [];
+    }
+
+    $url = "https://api.binance.com/api/v3/ticker/price";
+    $ch = curl_init();
+    curl_setopt($ch, CURLOPT_URL, $url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && is_string($response)) {
+        $data = json_decode($response, true);
+        if (is_array($data)) {
+            $prices = [];
+            foreach ($data as $item) {
+                if (isset($item['symbol'], $item['price'])) {
+                    $prices[$item['symbol']] = (float)$item['price'];
+                }
+            }
+            $cache = $prices;
+            $cacheTime = $now;
+            return $prices;
+        }
+    }
+
+    return $cache ?? [];
+}
+
+/**
  * Fetch real live market price from Binance public API
  * 
  * @param string $symbol Trading symbol or Binance symbol
@@ -190,6 +239,12 @@ function binance_api_symbol_map(string $symbol): string
 function fetch_binance_price(string $symbol): float
 {
     $apiSymbol = binance_api_symbol_map($symbol);
+
+    // Try fast batch cache first
+    $allPrices = fetch_binance_all_prices();
+    if (isset($allPrices[$apiSymbol]) && is_numeric($allPrices[$apiSymbol]) && $allPrices[$apiSymbol] > 0) {
+        return (float)$allPrices[$apiSymbol];
+    }
 
     if (!function_exists('curl_init')) {
         throw new RuntimeException('PHP cURL is required for market API feeds.');
@@ -237,6 +292,9 @@ function fetch_binance_price(string $symbol): float
  */
 function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 500): array
 {
+    static $klineCache = [];
+    static $klineCacheTime = [];
+
     $apiSymbol = binance_api_symbol_map($symbol);
     $count = max(10, min(1000, $count));
 
@@ -257,13 +315,20 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $binanceInterval = '1d';
     }
 
+    $cacheKey = "{$apiSymbol}:{$binanceInterval}:{$count}";
+    $now = time();
+
+    if (isset($klineCache[$cacheKey]) && isset($klineCacheTime[$cacheKey]) && ($now - $klineCacheTime[$cacheKey]) < 4) {
+        return $klineCache[$cacheKey];
+    }
+
     $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=" . $count;
 
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -273,12 +338,17 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $curlError = curl_error($ch);
     curl_close($ch);
 
+    if (($curlError || $httpCode !== 200) && isset($klineCache[$cacheKey])) {
+        return $klineCache[$cacheKey];
+    }
+
     if ($curlError || $httpCode !== 200) {
         throw new RuntimeException('Binance Klines API request failed' . ($curlError ? ': ' . $curlError : ' (HTTP ' . $httpCode . ')'));
     }
 
     $klines = json_decode($response, true);
     if (!is_array($klines)) {
+        if (isset($klineCache[$cacheKey])) return $klineCache[$cacheKey];
         throw new RuntimeException('Binance Klines API returned invalid JSON');
     }
 
@@ -293,6 +363,11 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             'close'     => (float)$k[4],
             'closeTime' => (int)$k[6],
         ];
+    }
+
+    if (!empty($result)) {
+        $klineCache[$cacheKey] = $result;
+        $klineCacheTime[$cacheKey] = $now;
     }
 
     return $result;

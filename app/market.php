@@ -80,10 +80,10 @@ function market_price_at(array $asset, int $timestampMs): float
     return round($price, (int)$asset['decimal_places']);
 }
 
-function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500, ?int $endMs = null): array
+function market_candles(array $asset, int $intervalSeconds = 5, int $count = 10000, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
-    $count = max(10, min(1000, $count));
+    $count = max(10, min(15000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
@@ -95,36 +95,62 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
             $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $count);
             if (!empty($binanceKlines)) {
                 $candles = [];
-                $density = max(4, min(16, (int)setting('chart_tick_density', 8)));
-                foreach ($binanceKlines as $k) {
-                    $openTime = $k['openTime'];
-                    $closeTime = $k['closeTime'];
-                    $open = round($k['open'], $decimals);
-                    $high = round($k['high'], $decimals);
-                    $low = round($k['low'], $decimals);
-                    $close = round($k['close'], $decimals);
+                $density = max(6, min(16, (int)setting('chart_tick_density', 10)));
+                $minStep = pow(10, -$decimals);
+                $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
+                $seed = (int)($asset['market_seed'] ?? 100);
 
-                    // Build dense chronological ticks inside candle duration
+                // Build candles from Binance klines
+                foreach ($binanceKlines as $k) {
+                    $openTime = (int)$k['openTime'];
+                    $closeTime = (int)$k['closeTime'];
+                    $open = (float)$k['open'];
+                    $high = (float)$k['high'];
+                    $low = (float)$k['low'];
+                    $close = (float)$k['close'];
+
+                    // Eliminate flat line candles: ensure high and low have a natural spread if price was flat
+                    if ($high <= $low || ($high === $low && $high === $open)) {
+                        $noise = market_noise($seed, (int)($openTime / 1000));
+                        $spread = max($minStep * 3.0, $open * $volatility * 0.12);
+                        $high = $open + abs($spread * (0.6 + 0.4 * $noise));
+                        $low = $open - abs($spread * (0.6 + 0.4 * (1.0 - $noise)));
+                        if ($open === $close) {
+                            $close = $noise >= 0 ? min($high, $open + $minStep) : max($low, $open - $minStep);
+                        }
+                    }
+
+                    $open = round($open, $decimals);
+                    $high = round(max($high, $open, $close), $decimals);
+                    $low = round(min($low, $open, $close), $decimals);
+                    $close = round($close, $decimals);
+
+                    // Build dense chronological ticks inside candle duration with smooth micro-fluctuations
                     $ticks = [];
                     $candleDurationMs = max(1000, $closeTime - $openTime);
                     for ($s = 0; $s < $density; $s++) {
                         $frac = $density === 1 ? 0.0 : $s / ($density - 1);
                         $tMs = $openTime + (int)round($candleDurationMs * $frac);
-                        // Interpolate price path: open -> low/high -> close
+
+                        // Path: open -> low/high -> close
                         if ($frac < 0.33) {
                             $pFrac = $frac / 0.33;
                             $firstPivot = $close >= $open ? $low : $high;
-                            $p = $open + ($firstPivot - $open) * $pFrac;
+                            $baseP = $open + ($firstPivot - $open) * $pFrac;
                         } elseif ($frac < 0.67) {
                             $pFrac = ($frac - 0.33) / 0.34;
                             $firstPivot = $close >= $open ? $low : $high;
                             $secondPivot = $close >= $open ? $high : $low;
-                            $p = $firstPivot + ($secondPivot - $firstPivot) * $pFrac;
+                            $baseP = $firstPivot + ($secondPivot - $firstPivot) * $pFrac;
                         } else {
                             $pFrac = ($frac - 0.67) / 0.33;
                             $secondPivot = $close >= $open ? $high : $low;
-                            $p = $secondPivot + ($close - $secondPivot) * $pFrac;
+                            $baseP = $secondPivot + ($close - $secondPivot) * $pFrac;
                         }
+
+                        // Add organic micro-tick noise so chart line moves continuously
+                        $tickNoise = ($s > 0 && $s < $density - 1) ? market_noise($seed, (int)($tMs / 400)) * ($minStep * 0.6) : 0;
+                        $p = max($low, min($high, $baseP + $tickNoise));
                         $ticks[] = [$tMs, round((float)$p, $decimals)];
                     }
 
@@ -139,6 +165,59 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         'ticks' => $ticks,
                     ];
                 }
+
+                // If user requests more history than Binance returned, seamlessly prepend extended history
+                $extraCount = max(0, $count - count($candles));
+                if ($extraCount > 0 && !empty($candles)) {
+                    $firstBinanceTime = (int)$candles[0]['time'];
+                    $firstBinanceOpen = (float)$candles[0]['open'];
+                    $intervalMs = max(1000, $intervalSeconds * 1000);
+                    $historicalCandles = [];
+                    $anchorPrice = $firstBinanceOpen;
+
+                    for ($i = $extraCount; $i >= 1; $i--) {
+                        $tMs = $firstBinanceTime - ($i * $intervalMs);
+                        $candleEnd = $tMs + $intervalMs - 1;
+
+                        $noise = market_noise($seed, (int)($tMs / 1000));
+                        $changeRatio = $noise * $volatility * 0.3;
+                        $hOpen = $anchorPrice;
+                        $hClose = max($minStep * 10.0, $hOpen * (1.0 + $changeRatio));
+                        $spread = max($minStep * 3.0, max($hOpen, $hClose) * $volatility * 0.15);
+
+                        $hHigh = max($hOpen, $hClose) + abs($spread * (0.5 + 0.5 * market_noise($seed + 1, (int)($tMs / 1000))));
+                        $hLow = max($minStep, min($hOpen, $hClose) - abs($spread * (0.5 + 0.5 * market_noise($seed + 2, (int)($tMs / 1000)))));
+
+                        $hOpenR = round($hOpen, $decimals);
+                        $hHighR = round(max($hHigh, $hOpen, $hClose), $decimals);
+                        $hLowR = round(min($hLow, $hOpen, $hClose), $decimals);
+                        $hCloseR = round($hClose, $decimals);
+
+                        $hTicks = [];
+                        for ($s = 0; $s < $density; $s++) {
+                            $frac = $density === 1 ? 0.0 : $s / ($density - 1);
+                            $tickMs = $tMs + (int)round($intervalMs * $frac);
+                            $p = $hOpenR + ($hCloseR - $hOpenR) * $frac;
+                            $hTicks[] = [$tickMs, round((float)$p, $decimals)];
+                        }
+
+                        $historicalCandles[] = [
+                            'time' => $tMs,
+                            'open' => $hOpenR,
+                            'high' => $hHighR,
+                            'low' => $hLowR,
+                            'close' => $hCloseR,
+                            'lastTickTime' => $candleEnd,
+                            'complete' => true,
+                            'ticks' => $hTicks,
+                        ];
+
+                        $anchorPrice = $hClose;
+                    }
+
+                    $candles = array_merge($historicalCandles, $candles);
+                }
+
                 return $candles;
             }
         } catch (Throwable $e) {
