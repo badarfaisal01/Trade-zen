@@ -100,8 +100,9 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                 $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
                 $seed = (int)($asset['market_seed'] ?? 100);
 
+                $totalKlines = count($binanceKlines);
                 // Build candles from Binance klines
-                foreach ($binanceKlines as $k) {
+                foreach ($binanceKlines as $kIdx => $k) {
                     $openTime = (int)$k['openTime'];
                     $closeTime = (int)$k['closeTime'];
                     $open = (float)$k['open'];
@@ -125,32 +126,38 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                     $low = round(min($low, $open, $close), $decimals);
                     $close = round($close, $decimals);
 
-                    // Build dense chronological ticks inside candle duration with smooth micro-fluctuations
+                    // Build ticks: dense ticks for recent live view (last 60 candles), lightweight ticks for deep history
+                    $isRecent = $kIdx >= ($totalKlines - 60);
+                    $candleDensity = $isRecent ? $density : 2;
                     $ticks = [];
                     $candleDurationMs = max(1000, $closeTime - $openTime);
-                    for ($s = 0; $s < $density; $s++) {
-                        $frac = $density === 1 ? 0.0 : $s / ($density - 1);
+                    for ($s = 0; $s < $candleDensity; $s++) {
+                        $frac = $candleDensity === 1 ? 0.0 : $s / ($candleDensity - 1);
                         $tMs = $openTime + (int)round($candleDurationMs * $frac);
 
-                        // Path: open -> low/high -> close
-                        if ($frac < 0.33) {
-                            $pFrac = $frac / 0.33;
-                            $firstPivot = $close >= $open ? $low : $high;
-                            $baseP = $open + ($firstPivot - $open) * $pFrac;
-                        } elseif ($frac < 0.67) {
-                            $pFrac = ($frac - 0.33) / 0.34;
-                            $firstPivot = $close >= $open ? $low : $high;
-                            $secondPivot = $close >= $open ? $high : $low;
-                            $baseP = $firstPivot + ($secondPivot - $firstPivot) * $pFrac;
+                        if ($candleDensity <= 2) {
+                            $p = $s === 0 ? $open : $close;
                         } else {
-                            $pFrac = ($frac - 0.67) / 0.33;
-                            $secondPivot = $close >= $open ? $high : $low;
-                            $baseP = $secondPivot + ($close - $secondPivot) * $pFrac;
-                        }
+                            // Path: open -> low/high -> close
+                            if ($frac < 0.33) {
+                                $pFrac = $frac / 0.33;
+                                $firstPivot = $close >= $open ? $low : $high;
+                                $baseP = $open + ($firstPivot - $open) * $pFrac;
+                            } elseif ($frac < 0.67) {
+                                $pFrac = ($frac - 0.33) / 0.34;
+                                $firstPivot = $close >= $open ? $low : $high;
+                                $secondPivot = $close >= $open ? $high : $low;
+                                $baseP = $firstPivot + ($secondPivot - $firstPivot) * $pFrac;
+                            } else {
+                                $pFrac = ($frac - 0.67) / 0.33;
+                                $secondPivot = $close >= $open ? $high : $low;
+                                $baseP = $secondPivot + ($close - $secondPivot) * $pFrac;
+                            }
 
-                        // Add organic micro-tick noise so chart line moves continuously
-                        $tickNoise = ($s > 0 && $s < $density - 1) ? market_noise($seed, (int)($tMs / 400)) * ($minStep * 0.6) : 0;
-                        $p = max($low, min($high, $baseP + $tickNoise));
+                            // Add organic micro-tick noise so chart line moves continuously
+                            $tickNoise = ($s > 0 && $s < $candleDensity - 1) ? market_noise($seed, (int)($tMs / 400)) * ($minStep * 0.6) : 0;
+                            $p = max($low, min($high, $baseP + $tickNoise));
+                        }
                         $ticks[] = [$tMs, round((float)$p, $decimals)];
                     }
 
@@ -193,13 +200,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                         $hLowR = round(min($hLow, $hOpen, $hClose), $decimals);
                         $hCloseR = round($hClose, $decimals);
 
-                        $hTicks = [];
-                        for ($s = 0; $s < $density; $s++) {
-                            $frac = $density === 1 ? 0.0 : $s / ($density - 1);
-                            $tickMs = $tMs + (int)round($intervalMs * $frac);
-                            $p = $hOpenR + ($hCloseR - $hOpenR) * $frac;
-                            $hTicks[] = [$tickMs, round((float)$p, $decimals)];
-                        }
+                        // Lightweight 2 ticks for deep historical prepended candles
+                        $hTicks = [
+                            [$tMs, $hOpenR],
+                            [$candleEnd, $hCloseR]
+                        ];
 
                         $historicalCandles[] = [
                             'time' => $tMs,
