@@ -19,7 +19,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(1000, Math.floor(number(meta('trade-chart-history-count', '500'), 500))));
+  var chartHistoryCount = Math.max(60, Math.min(15000, Math.floor(number(meta('trade-chart-history-count', '10000'), 10000))));
   var marketPollIntervalMs = Math.max(250, Math.min(2000, Math.floor(number(meta('trade-quote-poll-ms', '650'), 650))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
@@ -545,17 +545,33 @@
     var safePeriod = Math.max(1, Math.min(300, number(period, 60)));
     var serverSeconds = number(snapshot && snapshot.serverTime, Date.now()) / 1000;
     var previousStamp = -Infinity;
-    candles.forEach(function (candle) {
+    var totalCandles = candles.length;
+
+    var mappedCandles = candles.map(function (c) {
+      var timeSec = Math.floor(number(c.time, Date.now()) / 1000);
+      return {
+        time: timeSec,
+        open: number(c.open, 0),
+        high: number(c.high, 0),
+        low: number(c.low, 0),
+        close: number(c.close, 0),
+        volume: 100
+      };
+    });
+
+    candles.forEach(function (candle, cIndex) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
+      // For older historical candles, keep ticks light so chart Y-axis scaling stays sharp when scrolling back
+      if (denseTicks.length > 2 && cIndex < totalCandles - 60) {
+        denseTicks = [denseTicks[0], denseTicks[denseTicks.length - 1]];
+      }
+
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
           if (!Array.isArray(tick) || tick.length < 2) return;
           var stamp = number(tick[0], 0) / 1000;
           var price = number(tick[1], NaN);
           if (!isFinite(stamp) || !isFinite(price) || stamp > serverSeconds + 0.001) return;
-          // Socket quotes support millisecond fractions. Keep stamps strictly
-          // increasing so the compiled reducer never replaces two points that
-          // happened inside the same second.
           if (stamp <= previousStamp) stamp = previousStamp + 0.001;
           previousStamp = Number(stamp.toFixed(3));
           history.push([previousStamp, price, ++count]);
@@ -583,7 +599,13 @@
         history.push([previousStamp, number(price, 0), ++count]);
       });
     });
-    return {asset: requestedSymbol, period: safePeriod, history: history, candles: []};
+
+    return {
+      asset: requestedSymbol,
+      period: safePeriod,
+      history: history,
+      candles: mappedCandles
+    };
   }
 
   function broadcastText(event, payload) {

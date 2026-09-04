@@ -6,7 +6,7 @@ require_user();
 
 $symbol = strtoupper(trim((string)($_GET['symbol'] ?? 'EURUSD')));
 $interval = (int)($_GET['interval'] ?? 5);
-$count = (int)($_GET['count'] ?? 72);
+$count = (int)($_GET['count'] ?? 10000);
 $includeCandles = (string)($_GET['history'] ?? '1') !== '0';
 
 try {
