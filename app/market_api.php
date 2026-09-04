@@ -175,10 +175,25 @@ function binance_api_symbol_map(string $symbol): string
         'DOGEUSD' => 'DOGEUSDT',
         'EURUSD' => 'EURUSDT',
         'GBPUSD' => 'GBPUSDT',
+        'AUDUSD' => 'AUDUSDT',
         'XAUUSD' => 'PAXGUSDT',
         'GOLD'   => 'PAXGUSDT',
+        'XAU'    => 'PAXGUSDT',
     ];
-    return $map[$normalized] ?? $normalized;
+
+    if (isset($map[$normalized])) {
+        return $map[$normalized];
+    }
+
+    if (strlen($normalized) > 3 && substr($normalized, -3) === 'USD' && substr($normalized, -4) !== 'USDT') {
+        $base = substr($normalized, 0, -3);
+        if ($base === 'XAU' || $base === 'GOLD') {
+            return 'PAXGUSDT';
+        }
+        return $base . 'USDT';
+    }
+
+    return $normalized;
 }
 
 /**
@@ -203,7 +218,7 @@ function fetch_binance_all_prices(): array
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 4);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -255,8 +270,8 @@ function fetch_binance_price(string $symbol): float
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -318,7 +333,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $cacheKey = "{$apiSymbol}:{$binanceInterval}:{$count}";
     $now = time();
 
-    if (isset($klineCache[$cacheKey]) && isset($klineCacheTime[$cacheKey]) && ($now - $klineCacheTime[$cacheKey]) < 4) {
+    if (isset($klineCache[$cacheKey]) && isset($klineCacheTime[$cacheKey]) && ($now - $klineCacheTime[$cacheKey]) < 3) {
         return $klineCache[$cacheKey];
     }
 
@@ -327,8 +342,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 10);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -343,13 +358,14 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     }
 
     if ($curlError || $httpCode !== 200) {
-        throw new RuntimeException('Binance Klines API request failed' . ($curlError ? ': ' . $curlError : ' (HTTP ' . $httpCode . ')'));
+        if (isset($klineCache[$cacheKey])) return $klineCache[$cacheKey];
+        return [];
     }
 
     $klines = json_decode($response, true);
     if (!is_array($klines)) {
         if (isset($klineCache[$cacheKey])) return $klineCache[$cacheKey];
-        throw new RuntimeException('Binance Klines API returned invalid JSON');
+        return [];
     }
 
     $result = [];

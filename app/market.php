@@ -41,23 +41,18 @@ function market_price_at(array $asset, int $timestampMs): float
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    $assetId = isset($asset['id']) ? (int)$asset['id'] : 0;
-                    if ($assetId > 0) {
-                        $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()');
-                        $upsert->execute([$assetId, (float)$livePrice, $source]);
-                    }
                     return round((float)$livePrice, (int)$asset['decimal_places']);
                 }
             } catch (Throwable $exception) {
-                error_log('Live API price request failed for ' . $symbol . ': ' . $exception->getMessage());
+                // Ignore API failure, fallback to reference math
             }
         }
     }
 
     $seconds = $timestampMs / 1000.0;
-    $seed = (int)$asset['market_seed'];
+    $seed = (int)($asset['market_seed'] ?? 100);
     $base = market_reference_price($asset);
-    $volatility = max(0.00005, (float)$asset['volatility']);
+    $volatility = max(0.00005, (float)($asset['volatility'] ?? 0.002));
     $phase = ($seed % 997) / 17.0;
 
     $macro = sin(($seconds + $phase) / 181.0) * 0.58;
@@ -80,10 +75,10 @@ function market_price_at(array $asset, int $timestampMs): float
     return round($price, (int)$asset['decimal_places']);
 }
 
-function market_candles(array $asset, int $intervalSeconds = 5, int $count = 10000, ?int $endMs = null): array
+function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
-    $count = max(10, min(15000, $count));
+    $count = max(10, min(1000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
@@ -95,7 +90,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
             $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $count);
             if (!empty($binanceKlines)) {
                 $candles = [];
-                $density = max(6, min(16, (int)setting('chart_tick_density', 10)));
+                $density = max(4, min(12, (int)setting('chart_tick_density', 8)));
                 $minStep = pow(10, -$decimals);
                 $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
                 $seed = (int)($asset['market_seed'] ?? 100);
@@ -126,8 +121,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                     $low = round(min($low, $open, $close), $decimals);
                     $close = round($close, $decimals);
 
-                    // Build ticks: dense ticks for recent live view (last 60 candles), lightweight ticks for deep history
-                    $isRecent = $kIdx >= ($totalKlines - 60);
+                    // Build ticks: dense ticks for recent live view (last 40 candles), lightweight 2 ticks for deep history
+                    $isRecent = $kIdx >= ($totalKlines - 40);
                     $candleDensity = $isRecent ? $density : 2;
                     $ticks = [];
                     $candleDurationMs = max(1000, $closeTime - $openTime);
@@ -138,7 +133,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                         if ($candleDensity <= 2) {
                             $p = $s === 0 ? $open : $close;
                         } else {
-                            // Path: open -> low/high -> close
                             if ($frac < 0.33) {
                                 $pFrac = $frac / 0.33;
                                 $firstPivot = $close >= $open ? $low : $high;
@@ -154,7 +148,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                                 $baseP = $secondPivot + ($close - $secondPivot) * $pFrac;
                             }
 
-                            // Add organic micro-tick noise so chart line moves continuously
                             $tickNoise = ($s > 0 && $s < $candleDensity - 1) ? market_noise($seed, (int)($tMs / 400)) * ($minStep * 0.6) : 0;
                             $p = max($low, min($high, $baseP + $tickNoise));
                         }
@@ -173,8 +166,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                     ];
                 }
 
-                // If user requests more history than Binance returned, seamlessly prepend extended history
-                $extraCount = max(0, $count - count($candles));
+                // Prepend extra synthetic history if count > binance returned (capped at 200)
+                $extraCount = max(0, min(200, $count - count($candles)));
                 if ($extraCount > 0 && !empty($candles)) {
                     $firstBinanceTime = (int)$candles[0]['time'];
                     $firstBinanceOpen = (float)$candles[0]['open'];
@@ -200,12 +193,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                         $hLowR = round(min($hLow, $hOpen, $hClose), $decimals);
                         $hCloseR = round($hClose, $decimals);
 
-                        // Lightweight 2 ticks for deep historical prepended candles
-                        $hTicks = [
-                            [$tMs, $hOpenR],
-                            [$candleEnd, $hCloseR]
-                        ];
-
                         $historicalCandles[] = [
                             'time' => $tMs,
                             'open' => $hOpenR,
@@ -214,7 +201,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 100
                             'close' => $hCloseR,
                             'lastTickTime' => $candleEnd,
                             'complete' => true,
-                            'ticks' => $hTicks,
+                            'ticks' => [[$tMs, $hOpenR], [$candleEnd, $hCloseR]],
                         ];
 
                         $anchorPrice = $hClose;
@@ -496,6 +483,9 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $nowMs = (int)floor(microtime(true) * 1000);
+    // Pre-warm Binance batch price cache so all binance assets are fetched in a single HTTP call
+    fetch_binance_all_prices();
+
     $assets = [];
     foreach (market_assets(true) as $row) {
         $assets[] = market_asset_payload($row, $nowMs);
