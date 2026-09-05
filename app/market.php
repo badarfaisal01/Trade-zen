@@ -13,15 +13,44 @@ function market_assets(bool $activeOnly = true): array
 
 function market_asset(string $symbol, bool $activeOnly = true): ?array
 {
-    $symbol = strtoupper(trim($symbol));
+    $cleanSymbol = strtoupper(trim($symbol));
+
+    // 1. Try exact match
     $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE a.symbol = ?';
     if ($activeOnly) {
         $sql .= ' AND a.is_active = 1';
     }
     $sql .= ' LIMIT 1';
     $stmt = db()->prepare($sql);
-    $stmt->execute([$symbol]);
+    $stmt->execute([$cleanSymbol]);
     $asset = $stmt->fetch();
+    if ($asset) {
+        return $asset;
+    }
+
+    // 2. Strip _OTC / -OTC / (OTC) suffixes and special characters
+    $stripped = preg_replace('/(_OTC|-OTC|\s+OTC|\(OTC\)|\/OTC)$/i', '', $cleanSymbol);
+    $stripped = str_replace([' ', '_', '-', '/'], '', (string)$stripped);
+
+    if ($stripped !== '' && $stripped !== $cleanSymbol) {
+        $stmt->execute([$stripped]);
+        $asset = $stmt->fetch();
+        if ($asset) {
+            return $asset;
+        }
+    }
+
+    // 3. Fallback: match normalized DB symbols
+    $target = $stripped !== '' ? $stripped : str_replace([' ', '_', '-', '/'], '', $cleanSymbol);
+    $sqlFallback = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(a.symbol), "_", ""), "-", ""), "/", ""), " ", "") = ?';
+    if ($activeOnly) {
+        $sqlFallback .= ' AND a.is_active = 1';
+    }
+    $sqlFallback .= ' LIMIT 1';
+    $stmtFallback = db()->prepare($sqlFallback);
+    $stmtFallback->execute([$target]);
+    $asset = $stmtFallback->fetch();
+
     return $asset ?: null;
 }
 
