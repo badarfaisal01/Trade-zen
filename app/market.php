@@ -345,20 +345,15 @@ function market_reference_price(array $asset): float
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    $assetId = isset($asset['id']) ? (int)$asset['id'] : 0;
-                    if ($assetId > 0) {
-                        $upsert = db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,?,NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()');
-                        $upsert->execute([$assetId, (float)$livePrice, $source]);
-                    }
                     return (float)$livePrice;
                 }
             } catch (Throwable $exception) {
-                error_log('API-fed market refresh failed for ' . $symbol . ': ' . $exception->getMessage());
+                // Ignore API failure, fallback to base_price
             }
         }
     }
 
-    return max(0.00000001, (float)$asset['base_price']);
+    return max(0.00000001, (float)($asset['base_price'] ?? 100.0));
 }
 
 function market_json_path_value(array $payload, string $path)
