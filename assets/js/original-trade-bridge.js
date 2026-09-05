@@ -379,6 +379,21 @@
     return plainSymbol(symbol) + '_otc';
   }
 
+  function extractPeriod(payload, fallback) {
+    if (!payload) return Math.max(1, Math.min(300, number(fallback, 60)));
+    var settings = payload.settings || {};
+    var val = payload.period || payload.interval || payload.timeframe || payload.chartPeriod || payload.timePeriod || payload.value ||
+              settings.period || settings.interval || settings.timeframe || settings.chartPeriod || settings.timePeriod || settings.value;
+    return Math.max(1, Math.min(300, number(val, fallback)));
+  }
+
+  function extractSymbol(payload, fallback) {
+    if (!payload) return plainSymbol(fallback);
+    var settings = payload.settings || {};
+    var sym = payload.asset || payload.symbol || settings.asset || settings.symbol || (settings.currentAsset && settings.currentAsset.symbol);
+    return plainSymbol(sym || fallback);
+  }
+
   function bootstrapMarketSnapshot() {
     var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [{
       symbol: 'EURUSD', name: 'EUR/USD', category: 'Forex', price: 1.08642,
@@ -940,30 +955,29 @@
     }
     if (event === 'settings/store') {
       var savedSettings = payload && payload.settings ? payload.settings : {};
-      if (savedSettings.timePeriod) {
-        selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod, 60));
+      if (savedSettings.timePeriod || payload.timePeriod) {
+        selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod || payload.timePeriod, 60));
       }
-      var chartPeriod = savedSettings.period || savedSettings.chartPeriod || savedSettings.interval;
-      if (chartPeriod) {
-        activePeriod = Math.max(1, Math.min(300, number(chartPeriod, activePeriod)));
-        refreshMarket(true, socket);
-      }
+      var reqSymStore = extractSymbol(payload, activeSymbol);
+      var reqPerStore = extractPeriod(payload, activePeriod);
+      activeSymbol = reqSymStore;
+      activeSocketSymbol = socketSymbol(activeSymbol);
+      activePeriod = reqPerStore;
+      refreshMarket(true, socket);
       return;
     }
     if (event === 'instruments/update') {
-      var reqSym = plainSymbol(payload.asset || activeSymbol);
-      var reqPer = Math.max(1, Math.min(300, number(payload.period, activePeriod)));
-      if (reqSym !== activeSymbol || reqPer !== activePeriod || !marketSnapshot) {
-        activeSymbol = reqSym;
-        activeSocketSymbol = socketSymbol(activeSymbol);
-        activePeriod = reqPer;
-        refreshMarket(true, socket);
-      }
+      var reqSym = extractSymbol(payload, activeSymbol);
+      var reqPer = extractPeriod(payload, activePeriod);
+      activeSymbol = reqSym;
+      activeSocketSymbol = socketSymbol(activeSymbol);
+      activePeriod = reqPer;
+      refreshMarket(true, socket);
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history') {
-      var reqSymbol = plainSymbol(payload.asset || payload.symbol || activeSymbol);
-      var reqPeriod = Math.max(1, Math.min(300, number(payload.period || payload.interval || payload.timePeriod, activePeriod)));
+      var reqSymbol = extractSymbol(payload, activeSymbol);
+      var reqPeriod = extractPeriod(payload, activePeriod);
       if (reqSymbol !== activeSymbol || reqPeriod !== activePeriod || !marketSnapshot) {
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);

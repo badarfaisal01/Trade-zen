@@ -10,9 +10,8 @@ RewriteRule ^en/(?:sign-in|sign-up)/index\.html$ - [F,L,NC]
 # The supplied React router has one exact Demo pathname: /en/demo-trade.
 # Handle it before the physical-directory bypass so Apache DirectorySlash does
 # not append `/`, and retire the legacy .html URL with one one-way redirect.
-RewriteRule ^en/demo-trade\.html$ /en/demo-trade [R=302,L,NE]
-RewriteRule ^en/demo-trade/$ /en/demo-trade [R=302,L,NE]
-RewriteRule ^en/demo-trade$ en/demo-trade/index.php [L,QSA]
+RewriteRule ^en/demo-trade\.html$ /en/demo-trade [R=301,L,NE]
+RewriteRule ^en/demo-trade/?$ en/demo-trade/index.php [L,QSA]
 
 # Serve existing static assets/directories exactly as uploaded before route rewrites.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
