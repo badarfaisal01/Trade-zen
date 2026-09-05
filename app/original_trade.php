@@ -230,7 +230,11 @@ function render_original_trade_page(array $user): void
 <body class="loading original-trade-page">
 <noscript>You need to enable JavaScript to use 55AK Trade.</noscript>
 <div id="root"></div>
-<script src="/assets/js/original-trade-bridge.js?v=<?= $version ?>"></script>
+<?php
+$bridgeFile = dirname(__DIR__) . '/assets/js/original-trade-bridge.js';
+$bridgeVer = file_exists($bridgeFile) ? (string)filemtime($bridgeFile) : $version;
+?>
+<script src="/assets/js/original-trade-bridge.js?v=<?= $bridgeVer ?>"></script>
 <script src="/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js"></script>
 <script src="/trade-room/react/uikit.944983ce32773e612c15.js"></script>
 <script src="/trade-room/react/vendor.ae7d8f8a004fd2feac4d.js"></script>
