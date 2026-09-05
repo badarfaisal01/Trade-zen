@@ -236,14 +236,15 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     $historicalCandles = [];
                     $anchorPrice = $firstOpen;
 
-                    for ($i = $extraCount; $i >= 1; $i--) {
+                    for ($i = 1; $i <= $extraCount; $i++) {
                         $tMs = $firstTime - ($i * $intervalMs);
                         $candleEnd = $tMs + $intervalMs - 1;
 
                         $noiseVal = market_noise($seed, (int)($tMs / 1000));
-                        $changeRatio = $noiseVal * $volatility * 0.3;
-                        $hOpen = $anchorPrice;
-                        $hClose = max($minStep * 10.0, $hOpen * (1.0 + $changeRatio));
+                        $changeRatio = $noiseVal * $volatility * 0.25;
+
+                        $hClose = $anchorPrice;
+                        $hOpen = max($minStep * 10.0, $hClose / (1.0 + $changeRatio));
                         $spreadVal = max($minStep * 3.0, max($hOpen, $hClose) * $volatility * 0.15);
 
                         $hHigh = max($hOpen, $hClose) + abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 1, (int)($tMs / 1000))));
@@ -257,7 +258,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $p1 = $hCloseR >= $hOpenR ? $hLowR : $hHighR;
                         $p2 = $hCloseR >= $hOpenR ? $hHighR : $hLowR;
 
-                        $historicalCandles[] = [
+                        array_unshift($historicalCandles, [
                             'time' => $tMs,
                             'open' => $hOpenR,
                             'high' => $hHighR,
@@ -271,9 +272,9 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                                 [$tMs + (int)round($intervalMs * 0.67), $p2],
                                 [$candleEnd, $hCloseR],
                             ],
-                        ];
+                        ]);
 
-                        $anchorPrice = $hClose;
+                        $anchorPrice = $hOpen;
                     }
 
                     $candles = array_merge($historicalCandles, $candles);
