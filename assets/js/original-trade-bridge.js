@@ -19,7 +19,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(1000, Math.floor(number(meta('trade-chart-history-count', '500'), 500))));
+  var chartHistoryCount = Math.max(60, Math.min(1000, Math.floor(number(meta('trade-chart-history-count', '800'), 800))));
   var marketPollIntervalMs = Math.max(250, Math.min(2000, Math.floor(number(meta('trade-quote-poll-ms', '650'), 650))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
@@ -642,8 +642,11 @@
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       var quote = [[activeSocketSymbol, serverTime / 1000, number(asset.price, 0), ++tickNumber]];
-      if (sendHistory && socket) {
-        socket.binaryEvent('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
+      if (sendHistory) {
+        broadcastBinary('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
+        if (socket && typeof socket.binaryEvent === 'function') {
+          socket.binaryEvent('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
+        }
       }
       broadcastBinary('quotes/stream', quote);
       broadcastText('time', Math.floor(serverTime / 1000));

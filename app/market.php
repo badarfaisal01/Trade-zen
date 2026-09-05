@@ -229,7 +229,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     $candles = array_slice($candles, -$count);
                 }
 
-                $extraCount = max(0, min(300, $count - count($candles)));
+                $extraCount = max(0, min(800, $count - count($candles)));
                 if ($extraCount > 0 && !empty($candles)) {
                     $firstTime = (int)$candles[0]['time'];
                     $firstOpen = (float)$candles[0]['open'];
