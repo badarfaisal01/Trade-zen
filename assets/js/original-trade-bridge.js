@@ -951,17 +951,27 @@
       return;
     }
     if (event === 'instruments/update') {
-      activeSymbol = plainSymbol(payload.asset || activeSymbol);
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      activePeriod = Math.max(1, Math.min(300, number(payload.period, activePeriod)));
-      refreshMarket(true, socket);
+      var reqSym = plainSymbol(payload.asset || activeSymbol);
+      var reqPer = Math.max(1, Math.min(300, number(payload.period, activePeriod)));
+      if (reqSym !== activeSymbol || reqPer !== activePeriod || !marketSnapshot) {
+        activeSymbol = reqSym;
+        activeSocketSymbol = socketSymbol(activeSymbol);
+        activePeriod = reqPer;
+        refreshMarket(true, socket);
+      }
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history') {
-      activeSymbol = plainSymbol(payload.asset || payload.symbol || activeSymbol);
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      activePeriod = Math.max(1, Math.min(300, number(payload.period || payload.interval || payload.timePeriod, activePeriod)));
-      refreshMarket(true, socket);
+      var reqSymbol = plainSymbol(payload.asset || payload.symbol || activeSymbol);
+      var reqPeriod = Math.max(1, Math.min(300, number(payload.period || payload.interval || payload.timePeriod, activePeriod)));
+      if (reqSymbol !== activeSymbol || reqPeriod !== activePeriod || !marketSnapshot) {
+        activeSymbol = reqSymbol;
+        activeSocketSymbol = socketSymbol(activeSymbol);
+        activePeriod = reqPeriod;
+        refreshMarket(true, socket);
+      } else {
+        socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+      }
       return;
     }
     if (event === 'orders/open') {
