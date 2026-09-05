@@ -561,10 +561,6 @@
 
     candles.forEach(function (candle, cIndex) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
-      // For older historical candles, keep ticks light so chart Y-axis scaling stays sharp when scrolling back
-      if (denseTicks.length > 2 && cIndex < totalCandles - 60) {
-        denseTicks = [denseTicks[0], denseTicks[denseTicks.length - 1]];
-      }
 
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
