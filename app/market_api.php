@@ -197,28 +197,52 @@ function binance_api_symbol_map(string $symbol): string
 }
 
 /**
- * Fetch all ticker prices from Binance in a single fast call
+ * Fetch all ticker prices from Binance in a single fast call with persistent cross-request caching
  */
 function fetch_binance_all_prices(): array
 {
-    static $cache = null;
-    static $cacheTime = 0;
-    $now = time();
+    static $memoryCache = null;
+    static $memoryCacheTime = 0.0;
+    $now = microtime(true);
 
-    if ($cache !== null && ($now - $cacheTime) < 3) {
-        return $cache;
+    // 1. Same-request in-memory cache (< 2.5s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 2.5) {
+        return $memoryCache;
+    }
+
+    $cacheDir = dirname(__DIR__) . '/storage/cache/market';
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0777, true);
+    }
+    $cacheFile = $cacheDir . '/binance_prices.json';
+
+    // 2. Cross-request persistent disk cache (< 2.5s)
+    if (file_exists($cacheFile)) {
+        $mtime = (float)@filemtime($cacheFile);
+        if (($now - $mtime) < 2.5) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $memoryCache = $decoded;
+                    $memoryCacheTime = $mtime;
+                    return $decoded;
+                }
+            }
+        }
     }
 
     if (!function_exists('curl_init')) {
-        return $cache ?? [];
+        return $memoryCache ?? [];
     }
 
+    // 3. Fast network fetch from Binance with tight timeouts
     $url = "https://api.binance.com/api/v3/ticker/price";
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -229,20 +253,39 @@ function fetch_binance_all_prices(): array
 
     if ($httpCode === 200 && is_string($response)) {
         $data = json_decode($response, true);
-        if (is_array($data)) {
+        if (is_array($data) && !empty($data)) {
             $prices = [];
             foreach ($data as $item) {
                 if (isset($item['symbol'], $item['price'])) {
                     $prices[$item['symbol']] = (float)$item['price'];
                 }
             }
-            $cache = $prices;
-            $cacheTime = $now;
+            $memoryCache = $prices;
+            $memoryCacheTime = $now;
+
+            // Save to disk cache atomically
+            $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            if (@file_put_contents($tmpFile, json_encode($prices)) !== false) {
+                @rename($tmpFile, $cacheFile);
+            }
             return $prices;
         }
     }
 
-    return $cache ?? [];
+    // 4. Fallback to stale disk cache if network call failed
+    if (file_exists($cacheFile)) {
+        $raw = @file_get_contents($cacheFile);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                $memoryCache = $decoded;
+                $memoryCacheTime = $now;
+                return $decoded;
+            }
+        }
+    }
+
+    return $memoryCache ?? [];
 }
 
 /**
@@ -270,8 +313,8 @@ function fetch_binance_price(string $symbol): float
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -298,7 +341,7 @@ function fetch_binance_price(string $symbol): float
 }
 
 /**
- * Fetch historical klines (candles) from Binance public API
+ * Fetch historical klines (candles) from Binance public API with persistent cross-request caching
  * 
  * @param string $symbol Trading symbol or Binance symbol
  * @param int $intervalSeconds Candle interval in seconds (5, 10, 15, 30, 60, 300, etc.)
@@ -307,8 +350,8 @@ function fetch_binance_price(string $symbol): float
  */
 function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 500): array
 {
-    static $klineCache = [];
-    static $klineCacheTime = [];
+    static $memoryKlines = [];
+    static $memoryKlineTime = [];
 
     $apiSymbol = binance_api_symbol_map($symbol);
     $count = max(10, min(1000, $count));
@@ -330,11 +373,32 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $binanceInterval = '1d';
     }
 
-    $cacheKey = "{$apiSymbol}:{$binanceInterval}:{$count}";
-    $now = time();
+    $cacheKey = "{$apiSymbol}_{$binanceInterval}_{$count}";
+    $now = microtime(true);
 
-    if (isset($klineCache[$cacheKey]) && isset($klineCacheTime[$cacheKey]) && ($now - $klineCacheTime[$cacheKey]) < 3) {
-        return $klineCache[$cacheKey];
+    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 3.0) {
+        return $memoryKlines[$cacheKey];
+    }
+
+    $cacheDir = dirname(__DIR__) . '/storage/cache/market';
+    if (!is_dir($cacheDir)) {
+        @mkdir($cacheDir, 0777, true);
+    }
+    $cacheFile = $cacheDir . '/klines_' . md5($cacheKey) . '.json';
+
+    if (file_exists($cacheFile)) {
+        $mtime = (float)@filemtime($cacheFile);
+        if (($now - $mtime) < 3.0) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $memoryKlines[$cacheKey] = $decoded;
+                    $memoryKlineTime[$cacheKey] = $mtime;
+                    return $decoded;
+                }
+            }
+        }
     }
 
     $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=" . $count;
@@ -342,8 +406,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -353,40 +417,46 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $curlError = curl_error($ch);
     curl_close($ch);
 
-    if (($curlError || $httpCode !== 200) && isset($klineCache[$cacheKey])) {
-        return $klineCache[$cacheKey];
+    if ($httpCode === 200 && is_string($response)) {
+        $klines = json_decode($response, true);
+        if (is_array($klines) && !empty($klines)) {
+            $result = [];
+            foreach ($klines as $k) {
+                if (!is_array($k) || count($k) < 6) continue;
+                $result[] = [
+                    'openTime'  => (int)$k[0],
+                    'open'      => (float)$k[1],
+                    'high'      => (float)$k[2],
+                    'low'       => (float)$k[3],
+                    'close'     => (float)$k[4],
+                    'closeTime' => (int)$k[6],
+                ];
+            }
+            $memoryKlines[$cacheKey] = $result;
+            $memoryKlineTime[$cacheKey] = $now;
+
+            $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+            if (@file_put_contents($tmpFile, json_encode($result)) !== false) {
+                @rename($tmpFile, $cacheFile);
+            }
+            return $result;
+        }
     }
 
-    if ($curlError || $httpCode !== 200) {
-        if (isset($klineCache[$cacheKey])) return $klineCache[$cacheKey];
-        return [];
+    // Fallback to disk cache if available
+    if (file_exists($cacheFile)) {
+        $raw = @file_get_contents($cacheFile);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded)) {
+                $memoryKlines[$cacheKey] = $decoded;
+                $memoryKlineTime[$cacheKey] = $now;
+                return $decoded;
+            }
+        }
     }
 
-    $klines = json_decode($response, true);
-    if (!is_array($klines)) {
-        if (isset($klineCache[$cacheKey])) return $klineCache[$cacheKey];
-        return [];
-    }
-
-    $result = [];
-    foreach ($klines as $k) {
-        if (!is_array($k) || count($k) < 6) continue;
-        $result[] = [
-            'openTime'  => (int)$k[0],
-            'open'      => (float)$k[1],
-            'high'      => (float)$k[2],
-            'low'       => (float)$k[3],
-            'close'     => (float)$k[4],
-            'closeTime' => (int)$k[6],
-        ];
-    }
-
-    if (!empty($result)) {
-        $klineCache[$cacheKey] = $result;
-        $klineCacheTime[$cacheKey] = $now;
-    }
-
-    return $result;
+    return $memoryKlines[$cacheKey] ?? [];
 }
 
 /**

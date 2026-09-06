@@ -223,14 +223,27 @@ function settle_open_trades(int $userId): int
     return $settled;
 }
 
-function place_trade(int $userId, string $symbol, string $direction, float $amount, int $durationSeconds, ?string $requestedAccountType = null, string $clientRequestId = ''): array
+function place_trade(int $userId, string $symbol, string $direction, float $amount, int $durationSeconds, ?string $requestedAccountType = null, string $clientRequestId = '', ?int $targetCloseTime = null): array
 {
     $direction = strtolower(trim($direction));
     if (!in_array($direction, ['up', 'down'], true)) {
         throw new InvalidArgumentException('Choose Up or Down.');
     }
-    if (!in_array($durationSeconds, allowed_trade_durations(), true)) {
-        throw new InvalidArgumentException('Selected trade duration is not allowed.');
+
+    $now = time();
+    $expiresAtTimestamp = 0;
+    if ($targetCloseTime !== null && $targetCloseTime > 0) {
+        $remaining = $targetCloseTime - $now;
+        if ($remaining >= 5 && $remaining <= 86400) {
+            $durationSeconds = $remaining;
+            $expiresAtTimestamp = $targetCloseTime;
+        } else {
+            $durationSeconds = max(5, min(86400, $durationSeconds));
+            $expiresAtTimestamp = $now + $durationSeconds;
+        }
+    } else {
+        $durationSeconds = max(5, min(86400, $durationSeconds));
+        $expiresAtTimestamp = $now + $durationSeconds;
     }
 
     $minimum = (float)setting('minimum_trade_amount', 1);
@@ -266,7 +279,7 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
     }
     $balanceColumn = trade_balance_column($accountType);
 
-    return db_transaction(function (PDO $pdo) use ($userId, $asset, $direction, $amount, $durationSeconds, $accountType, $balanceColumn, $clientRequestId): array {
+    return db_transaction(function (PDO $pdo) use ($userId, $asset, $direction, $amount, $durationSeconds, $expiresAtTimestamp, $accountType, $balanceColumn, $clientRequestId): array {
         $userStmt = $pdo->prepare('SELECT id, status, demo_balance, demo_trade_balance, currency FROM users WHERE id = ? FOR UPDATE');
         $userStmt->execute([$userId]);
         $user = $userStmt->fetch();
@@ -314,7 +327,7 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
         $now = time();
         $entryNowMs = (int)floor(microtime(true) * 1000);
         $entryPrice = market_price_at($asset, $entryNowMs);
-        $expiresAt = date('Y-m-d H:i:s', $now + $durationSeconds);
+        $expiresAt = date('Y-m-d H:i:s', $expiresAtTimestamp);
         $after = ($beforeCents - $amountCents) / 100;
         $publicId = public_id('T');
 
@@ -331,7 +344,7 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
         return [
             'id' => $publicId, 'symbol' => $asset['symbol'], 'name' => $asset['display_name'], 'direction' => $direction,
             'amount' => $amount, 'payout' => $effectivePayout, 'entryPrice' => $entryPrice,
-            'openedAt' => $now * 1000, 'expiresAt' => ($now + $durationSeconds) * 1000, 'status' => 'open',
+            'openedAt' => $now * 1000, 'expiresAt' => $expiresAtTimestamp * 1000, 'duration' => $durationSeconds, 'status' => 'open',
             'balance' => $after, 'balanceBefore' => $before, 'balanceAfter' => $after, 'stakeDebited' => $amount,
             'accountType' => $accountType, 'isDemo' => $accountType === 'demo',
             'clientRequestId' => $clientRequestId !== '' ? $clientRequestId : null, 'duplicate' => false,
@@ -352,15 +365,20 @@ function user_trade_state(int $userId, int $recentLimit = 15): array
     }
 
     $user = current_user(true);
-    $liveBalance = (float)$user['demo_balance'];
-    $demoBalance = (float)$user['demo_trade_balance'];
+    if (!$user && $userId > 0) {
+        $userStmt = db()->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
+        $userStmt->execute([$userId]);
+        $user = $userStmt->fetch() ?: [];
+    }
+    $liveBalance = (float)($user['demo_balance'] ?? 0);
+    $demoBalance = (float)($user['demo_trade_balance'] ?? 0);
     return [
         'balance' => $accountType === 'demo' ? $demoBalance : $liveBalance,
         'liveBalance' => $liveBalance,
         'demoBalance' => $demoBalance,
         'accountType' => $accountType,
         'isDemo' => $accountType === 'demo',
-        'currency' => $user['currency'],
+        'currency' => (string)($user['currency'] ?? 'USD'),
         'trades' => $trades,
         'serverTime' => (int)floor(microtime(true) * 1000),
     ];
@@ -369,11 +387,14 @@ function user_trade_state(int $userId, int $recentLimit = 15): array
 function trade_payload(array $row): array
 {
     $accountType = ($row['account_type'] ?? 'live') === 'demo' ? 'demo' : 'live';
+    $openedAt = strtotime((string)$row['opened_at']) * 1000;
+    $expiresAt = strtotime((string)$row['expires_at']) * 1000;
     return [
         'id' => $row['public_id'], 'symbol' => $row['symbol'], 'name' => $row['display_name'], 'decimals' => (int)$row['decimal_places'],
         'direction' => $row['direction'], 'amount' => (float)$row['amount'], 'payout' => (float)$row['payout_percent'],
         'entryPrice' => (float)$row['entry_price'], 'closePrice' => $row['close_price'] === null ? null : (float)$row['close_price'],
-        'openedAt' => strtotime((string)$row['opened_at']) * 1000, 'expiresAt' => strtotime((string)$row['expires_at']) * 1000,
+        'openedAt' => $openedAt, 'expiresAt' => $expiresAt,
+        'duration' => max(1, (int)round(($expiresAt - $openedAt) / 1000)),
         'settledAt' => $row['settled_at'] ? strtotime((string)$row['settled_at']) * 1000 : null,
         'status' => $row['status'], 'profitLoss' => (float)$row['profit_loss'], 'accountType' => $accountType, 'isDemo' => $accountType === 'demo',
     ];

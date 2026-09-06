@@ -26,10 +26,43 @@
   var initializationPromise = null;
   var marketTimer = null;
   var stateTimer = null;
+  var clockTimer = null;
+  var quoteStreamTimer = null;
+  var serverTimeOffset = 0;
+  var lastEmittedTimeSeconds = 0;
+  var currentLivePrice = 0;
   var tickNumber = 1;
   var firstState = true;
   var previousOpenIds = {};
   var lastStateSignature = '';
+
+  function syncServerTime(serverMs) {
+    if (!isFinite(serverMs) || serverMs <= 0) return;
+    serverTimeOffset = serverMs - Date.now();
+  }
+
+  function currentServerSeconds() {
+    return Math.floor((Date.now() + serverTimeOffset) / 1000);
+  }
+
+  function emitClockTick() {
+    var sec = currentServerSeconds();
+    if (sec > 0 && sec !== lastEmittedTimeSeconds) {
+      lastEmittedTimeSeconds = sec;
+      broadcastText('time', sec);
+    }
+  }
+
+  function emitSmoothQuote() {
+    if (!currentLivePrice || !activeSocketSymbol) return;
+    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 5) : 5;
+    var minStep = Math.pow(10, -decimals);
+    var microJitter = (Math.random() - 0.5) * minStep * 0.35;
+    var tickPrice = Number((currentLivePrice + microJitter).toFixed(decimals));
+    var nowSec = Number(((Date.now() + serverTimeOffset) / 1000).toFixed(3));
+    var quote = [[activeSocketSymbol, nowSec, tickPrice, ++tickNumber]];
+    broadcastBinary('quotes/stream', quote);
+  }
   var domRefreshQueued = false;
   var accountSwitchTarget = '';
   var accountSwitchPromise = null;
@@ -499,8 +532,9 @@
     var payout = number(trade.payout, 0);
     var profitLoss = number(trade.profitLoss, 0);
     var status = String(trade.status || 'open');
-    var openedAt = number(trade.openedAt, Date.now());
-    var expiresAt = number(trade.expiresAt, openedAt + 60000);
+    var openedAt = number(trade.openedAt, Date.now() + serverTimeOffset);
+    var duration = Math.max(1, number(trade.duration, Math.round((number(trade.expiresAt, openedAt + 60000) - openedAt) / 1000)));
+    var expiresAt = number(trade.expiresAt, openedAt + (duration * 1000));
     var closed = status !== 'open';
     var resultReturn = closed ? profitLoss : 0;
     var stateBalance = tradeState ? number(tradeState.balance, user.balance) : number(trade.balance, user.balance);
@@ -522,7 +556,7 @@
       openTimestamp: Number((openedAt / 1000).toFixed(3)),
       closeTime: socketTime(expiresAt).slice(0, 19),
       closeTimestamp: Math.floor(expiresAt / 1000),
-      duration: Math.max(1, Math.floor((expiresAt - openedAt) / 1000)),
+      duration: duration,
       percentProfit: payout,
       payout: payout,
       profit: resultReturn,
@@ -656,7 +690,10 @@
       if (symbolAtStart !== activeSymbol) return snapshot;
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
-      var quote = [[activeSocketSymbol, serverTime / 1000, number(asset.price, 0), ++tickNumber]];
+      syncServerTime(serverTime);
+      var price = number(asset.price, 0);
+      if (price > 0) currentLivePrice = price;
+      var quote = [[activeSocketSymbol, serverTime / 1000, price, ++tickNumber]];
       if (sendHistory) {
         broadcastBinary('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
         if (socket && typeof socket.binaryEvent === 'function') {
@@ -664,7 +701,7 @@
         }
       }
       broadcastBinary('quotes/stream', quote);
-      broadcastText('time', Math.floor(serverTime / 1000));
+      emitClockTick();
       return snapshot;
     }).catch(function (error) {
       showNotice(error.message, true);
@@ -734,6 +771,12 @@
   }
 
   function startPolling() {
+    if (!clockTimer) {
+      clockTimer = window.setInterval(emitClockTick, 250);
+    }
+    if (!quoteStreamTimer) {
+      quoteStreamTimer = window.setInterval(emitSmoothQuote, 250);
+    }
     if (!marketTimer) {
       marketTimer = window.setInterval(function () { refreshMarket(false, null); }, marketPollIntervalMs);
     }
@@ -767,12 +810,28 @@
     if (accountSwitchPromise) {
       return accountSwitchPromise.then(function () { return openLocalTrade(socket, request); });
     }
-    var nowSeconds = Math.floor(Date.now() / 1000);
-    var requestedClose = number(request.time, nowSeconds + 60);
-    var requestedDuration = nearestDuration(requestedClose - nowSeconds);
-    var duration = allowedTradeDurations.indexOf(selectedTradeDuration) !== -1
-      ? selectedTradeDuration
-      : requestedDuration;
+    var nowSeconds = currentServerSeconds();
+    var rawTime = number(request.time, 0);
+    var duration = 60;
+    var targetCloseTime = null;
+
+    if (rawTime > 100000000000) {
+      rawTime = Math.floor(rawTime / 1000);
+    }
+
+    if (rawTime > 100000000) {
+      // User selected a target clock expiration (e.g. 10:47:00 timestamp)
+      targetCloseTime = rawTime;
+      duration = Math.max(5, targetCloseTime - nowSeconds);
+    } else if (rawTime >= 5 && rawTime <= 86400) {
+      // Fast option: duration in seconds
+      duration = Math.round(rawTime);
+      targetCloseTime = nowSeconds + duration;
+    } else {
+      duration = allowedTradeDurations.indexOf(selectedTradeDuration) !== -1 ? selectedTradeDuration : 60;
+      targetCloseTime = nowSeconds + duration;
+    }
+
     var direction = detectTradeDirection(request.action || '', request.direction || '') || (request.action === 'put' ? 'down' : 'up');
     var clientRequestId = String(request.clientRequestId || 'trade-api-' + Date.now() + '-' + Math.random().toString(36).slice(2, 10));
     if (!/^[A-Za-z0-9._:-]{8,64}$/.test(clientRequestId)) {
@@ -783,6 +842,7 @@
       direction: direction,
       amount: number(request.amount, 0),
       duration: duration,
+      targetCloseTime: targetCloseTime,
       account: user.accountType,
       requestId: clientRequestId
     };
@@ -864,7 +924,7 @@
 
   function primeSocket(socket) {
     socket.event('s_authorization', {});
-    socket.event('time', Math.floor(number(marketSnapshot && marketSnapshot.serverTime, Date.now()) / 1000));
+    socket.event('time', currentServerSeconds() || Math.floor(Date.now() / 1000));
     socket.binaryEvent('s_balance/list', balancePayload());
     socket.binaryEvent('instruments/list', instrumentsList());
     socket.binaryEvent('settings/list', graphSettings());
@@ -899,11 +959,15 @@
       window.settings.demoBalance = user.demoBalance.toFixed(8);
       window.settings.isDemo = user.accountType === 'demo' ? 1 : 0;
       window.settings.isDemoProfile = user.accountType === 'demo';
+      var serverTime = number(marketSnapshot.serverTime, Date.now());
+      syncServerTime(serverTime);
       var selected = marketSnapshot.asset || {};
+      var assetPrice = number(selected.price, 0);
+      if (assetPrice > 0) currentLivePrice = assetPrice;
       activeSymbol = plainSymbol(selected.symbol || 'EURUSD');
       activeSocketSymbol = socketSymbol(activeSymbol);
 
-      broadcastText('time', Math.floor(number(marketSnapshot.serverTime, Date.now()) / 1000));
+      emitClockTick();
       broadcastBinary('s_balance/list', balancePayload());
       broadcastBinary('instruments/list', instrumentsList());
       broadcastBinary('settings/list', graphSettings());
@@ -957,6 +1021,9 @@
       var savedSettings = payload && payload.settings ? payload.settings : {};
       if (savedSettings.timePeriod || payload.timePeriod) {
         selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod || payload.timePeriod, 60));
+      }
+      if (savedSettings.currentExpirationTime || payload.currentExpirationTime) {
+        selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
       var reqSymStore = extractSymbol(payload, activeSymbol);
       var reqPerStore = extractPeriod(payload, activePeriod);
@@ -1312,7 +1379,7 @@
       asset: activeSocketSymbol,
       action: direction === 'down' ? 'put' : 'call',
       amount: amount,
-      time: Math.floor(Date.now() / 1000) + selectedTradeDuration,
+      time: currentServerSeconds() + selectedTradeDuration,
       requestId: 'fallback-' + Date.now(),
       clientRequestId: fallbackRequestId,
       optionType: 1

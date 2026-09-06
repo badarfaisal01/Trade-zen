@@ -3,6 +3,7 @@ declare(strict_types=1);
 
 require dirname(__DIR__, 2) . '/app/bootstrap.php';
 require_user();
+session_write_close();
 
 $symbol = strtoupper(trim((string)($_GET['symbol'] ?? 'EURUSD')));
 $interval = (int)($_GET['interval'] ?? 5);

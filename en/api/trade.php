@@ -17,6 +17,9 @@ $data = request_data();
 try {
     $requestedAccount = strtolower(trim((string)($data['account'] ?? trade_account_type())));
     set_trade_account_type($requestedAccount, (int)$user['id']);
+    $targetCloseTime = isset($data['targetCloseTime']) && is_numeric($data['targetCloseTime']) && (int)$data['targetCloseTime'] > 0
+        ? (int)$data['targetCloseTime']
+        : null;
     $trade = place_trade(
         (int)$user['id'],
         (string)($data['symbol'] ?? ''),
@@ -24,7 +27,8 @@ try {
         (float)($data['amount'] ?? 0),
         (int)($data['duration'] ?? 0),
         $requestedAccount,
-        (string)($data['requestId'] ?? '')
+        (string)($data['requestId'] ?? ''),
+        $targetCloseTime
     );
     json_response(['ok' => true, 'message' => 'Trade opened.', 'data' => $trade], 201);
 } catch (InvalidArgumentException $exception) {
