@@ -13,6 +13,9 @@ if (file_exists($envFile)) {
         [$key, $value] = explode('=', $line, 2);
         $key = trim($key);
         $value = trim($value);
+        if ((str_starts_with($value, '"') && str_ends_with($value, '"')) || (str_starts_with($value, "'") && str_ends_with($value, "'"))) {
+            $value = substr($value, 1, -1);
+        }
         putenv("$key=$value");
     }
 }
@@ -40,6 +43,7 @@ if (!$isInstaller && !is_installed()) {
 require_once BASE_PATH . '/app/helpers.php';
 require_once BASE_PATH . '/app/security.php';
 require_once BASE_PATH . '/app/referrals.php';
+require_once BASE_PATH . '/app/mailer.php';
 
 send_security_headers();
 start_secure_session($app);

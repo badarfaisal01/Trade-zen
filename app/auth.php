@@ -171,11 +171,27 @@ function auth_register(string $name, string $email, string $password, string $co
         throw $exception;
     }
 
-    session_regenerate_id(true);
+    if (!headers_sent()) {
+        session_regenerate_id(true);
+    }
     $_SESSION['user_id'] = $userId;
     $_SESSION['_created_at'] = time();
     $_SESSION['_csrf'] = bin2hex(random_bytes(32));
     $_SESSION['trade_account'] = 'live';
+
+    // Dispatch Welcome Email via Hostinger SMTP (non-blocking for registration flow)
+    try {
+        send_welcome_email([
+            'id' => $userId,
+            'name' => $name,
+            'email' => $email,
+            'currency' => $currency,
+            'demo_balance' => $startingBalance,
+            'practice_balance' => $practiceBalance,
+        ]);
+    } catch (Throwable $mailException) {
+        mailer_log("Welcome email dispatch error for user #{$userId}: " . $mailException->getMessage());
+    }
 
     return ['ok' => true, 'user' => current_user(true)];
 }
@@ -216,34 +232,20 @@ function auth_request_password_reset(string $email): array
     });
 
     $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '') {
+    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
         $baseUrl = (is_https() ? 'https://' : 'http://') . (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
     }
     $resetUrl = $baseUrl . '/en/password-reset/?token=' . rawurlencode($rawToken);
-    $platform = (string)setting('platform_name', app_config('name'));
-    $mailPlatform = trim((string)(preg_replace('/[\r\n]+/', ' ', $platform) ?? $platform));
-    if ($mailPlatform === '') {
-        $mailPlatform = '55AK Trade';
-    }
-    $host = (string)(parse_url($baseUrl, PHP_URL_HOST) ?: 'localhost');
-    $safeHost = preg_replace('/[^a-z0-9.-]/i', '', $host) ?: 'localhost';
-    $from = 'no-reply@' . $safeHost;
-    $subject = $mailPlatform . ' password reset';
-    $body = "Hello " . (string)$user['name'] . ",\n\n" .
-        "A password reset was requested for your account.\n\n" .
-        "Reset your password using this link (valid for 30 minutes):\n" . $resetUrl . "\n\n" .
-        "If you did not request this, you can ignore this email. Your current password remains unchanged.\n";
-    $headers = "MIME-Version: 1.0\r\nContent-Type: text/plain; charset=UTF-8\r\nFrom: " . $mailPlatform . " <" . $from . ">";
+    
     $sent = false;
-    if (function_exists('mail')) {
-        try {
-            $sent = @mail((string)$user['email'], $subject, $body, $headers);
-        } catch (Throwable $ignored) {
-            $sent = false;
-        }
+    try {
+        $sent = send_password_reset_email($user, $resetUrl);
+    } catch (Throwable $mailError) {
+        mailer_log("Password reset exception: " . $mailError->getMessage());
+        $sent = false;
     }
     if (!$sent) {
-        @file_put_contents(BASE_PATH . '/storage/logs/app.log', sprintf("[%s] Password reset email delivery failed for user #%d. Configure PHP mail on the server.\n", date('c'), (int)$user['id']), FILE_APPEND | LOCK_EX);
+        mailer_log(sprintf("Password reset email delivery failed for user #%d.", (int)$user['id']));
     }
 
     return ['ok' => true, 'message' => $generic];
