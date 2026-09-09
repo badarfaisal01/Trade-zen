@@ -354,7 +354,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     static $memoryKlineTime = [];
 
     $apiSymbol = binance_api_symbol_map($symbol);
-    $count = max(10, min(1000, $count));
+    $count = max(10, min(10000, $count));
 
     // Map interval seconds to Binance interval string
     if ($intervalSeconds <= 60) {
@@ -373,11 +373,13 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $binanceInterval = '1d';
     }
 
-    $cacheKey = "{$apiSymbol}_{$binanceInterval}_{$count}";
+    // Unified cache key per symbol & interval
+    $cacheKey = "{$apiSymbol}_{$binanceInterval}";
     $now = microtime(true);
 
-    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 3.0) {
-        return $memoryKlines[$cacheKey];
+    // 1. In-memory cache (< 15s)
+    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0) {
+        return array_slice($memoryKlines[$cacheKey], -$count);
     }
 
     $cacheDir = dirname(__DIR__) . '/storage/cache/market';
@@ -386,77 +388,100 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     }
     $cacheFile = $cacheDir . '/klines_' . md5($cacheKey) . '.json';
 
+    // 2. Disk cache (< 15s) and capture stale fallback
+    $staleDiskCache = null;
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 3.0) {
-            $raw = @file_get_contents($cacheFile);
-            if ($raw) {
-                $decoded = json_decode($raw, true);
-                if (is_array($decoded) && !empty($decoded)) {
+        $raw = @file_get_contents($cacheFile);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                $staleDiskCache = $decoded;
+                if (($now - $mtime) < 15.0 && count($decoded) >= min(1000, $count)) {
                     $memoryKlines[$cacheKey] = $decoded;
                     $memoryKlineTime[$cacheKey] = $mtime;
-                    return $decoded;
+                    return array_slice($decoded, -$count);
                 }
             }
         }
     }
 
-    $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=" . $count;
+    // 3. Fast Binance fetch (chunked if count > 1000)
+    $neededBatches = (int)ceil(min(10000, max(1000, $count)) / 1000);
+    $allKlines = [];
+    $endTime = null;
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
-
-    $response = curl_exec($ch);
-    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
-    curl_close($ch);
-
-    if ($httpCode === 200 && is_string($response)) {
-        $klines = json_decode($response, true);
-        if (is_array($klines) && !empty($klines)) {
-            $result = [];
-            foreach ($klines as $k) {
-                if (!is_array($k) || count($k) < 6) continue;
-                $result[] = [
-                    'openTime'  => (int)$k[0],
-                    'open'      => (float)$k[1],
-                    'high'      => (float)$k[2],
-                    'low'       => (float)$k[3],
-                    'close'     => (float)$k[4],
-                    'closeTime' => (int)$k[6],
-                ];
-            }
-            $memoryKlines[$cacheKey] = $result;
-            $memoryKlineTime[$cacheKey] = $now;
-
-            $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
-            if (@file_put_contents($tmpFile, json_encode($result)) !== false) {
-                @rename($tmpFile, $cacheFile);
-            }
-            return $result;
+    for ($batch = 0; $batch < $neededBatches; $batch++) {
+        $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
+        if ($endTime !== null) {
+            $url .= "&endTime=" . $endTime;
         }
-    }
 
-    // Fallback to disk cache if available
-    if (file_exists($cacheFile)) {
-        $raw = @file_get_contents($cacheFile);
-        if ($raw) {
-            $decoded = json_decode($raw, true);
-            if (is_array($decoded)) {
-                $memoryKlines[$cacheKey] = $decoded;
-                $memoryKlineTime[$cacheKey] = $now;
-                return $decoded;
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
+
+        if ($httpCode === 200 && is_string($response)) {
+            $klines = json_decode($response, true);
+            if (is_array($klines) && !empty($klines)) {
+                $batchResult = [];
+                foreach ($klines as $k) {
+                    if (!is_array($k) || count($k) < 6) continue;
+                    $batchResult[] = [
+                        'openTime'  => (int)$k[0],
+                        'open'      => (float)$k[1],
+                        'high'      => (float)$k[2],
+                        'low'       => (float)$k[3],
+                        'close'     => (float)$k[4],
+                        'closeTime' => (int)$k[6],
+                    ];
+                }
+                if (!empty($batchResult)) {
+                    $allKlines = array_merge($batchResult, $allKlines);
+                    // Next batch fetches older klines before current oldest openTime
+                    $endTime = (int)$batchResult[0]['openTime'] - 1;
+                    if (count($batchResult) < 1000) {
+                        break; // No more historical candles on Binance
+                    }
+                    continue;
+                }
             }
         }
+        break;
     }
 
-    return $memoryKlines[$cacheKey] ?? [];
+    if (!empty($allKlines)) {
+        $memoryKlines[$cacheKey] = $allKlines;
+        $memoryKlineTime[$cacheKey] = $now;
+
+        $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+        if (@file_put_contents($tmpFile, json_encode($allKlines)) !== false) {
+            @rename($tmpFile, $cacheFile);
+        }
+        return array_slice($allKlines, -$count);
+    }
+
+    // 4. Stale fallback on network delay/error
+    if ($staleDiskCache !== null) {
+        $memoryKlines[$cacheKey] = $staleDiskCache;
+        $memoryKlineTime[$cacheKey] = $now;
+        return array_slice($staleDiskCache, -$count);
+    }
+
+    if (isset($memoryKlines[$cacheKey])) {
+        return array_slice($memoryKlines[$cacheKey], -$count);
+    }
+
+    return [];
 }
 
 /**

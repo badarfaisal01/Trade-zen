@@ -117,7 +117,7 @@ function market_price_at(array $asset, int $timestampMs): float
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
-    $count = max(10, min(1000, $count));
+    $count = max(10, min(10000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
@@ -128,7 +128,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
         try {
             $intervalMs = max(1000, $intervalSeconds * 1000);
             $subCount = max(1, (int)floor(60000 / $intervalMs));
-            $neededBinanceKlines = max(10, min(1000, (int)ceil($count / $subCount)));
+            // Request enough klines from Binance to cover the requested candle count (up to 10000 max).
+            $neededBinanceKlines = max(10, min(10000, $count));
             $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines);
 
             if (!empty($binanceKlines)) {
@@ -195,7 +196,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $sLowR = round(min($sLow, $sOpen, $sClose), $decimals);
                         $sCloseR = round($sClose, $decimals);
 
-                        if ($sHighR <= $sLowR || $sHighR === $sOpenR || $sLowR === $sOpenR || $sHighR === $sCloseR || $sLowR === $sCloseR) {
+                        if ($sHighR <= $sLowR) {
                             $noiseVal = market_noise($seed + 99, (int)($subOpenTime / 1000));
                             $spreadVal = max($minStep * 3.0, $sOpenR * $volatility * 0.2);
                             $sHighR = round(max($sOpenR, $sCloseR) + abs($spreadVal * (0.6 + 0.4 * $noiseVal)) + $minStep, $decimals);
@@ -208,12 +209,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $subDurationMs = max(100, $subCloseTime - $subOpenTime);
                         $p1 = $sCloseR >= $sOpenR ? $sLowR : $sHighR;
                         $p2 = $sCloseR >= $sOpenR ? $sHighR : $sLowR;
-                        if ($p1 === $sOpenR) {
-                            $p1 = round($sCloseR >= $sOpenR ? max($minStep, $sOpenR - $minStep) : $sOpenR + $minStep, $decimals);
-                        }
-                        if ($p2 === $sCloseR) {
-                            $p2 = round($sCloseR >= $sOpenR ? $sCloseR + $minStep : max($minStep, $sCloseR - $minStep), $decimals);
-                        }
+                        $p1 = max($sLowR, min($sHighR, $p1));
+                        $p2 = max($sLowR, min($sHighR, $p2));
 
                         $tMs1 = $subOpenTime;
                         $tMs2 = $subOpenTime + (int)round($subDurationMs * 0.33);
@@ -245,7 +242,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     $candles = array_slice($candles, -$count);
                 }
 
-                $extraCount = max(0, min(800, $count - count($candles)));
+                $extraCount = max(0, min(10000, $count - count($candles)));
                 if ($extraCount > 0 && !empty($candles)) {
                     $firstTime = (int)$candles[0]['time'];
                     $firstOpen = (float)$candles[0]['open'];
@@ -271,7 +268,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $hLowR = round(min($hLow, $hOpen, $hClose), $decimals);
                         $hCloseR = round($hClose, $decimals);
 
-                        if ($hHighR <= $hLowR || $hHighR === $hOpenR || $hLowR === $hOpenR || $hHighR === $hCloseR || $hLowR === $hCloseR) {
+                        if ($hHighR <= $hLowR) {
                             $spreadVal = max($minStep * 3.0, $hOpenR * $volatility * 0.2);
                             $hHighR = round(max($hOpenR, $hCloseR) + abs($spreadVal * (0.6 + 0.4 * $noiseVal)) + $minStep, $decimals);
                             $hLowR = round(max($minStep, min($hOpenR, $hCloseR) - abs($spreadVal * (0.6 + 0.4 * (1.0 - $noiseVal))) - $minStep), $decimals);
@@ -282,12 +279,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
 
                         $p1 = $hCloseR >= $hOpenR ? $hLowR : $hHighR;
                         $p2 = $hCloseR >= $hOpenR ? $hHighR : $hLowR;
-                        if ($p1 === $hOpenR) {
-                            $p1 = round($hCloseR >= $hOpenR ? max($minStep, $hOpenR - $minStep) : $hOpenR + $minStep, $decimals);
-                        }
-                        if ($p2 === $hCloseR) {
-                            $p2 = round($hCloseR >= $hOpenR ? $hCloseR + $minStep : max($minStep, $hCloseR - $minStep), $decimals);
-                        }
+                        $p1 = max($hLowR, min($hHighR, $p1));
+                        $p2 = max($hLowR, min($hHighR, $p2));
 
                         array_unshift($historicalCandles, [
                             'time' => $tMs,
@@ -364,7 +357,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
         $high = round(max($prices), $decimals);
         $low = round(min($prices), $decimals);
 
-        if ($high <= $low || $high === $open || $low === $open || $high === $close || $low === $close) {
+        if ($high <= $low) {
             $seed = (int)($asset['market_seed'] ?? 100);
             $minStep = pow(10, -$decimals);
             $noiseVal = market_noise($seed + 99, (int)($time / 1000));
