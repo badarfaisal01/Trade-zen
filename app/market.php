@@ -114,7 +114,7 @@ function market_price_at(array $asset, int $timestampMs): float
     return round($price, $decimals);
 }
 
-function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500, ?int $endMs = null): array
+function market_candles(array $asset, int $intervalSeconds = 5, int $count = 5000, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
     $count = max(10, min(10000, $count));

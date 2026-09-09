@@ -35,6 +35,7 @@
   var firstState = true;
   var previousOpenIds = {};
   var lastStateSignature = '';
+  var lastHistoryBroadcastAt = 0;
 
   function syncServerTime(serverMs) {
     if (!isFinite(serverMs) || serverMs <= 0) return;
@@ -697,6 +698,7 @@
       var quote = [[activeSocketSymbol, serverTime / 1000, price, ++tickNumber]];
       if (sendHistory) {
         broadcastBinary('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
+        lastHistoryBroadcastAt = Date.now();
         if (socket && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
         }
@@ -1048,8 +1050,10 @@
       var reqSymbol = extractSymbol(payload, activeSymbol);
       var reqPeriod = extractPeriod(payload, activePeriod);
       var reqCount = payload && (payload.count || payload.limit || payload.candlesCount);
-      var desiredCount = reqCount ? Math.max(chartHistoryCount, Math.min(10000, number(reqCount, chartHistoryCount))) : (chartHistoryCount + 2000);
-      desiredCount = Math.min(10000, desiredCount);
+      var requestNumber = number(reqCount, 0);
+      var desiredCount = requestNumber > chartHistoryCount
+        ? Math.min(10000, Math.max(chartHistoryCount + 2000, requestNumber))
+        : Math.min(10000, chartHistoryCount + 2000);
 
       if (reqSymbol !== activeSymbol || reqPeriod !== activePeriod || !marketSnapshot || (marketSnapshot.candles && marketSnapshot.candles.length < desiredCount)) {
         activeSymbol = reqSymbol;

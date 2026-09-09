@@ -348,7 +348,7 @@ function fetch_binance_price(string $symbol): float
  * @param int $count Number of candles to fetch (up to 1000)
  * @return array Array of klines [openTime, open, high, low, close, closeTime]
  */
-function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 500): array
+function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 5000): array
 {
     static $memoryKlines = [];
     static $memoryKlineTime = [];
@@ -377,8 +377,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $cacheKey = "{$apiSymbol}_{$binanceInterval}";
     $now = microtime(true);
 
-    // 1. In-memory cache (< 15s)
-    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0) {
+    // 1. In-memory cache (< 15s) - only return if cached count satisfies requested count
+    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $count) {
         return array_slice($memoryKlines[$cacheKey], -$count);
     }
 
@@ -397,7 +397,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             $decoded = json_decode($raw, true);
             if (is_array($decoded) && !empty($decoded)) {
                 $staleDiskCache = $decoded;
-                if (($now - $mtime) < 15.0 && count($decoded) >= min(1000, $count)) {
+                if (($now - $mtime) < 15.0 && count($decoded) >= $count) {
                     $memoryKlines[$cacheKey] = $decoded;
                     $memoryKlineTime[$cacheKey] = $mtime;
                     return array_slice($decoded, -$count);
@@ -421,7 +421,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
         curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
@@ -460,6 +460,19 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     }
 
     if (!empty($allKlines)) {
+        // Merge with existing disk cache if available to retain maximum history
+        if ($staleDiskCache !== null && is_array($staleDiskCache)) {
+            $byTime = [];
+            foreach ($staleDiskCache as $item) {
+                if (isset($item['openTime'])) $byTime[(int)$item['openTime']] = $item;
+            }
+            foreach ($allKlines as $item) {
+                if (isset($item['openTime'])) $byTime[(int)$item['openTime']] = $item;
+            }
+            ksort($byTime);
+            $allKlines = array_values($byTime);
+        }
+
         $memoryKlines[$cacheKey] = $allKlines;
         $memoryKlineTime[$cacheKey] = $now;
 
