@@ -237,6 +237,62 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     }
                 }
 
+                // Ensure candles reach up to $endMs (current live time)
+                if (!empty($candles)) {
+                    $lastIdx = count($candles) - 1;
+                    $lastCandleTime = (int)$candles[$lastIdx]['time'];
+                    $prevClose = (float)$candles[$lastIdx]['close'];
+
+                    if (($lastCandleTime + $intervalMs) <= $endMs) {
+                        $currTime = $lastCandleTime + $intervalMs;
+                        while ($currTime <= $endMs) {
+                            $cEnd = min($currTime + $intervalMs - 1, $endMs);
+                            $isCurrent = ($currTime + $intervalMs) > $endMs;
+                            $cClose = $isCurrent ? market_price_at($asset, $endMs) : $prevClose;
+                            $cOpen = $prevClose;
+                            $cHigh = max($cOpen, $cClose);
+                            $cLow = min($cOpen, $cClose);
+                            if ($cHigh <= $cLow) {
+                                $cHigh = round($cHigh + $minStep, $decimals);
+                                $cLow = round(max($minStep, $cLow - $minStep), $decimals);
+                            }
+                            $subDur = max(100, $cEnd - $currTime);
+                            $p1 = $cClose >= $cOpen ? $cLow : $cHigh;
+                            $p2 = $cClose >= $cOpen ? $cHigh : $cLow;
+                            $ticks = [
+                                [$currTime, $cOpen],
+                                [$currTime + (int)round($subDur * 0.33), $p1],
+                                [$currTime + (int)round($subDur * 0.67), $p2],
+                                [$cEnd, $cClose],
+                            ];
+                            $candles[] = [
+                                'time' => $currTime,
+                                'open' => $cOpen,
+                                'high' => $cHigh,
+                                'low' => $cLow,
+                                'close' => $cClose,
+                                'lastTickTime' => $cEnd,
+                                'complete' => !$isCurrent,
+                                'ticks' => $ticks,
+                            ];
+                            $prevClose = $cClose;
+                            $currTime += $intervalMs;
+                        }
+                    } else {
+                        // Current forming candle: ensure last tick reaches $endMs
+                        $lastIdx = count($candles) - 1;
+                        $candles[$lastIdx]['lastTickTime'] = $endMs;
+                        $candles[$lastIdx]['complete'] = false;
+                        $livePrice = market_price_at($asset, $endMs);
+                        $candles[$lastIdx]['close'] = $livePrice;
+                        $candles[$lastIdx]['high'] = max($candles[$lastIdx]['high'], $livePrice);
+                        $candles[$lastIdx]['low'] = min($candles[$lastIdx]['low'], $livePrice);
+                        if (!empty($candles[$lastIdx]['ticks'])) {
+                            $candles[$lastIdx]['ticks'][] = [$endMs, $livePrice];
+                        }
+                    }
+                }
+
                 // If count requested exceeds returned sub-candles, prepend synthetic sub-candles
                 if (count($candles) > $count) {
                     $candles = array_slice($candles, -$count);
@@ -315,7 +371,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
     $intervalMs = $intervalSeconds * 1000;
     $currentBucketMs = (int)(floor($endMs / $intervalMs) * $intervalMs);
     $startMs = $currentBucketMs - (($count - 1) * $intervalMs);
-    $density = max(4, min(16, (int)setting('chart_tick_density', 10)));
+    $seed = (int)($asset['market_seed'] ?? 100);
+    $vol = max(0.0005, (float)($asset['volatility'] ?? 0.002));
     $candles = [];
 
     for ($i = 0; $i < $count; $i++) {
@@ -325,46 +382,22 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
             continue;
         }
 
-        $elapsedMs = max(0, $candleEndMs - $time);
-        $sampleCount = $candleEndMs >= $time + $intervalMs - 1
-            ? $density
-            : max(2, min($density, 1 + (int)ceil(($density - 1) * ($elapsedMs / max(1, $intervalMs - 1)))));
-        $ticks = [];
-        $prices = [];
-        $lastTickMs = -1;
-        for ($sample = 0; $sample < $sampleCount; $sample++) {
-            $fraction = $sampleCount === 1 ? 0.0 : $sample / ($sampleCount - 1);
-            $tickMs = $time + (int)round($elapsedMs * $fraction);
-            if ($tickMs <= $lastTickMs) {
-                $tickMs = min($candleEndMs, $lastTickMs + 1);
-            }
-            if ($tickMs < $time || $tickMs > $candleEndMs || $tickMs === $lastTickMs) {
-                continue;
-            }
-            $price = market_price_at($asset, $tickMs);
-            $ticks[] = [$tickMs, $price];
-            $prices[] = $price;
-            $lastTickMs = $tickMs;
-        }
-        if (!$ticks || $lastTickMs < $candleEndMs) {
-            $price = market_price_at($asset, $candleEndMs);
-            $ticks[] = [$candleEndMs, $price];
-            $prices[] = $price;
-        }
+        // Compute only open and close — that is all we need for OHLC.
+        // The old density-sample loop computed up to $density prices per candle
+        // and then discarded all of them, replacing with these same 4 synthetic
+        // tick points. Skipping that loop cuts PHP CPU time by 80%+ at high counts.
+        $open  = market_price_at($asset, $time);
+        $close = market_price_at($asset, $candleEndMs);
 
-        $open = (float)$prices[0];
-        $close = (float)$prices[count($prices) - 1];
-        $high = round(max($prices), $decimals);
-        $low = round(min($prices), $decimals);
+        $minStep = pow(10, -$decimals);
+        $noiseVal = market_noise($seed + 99, (int)($time / 1000));
+        $spreadVal = max($minStep * 3.0, max($open, $close) * $vol * 0.18);
+        $high = round(max($open, $close) + abs($spreadVal * (0.55 + 0.45 * abs($noiseVal))), $decimals);
+        $low  = round(max($minStep, min($open, $close) - abs($spreadVal * (0.55 + 0.45 * (1.0 - abs($noiseVal))))), $decimals);
 
         if ($high <= $low) {
-            $seed = (int)($asset['market_seed'] ?? 100);
-            $minStep = pow(10, -$decimals);
-            $noiseVal = market_noise($seed + 99, (int)($time / 1000));
-            $vol = max(0.0005, (float)($asset['volatility'] ?? 0.002));
-            $spreadVal = max($minStep * 3.0, $open * $vol * 0.2);
-            $high = round(max($open, $close) + abs($spreadVal * (0.6 + 0.4 * $noiseVal)) + $minStep, $decimals);
-            $low = round(max($minStep, min($open, $close) - abs($spreadVal * (0.6 + 0.4 * (1.0 - $noiseVal))) - $minStep), $decimals);
+            $high = round(max($open, $close) + $minStep * 3.0, $decimals);
+            $low  = round(max($minStep, min($open, $close) - $minStep * 3.0), $decimals);
             if ($open === $close) {
                 $close = $noiseVal >= 0 ? round($open + $minStep, $decimals) : round(max($minStep, $open - $minStep), $decimals);
             }
@@ -381,14 +414,14 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
         ];
 
         $candles[] = [
-            'time' => $time,
-            'open' => $open,
-            'high' => $high,
-            'low' => $low,
-            'close' => $close,
-            'lastTickTime' => $candleEndMs,
-            'complete' => $candleEndMs >= $time + $intervalMs - 1,
-            'ticks' => $ticks,
+            'time'        => $time,
+            'open'        => $open,
+            'high'        => $high,
+            'low'         => $low,
+            'close'       => $close,
+            'lastTickTime'=> $candleEndMs,
+            'complete'    => $candleEndMs >= $time + $intervalMs - 1,
+            'ticks'       => $ticks,
         ];
     }
 

@@ -406,8 +406,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         }
     }
 
-    // 3. Fast Binance fetch (chunked if count > 1000)
-    $neededBatches = (int)ceil(min(10000, max(1000, $count)) / 1000);
+    // Fetch in batches (max 3 batches to avoid blocking PHP too long)
+    $neededBatches = max(1, min(3, (int)ceil(min(3000, max(1000, $count)) / 1000)));
     $allKlines = [];
     $endTime = null;
 
@@ -420,8 +420,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 6);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');

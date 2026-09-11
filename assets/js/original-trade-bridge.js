@@ -30,6 +30,7 @@
   var quoteStreamTimer = null;
   var serverTimeOffset = 0;
   var lastEmittedTimeSeconds = 0;
+  var lastEmittedQuoteSec = 0;
   var currentLivePrice = 0;
   var tickNumber = 1;
   var firstState = true;
@@ -37,9 +38,19 @@
   var lastStateSignature = '';
   var lastHistoryBroadcastAt = 0;
 
+  var initialServerTime = number(meta('trade-server-time', '0'), 0);
+  if (initialServerTime > 0) {
+    serverTimeOffset = initialServerTime - Date.now();
+  }
+
   function syncServerTime(serverMs) {
     if (!isFinite(serverMs) || serverMs <= 0) return;
-    serverTimeOffset = serverMs - Date.now();
+    var targetOffset = serverMs - Date.now();
+    if (!serverTimeOffset) {
+      serverTimeOffset = targetOffset;
+    } else {
+      serverTimeOffset = Math.round(serverTimeOffset * 0.85 + targetOffset * 0.15);
+    }
   }
 
   function currentServerSeconds() {
@@ -47,8 +58,9 @@
   }
 
   function emitClockTick() {
-    var sec = currentServerSeconds();
+    var sec = lastEmittedQuoteSec > 0 ? Math.floor(lastEmittedQuoteSec) : currentServerSeconds();
     if (sec > 0 && sec !== lastEmittedTimeSeconds) {
+      if (sec < lastEmittedTimeSeconds) sec = lastEmittedTimeSeconds + 1;
       lastEmittedTimeSeconds = sec;
       broadcastText('time', sec);
     }
@@ -60,8 +72,12 @@
     var minStep = Math.pow(10, -decimals);
     var microJitter = (Math.random() - 0.5) * minStep * 0.35;
     var tickPrice = Number((currentLivePrice + microJitter).toFixed(decimals));
-    var nowSec = Number(((Date.now() + serverTimeOffset) / 1000).toFixed(3));
-    var quote = [[activeSocketSymbol, nowSec, tickPrice, ++tickNumber]];
+    var currentSec = (Date.now() + serverTimeOffset) / 1000;
+    if (currentSec <= lastEmittedQuoteSec) {
+      currentSec = lastEmittedQuoteSec + 0.05;
+    }
+    lastEmittedQuoteSec = Number(currentSec.toFixed(3));
+    var quote = [[activeSocketSymbol, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
     broadcastBinary('quotes/stream', quote);
   }
   var domRefreshQueued = false;
@@ -128,6 +144,15 @@
   }
 
   var bootstrapAssets = parseBootstrapAssets();
+  if (bootstrapAssets.length) {
+    var initialAsset = bootstrapAssets.filter(function (a) { return plainSymbol(a.symbol) === activeSymbol; })[0] || bootstrapAssets[0];
+    if (initialAsset && number(initialAsset.price, 0) > 0) {
+      currentLivePrice = number(initialAsset.price, 0);
+    }
+  }
+  if (!currentLivePrice || currentLivePrice <= 0) {
+    currentLivePrice = 1.16130;
+  }
 
   function normalizeModalCategory(category) {
     var key = String(category || 'Currencies').trim();
@@ -430,13 +455,54 @@
 
   function bootstrapMarketSnapshot() {
     var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [{
-      symbol: 'EURUSD', name: 'EUR/USD', category: 'Forex', price: 1.08642,
-      decimals: 5, payout: 82, changePercent: 0, active: true
+      symbol: 'EURUSD', name: 'EUR/USD', category: 'Forex', price: 1.16130,
+      decimals: 5, payout: 87, changePercent: 0, active: true
     }];
     var selected = assets.filter(function (asset) { return plainSymbol(asset.symbol) === activeSymbol; })[0] || assets[0];
     activeSymbol = plainSymbol(selected.symbol);
     activeSocketSymbol = socketSymbol(activeSymbol);
-    return {serverTime: Date.now(), asset: selected, assets: assets, candles: [], engine: 'server-bootstrap'};
+    var nowMs = Date.now() + serverTimeOffset;
+    var basePrice = number(selected.price, 1.16130);
+    if (!currentLivePrice || currentLivePrice <= 0) currentLivePrice = basePrice;
+    var dec = number(selected.decimals, 5);
+    var step = Math.pow(10, -dec);
+    var candles = [];
+    var interval = Math.max(1, Math.min(300, number(activePeriod, 60)));
+    var intervalMs = interval * 1000;
+    var currBucket = Math.floor(nowMs / intervalMs) * intervalMs;
+    var startBucket = currBucket - (60 * intervalMs);
+    var runningPrice = basePrice;
+
+    for (var t = startBucket; t <= currBucket; t += intervalMs) {
+      var isLast = t === currBucket;
+      var cEnd = isLast ? nowMs : (t + intervalMs - 1);
+      var subDur = Math.max(100, cEnd - t);
+      var cOpen = runningPrice;
+      var jitter = (Math.random() - 0.5) * step * 4;
+      var cClose = isLast ? currentLivePrice : Number((cOpen + jitter).toFixed(dec));
+      var cHigh = Number((Math.max(cOpen, cClose) + Math.random() * step * 2).toFixed(dec));
+      var cLow = Number((Math.min(cOpen, cClose) - Math.random() * step * 2).toFixed(dec));
+      var p1 = cClose >= cOpen ? cLow : cHigh;
+      var p2 = cClose >= cOpen ? cHigh : cLow;
+      candles.push({
+        time: t,
+        open: cOpen,
+        high: cHigh,
+        low: cLow,
+        close: cClose,
+        lastTickTime: cEnd,
+        complete: !isLast,
+        ticks: [
+          [t, cOpen],
+          [t + Math.round(subDur * 0.33), p1],
+          [t + Math.round(subDur * 0.67), p2],
+          [cEnd, cClose]
+        ]
+      });
+      runningPrice = cClose;
+    }
+
+    return {serverTime: nowMs, asset: selected, assets: assets, candles: candles, engine: 'server-bootstrap'};
   }
 
   function bootstrapTradeState() {
@@ -597,18 +663,6 @@
     var previousStamp = -Infinity;
     var totalCandles = candles.length;
 
-    var mappedCandles = candles.map(function (c) {
-      var timeSec = Math.floor(number(c.time, Date.now()) / 1000);
-      return {
-        time: timeSec,
-        open: number(c.open, 0),
-        high: number(c.high, 0),
-        low: number(c.low, 0),
-        close: number(c.close, 0),
-        volume: 100
-      };
-    });
-
     candles.forEach(function (candle, cIndex) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
 
@@ -646,11 +700,26 @@
       });
     });
 
+    // Seamless connection: ensure the last history point touches current live price & serverSeconds
+    if (history.length > 0 && currentLivePrice > 0) {
+      if (previousStamp < serverSeconds) {
+        var finalStamp = Number(serverSeconds.toFixed(3));
+        if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
+        history.push([finalStamp, currentLivePrice, ++count]);
+        previousStamp = finalStamp;
+      }
+    }
+
+    if (previousStamp > 0) {
+      lastEmittedQuoteSec = Math.max(lastEmittedQuoteSec, previousStamp);
+      lastEmittedTimeSeconds = Math.floor(lastEmittedQuoteSec);
+    }
+
     return {
       asset: requestedSymbol,
       period: safePeriod,
       history: history,
-      candles: mappedCandles
+      candles: []
     };
   }
 
@@ -695,16 +764,15 @@
       syncServerTime(serverTime);
       var price = number(asset.price, 0);
       if (price > 0) currentLivePrice = price;
-      var quote = [[activeSocketSymbol, serverTime / 1000, price, ++tickNumber]];
       if (sendHistory) {
-        broadcastBinary('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
-        lastHistoryBroadcastAt = Date.now();
+        var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
         if (socket && typeof socket.binaryEvent === 'function') {
-          socket.binaryEvent('history/list/v2', historyPayload(snapshot, activeSocketSymbol, periodAtStart));
+          socket.binaryEvent('history/list/v2', hPayload);
+        } else {
+          broadcastBinary('history/list/v2', hPayload);
         }
+        lastHistoryBroadcastAt = Date.now();
       }
-      broadcastBinary('quotes/stream', quote);
-      emitClockTick();
       return snapshot;
     }).catch(function (error) {
       showNotice(error.message, true);
@@ -778,7 +846,7 @@
       clockTimer = window.setInterval(emitClockTick, 250);
     }
     if (!quoteStreamTimer) {
-      quoteStreamTimer = window.setInterval(emitSmoothQuote, 250);
+      quoteStreamTimer = window.setInterval(emitSmoothQuote, 100);
     }
     if (!marketTimer) {
       marketTimer = window.setInterval(function () { refreshMarket(false, null); }, marketPollIntervalMs);
@@ -933,11 +1001,16 @@
     socket.binaryEvent('settings/list', graphSettings());
     socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot || bootstrapMarketSnapshot(), activeSocketSymbol, activePeriod));
     emitTradeLists(socket);
+    emitClockTick();
+    emitSmoothQuote();
   }
 
   function initializeSocket(socket) {
     if (!marketSnapshot) marketSnapshot = bootstrapMarketSnapshot();
     if (!tradeState) tradeState = bootstrapTradeState();
+
+    // Start clock and quote streaming immediately on first authorization
+    startPolling();
 
     // Authorise the supplied room immediately from server-rendered data. Live
     // API data replaces this snapshot as soon as it arrives. This prevents the
@@ -1031,39 +1104,48 @@
       }
       var reqSymStore = extractSymbol(payload, activeSymbol);
       var reqPerStore = extractPeriod(payload, activePeriod);
+      var storeChanged = reqSymStore !== activeSymbol || reqPerStore !== activePeriod;
       activeSymbol = reqSymStore;
       activeSocketSymbol = socketSymbol(activeSymbol);
       activePeriod = reqPerStore;
-      refreshMarket(true, socket);
+      if (!marketSnapshot || storeChanged) {
+        refreshMarket(true, socket, chartHistoryCount);
+      }
       return;
     }
     if (event === 'instruments/update') {
       var reqSym = extractSymbol(payload, activeSymbol);
       var reqPer = extractPeriod(payload, activePeriod);
+      var instChanged = reqSym !== activeSymbol || reqPer !== activePeriod;
       activeSymbol = reqSym;
       activeSocketSymbol = socketSymbol(activeSymbol);
       activePeriod = reqPer;
-      refreshMarket(true, socket);
+      if (!marketSnapshot || instChanged) {
+        refreshMarket(true, socket, chartHistoryCount);
+      }
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
       var reqSymbol = extractSymbol(payload, activeSymbol);
       var reqPeriod = extractPeriod(payload, activePeriod);
-      var reqCount = payload && (payload.count || payload.limit || payload.candlesCount);
-      var requestNumber = number(reqCount, 0);
-      var desiredCount = requestNumber > chartHistoryCount
-        ? Math.min(10000, Math.max(chartHistoryCount + 2000, requestNumber))
-        : Math.min(10000, chartHistoryCount + 2000);
+      var symbolOrPeriodChanged = reqSymbol !== activeSymbol || reqPeriod !== activePeriod;
 
-      if (reqSymbol !== activeSymbol || reqPeriod !== activePeriod || !marketSnapshot || (marketSnapshot.candles && marketSnapshot.candles.length < desiredCount)) {
+      if (symbolOrPeriodChanged) {
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);
         activePeriod = reqPeriod;
-        chartHistoryCount = Math.max(chartHistoryCount, desiredCount);
+        // Instantly supply bootstrap history for the new timeframe so chart begins painting immediately without freeze
+        var instantBootstrap = bootstrapMarketSnapshot();
+        socket.binaryEvent('history/list/v2', historyPayload(instantBootstrap, activeSocketSymbol, activePeriod));
+        emitClockTick();
+        emitSmoothQuote();
+      }
+
+      if (!marketSnapshot || symbolOrPeriodChanged) {
         refreshMarket(true, socket, chartHistoryCount);
       } else {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-        if (socket && typeof socket.binaryEvent === 'function' && event !== 'history/list/v2') {
+        if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
       }
@@ -1221,7 +1303,16 @@
     this._outboundTimer = window.setTimeout(function flushOutboundFrame() {
       socket._outboundTimer = null;
       if (socket.readyState !== LocalTradeSocket.OPEN || !socket._outboundQueue.length) return;
-      socket.message(socket._outboundQueue.shift());
+      var count = 0;
+      while (socket._outboundQueue.length && count < 32) {
+        var frame = socket._outboundQueue.shift();
+        count++;
+        try {
+          socket.message(frame);
+        } catch (dispatchError) {
+          console.error('Socket frame dispatch error:', dispatchError);
+        }
+      }
       if (socket._outboundQueue.length) {
         socket._outboundTimer = window.setTimeout(flushOutboundFrame, 0);
       }
@@ -1250,10 +1341,13 @@
       window.setTimeout(function () { socket.message('3'); }, 1);
       return;
     }
-    if (typeof data !== 'string' || data.slice(0, 2) !== '42') return;
+    if (typeof data !== 'string') return;
+    var match = data.match(/^42(\d*)([\s\S]*)$/);
+    if (!match) return;
+    var rawBody = match[2];
     var packet;
     try {
-      packet = JSON.parse(data.slice(2));
+      packet = JSON.parse(rawBody);
     } catch (ignored) {
       return;
     }

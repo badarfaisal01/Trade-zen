@@ -7,7 +7,7 @@ session_write_close();
 
 $symbol = strtoupper(trim((string)($_GET['symbol'] ?? 'EURUSD')));
 $interval = (int)($_GET['interval'] ?? 5);
-$count = min(10000, max(10, (int)($_GET['count'] ?? 5000)));
+$count = min(1000, max(10, (int)($_GET['count'] ?? 300)));
 $includeCandles = (string)($_GET['history'] ?? '1') !== '0';
 
 try {
