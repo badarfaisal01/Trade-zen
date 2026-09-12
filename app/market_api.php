@@ -348,7 +348,7 @@ function fetch_binance_price(string $symbol): float
  * @param int $count Number of candles to fetch (up to 1000)
  * @return array Array of klines [openTime, open, high, low, close, closeTime]
  */
-function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 5000): array
+function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $count = 5000, ?int $endTimeMs = null): array
 {
     static $memoryKlines = [];
     static $memoryKlineTime = [];
@@ -373,8 +373,9 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $binanceInterval = '1d';
     }
 
-    // Unified cache key per symbol & interval
-    $cacheKey = "{$apiSymbol}_{$binanceInterval}";
+    // Unified cache key per symbol, interval, and optional endTime bucket
+    $endBucket = $endTimeMs !== null ? (int)floor($endTimeMs / 60000) : 0;
+    $cacheKey = "{$apiSymbol}_{$binanceInterval}_{$endBucket}";
     $now = microtime(true);
 
     // 1. In-memory cache (< 15s) - only return if cached count satisfies requested count
@@ -409,7 +410,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     // Fetch in batches (max 3 batches to avoid blocking PHP too long)
     $neededBatches = max(1, min(3, (int)ceil(min(3000, max(1000, $count)) / 1000)));
     $allKlines = [];
-    $endTime = null;
+    $endTime = $endTimeMs !== null ? $endTimeMs : null;
 
     for ($batch = 0; $batch < $neededBatches; $batch++) {
         $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";

@@ -130,7 +130,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
             $subCount = max(1, (int)floor(60000 / $intervalMs));
             // Request enough klines from Binance to cover the requested candle count (up to 10000 max).
             $neededBinanceKlines = max(10, min(10000, $count));
-            $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines);
+            $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
 
             if (!empty($binanceKlines)) {
                 $candles = [];
@@ -621,7 +621,7 @@ function market_asset_payload(array $asset, ?int $nowMs = null): array
     ];
 }
 
-function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 72, bool $includeCandles = true): array
+function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 72, bool $includeCandles = true, ?int $endMs = null): array
 {
     $asset = market_asset($symbol);
     if (!$asset) {
@@ -637,11 +637,13 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $assets[] = market_asset_payload($row, $nowMs);
     }
 
+    $targetEndMs = $endMs !== null && $endMs > 0 ? $endMs : $nowMs;
+
     return [
         'serverTime' => $nowMs,
         'asset' => market_asset_payload($asset, $nowMs),
         'assets' => $assets,
-        'candles' => $includeCandles ? market_candles($asset, $intervalSeconds, $count, $nowMs) : [],
+        'candles' => $includeCandles ? market_candles($asset, $intervalSeconds, $count, $targetEndMs) : [],
         'engine' => 'market-engine-v1',
     ];
 }

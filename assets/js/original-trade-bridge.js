@@ -19,7 +19,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(10000, Math.floor(number(meta('trade-chart-history-count', '5000'), 5000))));
+  var chartHistoryCount = Math.max(60, Math.min(10000, Math.floor(number(meta('trade-chart-history-count', '500'), 500))));
   var marketPollIntervalMs = Math.max(250, Math.min(2000, Math.floor(number(meta('trade-quote-poll-ms', '650'), 650))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
@@ -58,9 +58,8 @@
   }
 
   function emitClockTick() {
-    var sec = lastEmittedQuoteSec > 0 ? Math.floor(lastEmittedQuoteSec) : currentServerSeconds();
+    var sec = currentServerSeconds();
     if (sec > 0 && sec !== lastEmittedTimeSeconds) {
-      if (sec < lastEmittedTimeSeconds) sec = lastEmittedTimeSeconds + 1;
       lastEmittedTimeSeconds = sec;
       broadcastText('time', sec);
     }
@@ -74,7 +73,7 @@
     var tickPrice = Number((currentLivePrice + microJitter).toFixed(decimals));
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
     if (currentSec <= lastEmittedQuoteSec) {
-      currentSec = lastEmittedQuoteSec + 0.05;
+      currentSec = lastEmittedQuoteSec + 0.001;
     }
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
     var quote = [[activeSocketSymbol, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
@@ -659,7 +658,10 @@
     var count = 0;
     var candles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
     var safePeriod = Math.max(1, Math.min(300, number(period, 60)));
-    var serverSeconds = number(snapshot && snapshot.serverTime, Date.now()) / 1000;
+    var nowSec = (Date.now() + serverTimeOffset) / 1000;
+    var serverSeconds = number(snapshot && snapshot.serverTime, 0) / 1000;
+    if (!serverSeconds || serverSeconds <= 0) serverSeconds = nowSec;
+    var maxHistorySec = Math.min(serverSeconds, nowSec);
     var previousStamp = -Infinity;
     var totalCandles = candles.length;
 
@@ -669,7 +671,7 @@
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
           if (!Array.isArray(tick) || tick.length < 2) return;
-          var stamp = number(tick[0], 0) / 1000;
+          var stamp = Math.min(maxHistorySec, number(tick[0], 0) / 1000);
           var price = number(tick[1], NaN);
           if (!isFinite(stamp) || !isFinite(price)) return;
           if (stamp <= previousStamp) stamp = previousStamp + 0.001;
@@ -683,36 +685,34 @@
       var start = number(candle.time, Date.now()) / 1000;
       var availableEnd = Math.min(
         number(candle.lastTickTime, number(candle.time, Date.now()) + (safePeriod * 1000) - 1) / 1000,
-        serverSeconds
+        maxHistorySec
       );
       var availableDuration = Math.max(0.003, availableEnd - start);
-      var offsets;
-      offsets = [0, availableDuration * 0.28, availableDuration * 0.67, availableDuration];
+      var offsets = [0, availableDuration * 0.28, availableDuration * 0.67, availableDuration];
       var rising = number(candle.close, 0) >= number(candle.open, 0);
       var points = rising
         ? [candle.open, candle.low, candle.high, candle.close]
         : [candle.open, candle.high, candle.low, candle.close];
       points.forEach(function (price, index) {
-        var stamp = Math.min(serverSeconds, start + offsets[index]);
+        var stamp = Math.min(maxHistorySec, start + offsets[index]);
         if (stamp <= previousStamp) stamp = previousStamp + 0.001;
         previousStamp = Number(stamp.toFixed(3));
         history.push([previousStamp, number(price, 0), ++count]);
       });
     });
 
-    // Seamless connection: ensure the last history point touches current live price & serverSeconds
+    // Seamless connection: ensure the last history point touches current live price & nowSec
     if (history.length > 0 && currentLivePrice > 0) {
-      if (previousStamp < serverSeconds) {
-        var finalStamp = Number(serverSeconds.toFixed(3));
+      if (previousStamp < nowSec) {
+        var finalStamp = Number(nowSec.toFixed(3));
         if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
         history.push([finalStamp, currentLivePrice, ++count]);
         previousStamp = finalStamp;
       }
     }
 
-    if (previousStamp > 0) {
+    if (previousStamp > 0 && isFinite(previousStamp)) {
       lastEmittedQuoteSec = Math.max(lastEmittedQuoteSec, previousStamp);
-      lastEmittedTimeSeconds = Math.floor(lastEmittedQuoteSec);
     }
 
     return {
@@ -740,6 +740,133 @@
     socket.binaryEvent('orders/closed/list', closedDeals());
   }
 
+  var historyCandlesStore = {};
+  var isLoadingOlderHistory = false;
+
+  function showHistoryLoader(visible) {
+    var loader = document.getElementById('chart-history-loader');
+    if (!loader && document.body) {
+      loader = document.createElement('div');
+      loader.id = 'chart-history-loader';
+      loader.innerHTML = '<span class="history-spinner"></span><span>Loading older candles…</span>';
+      var style = document.createElement('style');
+      style.textContent = [
+        '#chart-history-loader { position: fixed; top: 72px; left: 50%; transform: translateX(-50%) translateY(-10px); background: rgba(15, 23, 42, 0.92); border: 1px solid rgba(56, 189, 248, 0.45); box-shadow: 0 6px 24px rgba(0,0,0,0.6); backdrop-filter: blur(12px); color: #bae6fd; font-size: 12px; font-weight: 600; padding: 6px 18px; border-radius: 24px; display: flex; align-items: center; gap: 8px; z-index: 99999; pointer-events: none; opacity: 0; transition: opacity 0.25s ease, transform 0.25s ease; font-family: Inter, system-ui, -apple-system, sans-serif; letter-spacing: 0.2px; }',
+        '#chart-history-loader.active { opacity: 1; transform: translateX(-50%) translateY(0); }',
+        '#chart-history-loader .history-spinner { width: 12px; height: 12px; border: 2px solid rgba(56, 189, 248, 0.3); border-top-color: #38bdf8; border-radius: 50%; animation: histSpin 0.7s linear infinite; display: inline-block; }',
+        '@keyframes histSpin { to { transform: rotate(360deg); } }'
+      ].join(' ');
+      document.head.appendChild(style);
+      document.body.appendChild(loader);
+    }
+    if (loader) {
+      if (visible) {
+        loader.classList.add('active');
+      } else {
+        loader.classList.remove('active');
+      }
+    }
+  }
+
+  function loadOlderCandles(batchCount) {
+    if (isLoadingOlderHistory) return Promise.resolve(null);
+    var countToFetch = Math.max(50, Math.min(2000, number(batchCount, 500)));
+    var currentSymbol = activeSymbol;
+    var currentSocketSymbol = activeSocketSymbol;
+    var currentPeriod = Math.max(1, Math.min(300, number(activePeriod, 60)));
+    var storeKey = currentSymbol + '_' + currentPeriod;
+    var existingCandles = historyCandlesStore[storeKey] || (marketSnapshot && Array.isArray(marketSnapshot.candles) ? marketSnapshot.candles : []);
+
+    var oldestTime = existingCandles.length > 0 ? number(existingCandles[0].time, 0) : (Date.now() + serverTimeOffset);
+    if (!oldestTime || oldestTime <= 0) oldestTime = Date.now() + serverTimeOffset;
+
+    isLoadingOlderHistory = true;
+    showHistoryLoader(true);
+
+    var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(currentSymbol) +
+      '&interval=' + encodeURIComponent(String(currentPeriod)) +
+      '&count=' + encodeURIComponent(String(countToFetch)) +
+      '&before=' + encodeURIComponent(String(oldestTime - 1)) +
+      '&history=1';
+
+    return jsonRequest(endpoint).then(function (snapshot) {
+      if (currentSymbol !== activeSymbol || currentPeriod !== activePeriod) {
+        showHistoryLoader(false);
+        isLoadingOlderHistory = false;
+        return null;
+      }
+      var olderCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
+      olderCandles = olderCandles.filter(function (c) { return c && number(c.time, 0) < oldestTime; });
+
+      if (olderCandles.length > 0) {
+        var merged = olderCandles.concat(existingCandles);
+        historyCandlesStore[storeKey] = merged;
+        if (marketSnapshot) marketSnapshot.candles = merged;
+        var hPayload = historyPayload({
+          serverTime: (marketSnapshot && marketSnapshot.serverTime) || snapshot.serverTime,
+          asset: (marketSnapshot && marketSnapshot.asset) || snapshot.asset,
+          candles: merged
+        }, currentSocketSymbol, currentPeriod);
+        broadcastBinary('history/list/v2', hPayload);
+      }
+      window.setTimeout(function () { showHistoryLoader(false); }, 350);
+      isLoadingOlderHistory = false;
+      return olderCandles;
+    }).catch(function (error) {
+      showHistoryLoader(false);
+      isLoadingOlderHistory = false;
+      return null;
+    });
+  }
+
+  var isPointerDown = false;
+  var dragStartX = 0;
+  var dragDebounceTimer = null;
+
+  function triggerHistoryExpansion() {
+    if (dragDebounceTimer) window.clearTimeout(dragDebounceTimer);
+    dragDebounceTimer = window.setTimeout(function () {
+      loadOlderCandles(500);
+    }, 100);
+  }
+
+  window.addEventListener('pointerdown', function (e) {
+    isPointerDown = true;
+    dragStartX = e.clientX || 0;
+  }, {passive: true, capture: true});
+
+  window.addEventListener('pointermove', function (e) {
+    if (!isPointerDown) return;
+    var clientX = e.clientX || 0;
+    var dx = clientX - dragStartX;
+    // User dragging chart to the right = looking backward in time
+    if (dx > 30) {
+      dragStartX = clientX;
+      triggerHistoryExpansion();
+    }
+  }, {passive: true, capture: true});
+
+  window.addEventListener('pointerup', function () {
+    isPointerDown = false;
+  }, {passive: true, capture: true});
+
+  window.addEventListener('wheel', function (e) {
+    if (e.deltaX < -12 || e.deltaY > 15) {
+      triggerHistoryExpansion();
+    }
+  }, {passive: true, capture: true});
+
+  window.addEventListener('click', function (e) {
+    var target = e.target;
+    var btn = target && target.closest ? target.closest('button, [role="button"], a') : null;
+    if (btn) {
+      var txt = (btn.textContent || btn.getAttribute('aria-label') || '').trim();
+      if (txt === '-' || txt.indexOf('zoom') !== -1 || txt.indexOf('back') !== -1) {
+        triggerHistoryExpansion();
+      }
+    }
+  }, {passive: true, capture: true});
+
   function refreshMarket(sendHistory, socket, customCount) {
     if (marketRequestRunning) {
       if (!sendHistory) return Promise.resolve(marketSnapshot);
@@ -764,6 +891,19 @@
       syncServerTime(serverTime);
       var price = number(asset.price, 0);
       if (price > 0) currentLivePrice = price;
+
+      var storeKey = symbolAtStart + '_' + periodAtStart;
+      var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
+      if (!historyCandlesStore[storeKey] || !historyCandlesStore[storeKey].length) {
+        historyCandlesStore[storeKey] = apiCandles;
+      } else {
+        var olderPart = historyCandlesStore[storeKey].filter(function (c) {
+          return apiCandles.length > 0 ? c && number(c.time, 0) < apiCandles[0].time : false;
+        });
+        historyCandlesStore[storeKey] = olderPart.concat(apiCandles);
+      }
+      snapshot.candles = historyCandlesStore[storeKey];
+
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
         if (socket && typeof socket.binaryEvent === 'function') {
@@ -897,10 +1037,10 @@
     } else if (rawTime >= 5 && rawTime <= 86400) {
       // Fast option: duration in seconds
       duration = Math.round(rawTime);
-      targetCloseTime = nowSeconds + duration;
+      targetCloseTime = null;
     } else {
       duration = allowedTradeDurations.indexOf(selectedTradeDuration) !== -1 ? selectedTradeDuration : 60;
-      targetCloseTime = nowSeconds + duration;
+      targetCloseTime = null;
     }
 
     var direction = detectTradeDirection(request.action || '', request.direction || '') || (request.action === 'put' ? 'down' : 'up');

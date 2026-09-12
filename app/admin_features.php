@@ -309,10 +309,8 @@ function admin_handle_trading_control_action(array $admin, string $action): ?str
             if ($winRate < 0 || $winRate > 100) {
                 throw new InvalidArgumentException('Win rate must be between 0 and 100.');
             }
-        }
-        // When direction is set, win_rate is ignored (direction takes precedence)
-        if ($direction !== 'none') {
-            $winRate = null;
+        } elseif ($direction === 'up' || $direction === 'down') {
+            $winRate = 100.00;
         }
         $expiresAtValue = null;
         if ($expiresAt !== '') {
@@ -542,22 +540,26 @@ function render_admin_trading_control_page(): void
 
     <section class="admin-grid admin-grid--tc">
 
-        <!-- CREATE CONTROL CARD -->
+        <!-- CREATE / ADJUST CONTROL CARD -->
         <article class="admin-card tc-create-card">
-            <div class="admin-card-head">
-                <div><span class="eyebrow">New rule</span><h2><?= icon('plus',18) ?> Add control</h2></div>
+            <div class="admin-card-head" style="display:flex;justify-content:space-between;align-items:center;">
+                <div><span class="eyebrow" id="tc-form-eyebrow">New rule</span><h2 id="tc-form-title"><?= icon('plus',18) ?> Add control</h2></div>
+                <button type="button" class="button button--ghost button--small" id="tc-cancel-edit-btn" style="display:none;" onclick="resetTcForm()">
+                    <?= icon('x', 14) ?> Cancel edit
+                </button>
             </div>
             <form method="post" class="admin-editor-form tc-create-form" id="tc-create-form">
                 <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                 <input type="hidden" name="action" value="trading_control_save">
                 <input type="hidden" name="return_page" value="trading">
+                <input type="hidden" name="control_id" id="tc-control-id" value="0">
 
                 <!-- TARGETING -->
                 <div class="tc-section-label"><?= icon('users',15) ?> Target</div>
                 <div class="field-grid">
                     <label class="field">
                         <span>Market asset <small>(blank = all)</small></span>
-                        <select name="asset_id">
+                        <select name="asset_id" id="tc-asset-id">
                             <option value="0">All assets</option>
                             <?php foreach ($assets as $a): ?>
                             <option value="<?= (int)$a['id'] ?>"><?= e($a['symbol']) ?> — <?= e($a['display_name']) ?></option>
@@ -566,7 +568,7 @@ function render_admin_trading_control_page(): void
                     </label>
                     <label class="field">
                         <span>User <small>(blank = all users)</small></span>
-                        <select name="user_id">
+                        <select name="user_id" id="tc-user-id">
                             <option value="0">All users</option>
                             <?php foreach ($users as $u): ?>
                             <option value="<?= (int)$u['id'] ?>"><?= e($u['name']) ?> — <?= e($u['email']) ?></option>
@@ -592,17 +594,29 @@ function render_admin_trading_control_page(): void
                     </label>
                 </div>
 
-                <!-- WIN RATE CONTROL (only when direction = none) -->
+                <!-- WIN RATE CONTROL -->
                 <div class="tc-winrate-row" id="tc-winrate-row">
-                    <div class="tc-section-label"><?= icon('percent',15) ?> Win rate override <small>— only applies when direction = Natural</small></div>
+                    <div class="tc-section-label"><?= icon('percent',15) ?> Win rate probability <small id="tc-wr-desc">— applies to forced direction or natural trading</small></div>
                     <label class="field">
-                        <span>Win probability % <small>(blank = disable)</small></span>
+                        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+                            <span>Win probability % <small>(blank = default 100% for forced or natural market)</small></span>
+                            <span id="win-rate-label" class="tc-wr-badge">— Natural</span>
+                        </div>
                         <div class="tc-slider-wrap">
-                            <input type="range" id="win-rate-slider" min="0" max="100" step="1" value="50"
-                                   oninput="document.getElementById('win-rate-num').value=this.value;updateSliderColor(this)">
-                            <input type="number" id="win-rate-num" name="win_rate" min="0" max="100" step="0.01"
-                                   placeholder="e.g. 40" oninput="document.getElementById('win-rate-slider').value=this.value;updateSliderColor(document.getElementById('win-rate-slider'))">
-                            <span id="win-rate-label" class="tc-wr-badge">—</span>
+                            <input type="range" id="win-rate-slider" min="0" max="100" step="1" value="50">
+                            <input type="number" id="win-rate-num" name="win_rate" min="0" max="100" step="0.1" placeholder="e.g. 50">
+                            <button type="button" class="tc-preset-btn tc-preset-btn--clear" id="tc-wr-clear-btn" title="Clear win rate override">Clear</button>
+                        </div>
+                        <div class="tc-presets">
+                            <span class="tc-presets-label">Presets:</span>
+                            <button type="button" class="tc-preset-btn" data-val="10">10%</button>
+                            <button type="button" class="tc-preset-btn" data-val="25">25%</button>
+                            <button type="button" class="tc-preset-btn" data-val="40">40%</button>
+                            <button type="button" class="tc-preset-btn" data-val="50">50%</button>
+                            <button type="button" class="tc-preset-btn" data-val="70">70%</button>
+                            <button type="button" class="tc-preset-btn" data-val="80">80%</button>
+                            <button type="button" class="tc-preset-btn" data-val="90">90%</button>
+                            <button type="button" class="tc-preset-btn" data-val="100">100%</button>
                         </div>
                     </label>
                 </div>
@@ -611,11 +625,11 @@ function render_admin_trading_control_page(): void
                 <div class="field-grid">
                     <label class="field">
                         <span>Expires at <small>(blank = never)</small></span>
-                        <input type="datetime-local" name="expires_at">
+                        <input type="datetime-local" name="expires_at" id="tc-expires-at">
                     </label>
                     <label class="field">
                         <span>Admin label <small>(optional)</small></span>
-                        <input name="label" maxlength="120" placeholder="e.g. Campaign test 1">
+                        <input name="label" id="tc-label" maxlength="120" placeholder="e.g. Campaign test 1">
                     </label>
                 </div>
 
@@ -685,13 +699,31 @@ function render_admin_trading_control_page(): void
                         <span class="tc-dir tc-dir--none"><?= icon('minus',14) ?> Natural</span>
                     <?php endif; ?>
                 </td>
-                <td><?= $c['win_rate'] !== null ? '<span class="tc-wr-pill">' . number_format((float)$c['win_rate'], 1) . '%</span>' : '<span class="muted">—</span>' ?></td>
+                <td>
+                    <?php if ($c['win_rate'] !== null): ?>
+                        <span class="tc-wr-pill"><?= number_format((float)$c['win_rate'], 1) ?>%</span>
+                    <?php elseif ($c['direction'] === 'up' || $c['direction'] === 'down'): ?>
+                        <span class="tc-wr-pill">100.0%</span>
+                    <?php else: ?>
+                        <span class="muted">—</span>
+                    <?php endif; ?>
+                </td>
                 <td><span class="status status--<?= $isLive ? 'active' : 'blocked' ?>"><?= $isLive ? 'Live' : ($isExpired ? 'Expired' : 'Disabled') ?></span></td>
                 <td><?= $c['expires_at'] ? e(date('d M Y H:i', strtotime((string)$c['expires_at']))) : '<span class="muted">Never</span>' ?></td>
                 <td><?= $c['label'] ? e($c['label']) : '<span class="muted">—</span>' ?></td>
                 <td><?= $c['creator_name'] ? e($c['creator_name']) : '<span class="muted">System</span>' ?></td>
                 <td>
                     <div style="display:flex;gap:5px;align-items:center;">
+                        <button type="button" class="button button--ghost button--small tc-edit-btn" title="Adjust / Edit this control"
+                                data-id="<?= (int)$c['id'] ?>"
+                                data-asset="<?= (int)($c['asset_id'] ?? 0) ?>"
+                                data-user="<?= (int)($c['user_id'] ?? 0) ?>"
+                                data-dir="<?= e($c['direction']) ?>"
+                                data-wr="<?= $c['win_rate'] !== null ? e((string)$c['win_rate']) : '' ?>"
+                                data-expires="<?= $c['expires_at'] ? e(date('Y-m-d\TH:i', strtotime((string)$c['expires_at']))) : '' ?>"
+                                data-label="<?= e($c['label'] ?? '') ?>">
+                            <?= icon('edit', 13) ?>
+                        </button>
                         <form method="post" style="display:contents;">
                             <input type="hidden" name="_csrf" value="<?= e(csrf_token()) ?>">
                             <input type="hidden" name="action" value="trading_control_toggle">
@@ -848,38 +880,134 @@ function render_admin_trading_control_page(): void
 
     <script>
     (function() {
-        // Direction toggle → show/hide win rate row
         var dirInputs = document.querySelectorAll('input[name="direction"]');
         var winRateRow = document.getElementById('tc-winrate-row');
+        var slider = document.getElementById('win-rate-slider');
+        var numInput = document.getElementById('win-rate-num');
+        var badge = document.getElementById('win-rate-label');
+        var clearBtn = document.getElementById('tc-wr-clear-btn');
+        var presetBtns = document.querySelectorAll('.tc-presets .tc-preset-btn');
+
         function updateWrRow() {
             var selected = document.querySelector('input[name="direction"]:checked');
-            winRateRow.style.display = (selected && selected.value !== 'none') ? 'none' : '';
+            var dir = selected ? selected.value : 'none';
+            var desc = document.getElementById('tc-wr-desc');
+            if (desc) {
+                if (dir === 'up') desc.textContent = '— sets UP trade win probability (e.g. 100% = always win, 80% = 80% win rate for UP)';
+                else if (dir === 'down') desc.textContent = '— sets DOWN trade win probability (e.g. 100% = always win, 80% = 80% win rate for DOWN)';
+                else desc.textContent = '— sets overall win probability across all trades';
+            }
+            setWinRate(numInput ? numInput.value : '', false);
         }
         dirInputs.forEach(function(el) { el.addEventListener('change', updateWrRow); });
         updateWrRow();
 
-        // Win rate live label
-        var numInput = document.getElementById('win-rate-num');
-        var badge = document.getElementById('win-rate-label');
-        function updateBadge() {
-            var v = parseFloat(numInput.value);
-            badge.textContent = isNaN(v) ? '—' : v.toFixed(1) + '%';
-            badge.className = 'tc-wr-badge' + (v >= 60 ? ' tc-wr-badge--high' : (v <= 40 ? ' tc-wr-badge--low' : ''));
+        function updateSliderTrack(val, isNull) {
+            if (!slider) return;
+            var num = isNull ? 50 : Math.max(0, Math.min(100, val));
+            slider.style.setProperty('--pct', num + '%');
+            var r = Math.round(255 - (255 * num / 100));
+            var g = Math.round(255 * num / 100);
+            var thumbColor = isNull ? '#90caff' : 'rgb(' + r + ',' + g + ',80)';
+            slider.style.setProperty('--thumb-color', thumbColor);
         }
-        numInput && numInput.addEventListener('input', updateBadge);
-        updateBadge();
-    })();
 
-    function updateSliderColor(el) {
-        var val = el.value;
-        var pct = val + '%';
-        el.style.setProperty('--pct', pct);
-        var r = Math.round(255 - (255 * val / 100));
-        var g = Math.round(255 * val / 100);
-        el.style.setProperty('--thumb-color', 'rgb(' + r + ',' + g + ',80)');
-    }
-    var slider = document.getElementById('win-rate-slider');
-    if (slider) { updateSliderColor(slider); }
+        function setWinRate(val, fromInput) {
+            var selected = document.querySelector('input[name="direction"]:checked');
+            var dir = selected ? selected.value : 'none';
+            var suffix = dir === 'up' ? ' (UP)' : (dir === 'down' ? ' (DOWN)' : '');
+
+            if (val === '' || val === null || typeof val === 'undefined' || isNaN(parseFloat(val))) {
+                if (!fromInput && numInput) numInput.value = '';
+                if (slider) slider.value = dir !== 'none' ? 100 : 50;
+                if (badge) {
+                    badge.textContent = dir !== 'none' ? ('100.0%' + suffix) : '— Natural';
+                    badge.className = 'tc-wr-badge' + (dir !== 'none' ? ' tc-wr-badge--high' : '');
+                }
+                updateSliderTrack(dir !== 'none' ? 100 : 50, dir === 'none');
+            } else {
+                var n = Math.max(0, Math.min(100, parseFloat(val)));
+                if (!fromInput && numInput) numInput.value = n;
+                if (slider) slider.value = Math.round(n);
+                if (badge) {
+                    badge.textContent = n.toFixed(1) + '%' + suffix;
+                    badge.className = 'tc-wr-badge' + (n >= 60 ? ' tc-wr-badge--high' : (n <= 40 ? ' tc-wr-badge--low' : ' tc-wr-badge--mid'));
+                }
+                updateSliderTrack(n, false);
+            }
+        }
+
+        if (slider) {
+            slider.addEventListener('input', function() {
+                setWinRate(this.value, false);
+            });
+        }
+        if (numInput) {
+            numInput.addEventListener('input', function() {
+                setWinRate(this.value, true);
+            });
+        }
+        if (clearBtn) {
+            clearBtn.addEventListener('click', function(e) {
+                e.preventDefault();
+                setWinRate('', false);
+            });
+        }
+        presetBtns.forEach(function(btn) {
+            btn.addEventListener('click', function(e) {
+                e.preventDefault();
+                setWinRate(this.dataset.val, false);
+            });
+        });
+
+        // Initialize state
+        setWinRate(numInput ? numInput.value : '', false);
+
+        // Edit button handler to adjust existing controls
+        document.querySelectorAll('.tc-edit-btn').forEach(function(btn) {
+            btn.addEventListener('click', function() {
+                var id = this.dataset.id;
+                var assetId = this.dataset.asset || '0';
+                var userId = this.dataset.user || '0';
+                var dir = this.dataset.dir || 'none';
+                var wr = this.dataset.wr || '';
+                var expires = this.dataset.expires || '';
+                var label = this.dataset.label || '';
+
+                document.getElementById('tc-control-id').value = id;
+                document.getElementById('tc-asset-id').value = assetId;
+                document.getElementById('tc-user-id').value = userId;
+
+                var dirRadio = document.getElementById('dir-' + dir) || document.getElementById('dir-none');
+                dirRadio.checked = true;
+                updateWrRow();
+
+                setWinRate(wr, false);
+
+                document.getElementById('tc-expires-at').value = expires;
+                document.getElementById('tc-label').value = label;
+
+                document.getElementById('tc-form-eyebrow').textContent = 'Adjust rule #' + id;
+                document.getElementById('tc-form-title').innerHTML = '<span style="color:#20ce78;">&#9998;</span> Edit control #' + id;
+                document.getElementById('tc-save-btn').innerHTML = '<?= icon('check',16) ?> Update control #' + id;
+                document.getElementById('tc-cancel-edit-btn').style.display = 'inline-flex';
+
+                document.getElementById('tc-create-form').scrollIntoView({ behavior: 'smooth', block: 'center' });
+            });
+        });
+
+        window.resetTcForm = function() {
+            document.getElementById('tc-control-id').value = '0';
+            document.getElementById('tc-create-form').reset();
+            document.getElementById('dir-none').checked = true;
+            updateWrRow();
+            setWinRate('', false);
+            document.getElementById('tc-form-eyebrow').textContent = 'New rule';
+            document.getElementById('tc-form-title').innerHTML = '<?= icon('plus',18) ?> Add control';
+            document.getElementById('tc-save-btn').innerHTML = '<?= icon('check',16) ?> Save control';
+            document.getElementById('tc-cancel-edit-btn').style.display = 'none';
+        };
+    })();
     </script>
     <?php
 }

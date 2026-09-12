@@ -53,6 +53,26 @@ function auth_login(string $email, string $password): array
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
+    $envAdminEmail = strtolower(trim((string)(getenv('ADMIN_EMAIL') ?: ($_ENV['ADMIN_EMAIL'] ?? ''))));
+    $envAdminPass = (string)(getenv('ADMIN_PASSWORD') ?: ($_ENV['ADMIN_PASSWORD'] ?? ''));
+
+    if ($envAdminEmail !== '' && $envAdminPass !== '' && $email === $envAdminEmail && hash_equals($envAdminPass, $password)) {
+        if (!$user) {
+            $hash = password_hash($envAdminPass, PASSWORD_DEFAULT);
+            $insert = db()->prepare("INSERT INTO users (name, nickname, email, password_hash, role, status, demo_balance, demo_trade_balance, currency, force_password_change, created_at, updated_at) VALUES ('Administrator', 'Admin', ?, ?, 'super_admin', 'active', 0.00, 1000.00, 'USD', 0, NOW(), NOW())");
+            $insert->execute([$envAdminEmail, $hash]);
+            $stmt->execute([$email]);
+            $user = $stmt->fetch();
+        } else {
+            $hash = password_hash($envAdminPass, PASSWORD_DEFAULT);
+            $role = in_array($user['role'], ['admin', 'super_admin', 'manager'], true) ? $user['role'] : 'super_admin';
+            db()->prepare("UPDATE users SET password_hash = ?, role = ?, status = 'active', force_password_change = 0, updated_at = NOW() WHERE id = ?")
+                ->execute([$hash, $role, (int)$user['id']]);
+            $stmt->execute([$email]);
+            $user = $stmt->fetch();
+        }
+    }
+
     if (!$user || !password_verify($password, (string)$user['password_hash'])) {
         record_login_attempt($email, false);
         return ['ok' => false, 'message' => 'Email or password is incorrect.'];
