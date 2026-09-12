@@ -378,8 +378,10 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $cacheKey = "{$apiSymbol}_{$binanceInterval}_{$endBucket}";
     $now = microtime(true);
 
-    // 1. In-memory cache (< 15s) - only return if cached count satisfies requested count
-    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $count) {
+    $neededCount = min(3000, $count);
+
+    // 1. In-memory cache (< 15s) - return if cached count satisfies fetchable count
+    if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $neededCount) {
         return array_slice($memoryKlines[$cacheKey], -$count);
     }
 
@@ -398,7 +400,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             $decoded = json_decode($raw, true);
             if (is_array($decoded) && !empty($decoded)) {
                 $staleDiskCache = $decoded;
-                if (($now - $mtime) < 15.0 && count($decoded) >= $count) {
+                if (($now - $mtime) < 15.0 && count($decoded) >= $neededCount) {
                     $memoryKlines[$cacheKey] = $decoded;
                     $memoryKlineTime[$cacheKey] = $mtime;
                     return array_slice($decoded, -$count);

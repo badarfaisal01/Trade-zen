@@ -319,7 +319,7 @@ function send_email(string $to, string $subject, string $htmlBody, ?string $text
 }
 
 /**
- * Generates and sends a high-converting, premium HTML Welcome Email upon user account creation
+ * Generates and sends a high-converting, professional Quotex-style HTML Welcome Email upon user account creation
  */
 function send_welcome_email(array $user): bool
 {
@@ -332,6 +332,9 @@ function send_welcome_email(array $user): bool
     if ($name === '') {
         $name = 'Trader';
     }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
 
     $config = mailer_config();
     $platformName = $config['from_name'];
@@ -346,261 +349,230 @@ function send_welcome_email(array $user): bool
     $tradeUrl = $baseUrl . '/en/trade/';
     $depositUrl = $baseUrl . '/en/deposit/';
     $supportEmail = (string)(setting('support_email') ?: 'support@tradexa.pro');
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
 
-    $demoBalance = number_format((float)($user['demo_balance'] ?? 1000.00), 2, '.', ',');
+    $demoBalance = number_format((float)($user['demo_balance'] ?? 10000.00), 2, '.', ',');
     $currency = strtoupper((string)($user['currency'] ?? 'USD'));
     $currencySign = $currency === 'INR' ? '₹' : '$';
 
-    $subject = "Welcome to {$platformName} – Your Trading Account is Ready!";
+    $subject = "Welcome to {$platformName} – Your Trading Account is Ready";
+
+    $year = date('Y');
 
     $html = <<<HTML
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
     <title>Welcome to {$platformName}</title>
-    <style>
-        body {
-            margin: 0;
-            padding: 0;
-            background-color: #0b0e14;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
-            color: #e2e8f0;
-            -webkit-font-smoothing: antialiased;
-        }
-        .wrapper {
-            width: 100%;
-            background-color: #0b0e14;
-            padding: 30px 15px;
-        }
-        .container {
-            max-width: 580px;
-            margin: 0 auto;
-            background: #131722;
-            border: 1px solid #1f2736;
-            border-radius: 16px;
-            overflow: hidden;
-            box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
-        }
-        .header {
-            background: linear-gradient(135deg, #0d131f 0%, #172033 100%);
-            padding: 36px 30px 28px;
-            text-align: center;
-            border-bottom: 1px solid #1f2736;
-        }
-        .badge {
-            display: inline-block;
-            background: rgba(0, 230, 118, 0.12);
-            color: #00e676;
-            font-size: 11px;
-            font-weight: 700;
-            text-transform: uppercase;
-            letter-spacing: 1.5px;
-            padding: 6px 14px;
-            border-radius: 20px;
-            margin-bottom: 16px;
-            border: 1px solid rgba(0, 230, 118, 0.25);
-        }
-        .logo {
-            font-size: 26px;
-            font-weight: 800;
-            letter-spacing: -0.5px;
-            color: #ffffff;
-            margin: 0;
-        }
-        .logo span {
-            color: #00e676;
-        }
-        .body {
-            padding: 36px 32px;
-        }
-        h1 {
-            font-size: 22px;
-            font-weight: 700;
-            color: #ffffff;
-            margin: 0 0 14px;
-            line-height: 1.3;
-        }
-        p {
-            font-size: 15px;
-            line-height: 1.6;
-            color: #94a3b8;
-            margin: 0 0 20px;
-        }
-        .account-card {
-            background: #181f2f;
-            border: 1px solid #232c40;
-            border-radius: 12px;
-            padding: 20px;
-            margin: 24px 0;
-        }
-        .account-row {
-            display: flex;
-            justify-content: space-between;
-            align-items: center;
-            padding: 10px 0;
-            border-bottom: 1px solid #232c40;
-            font-size: 14px;
-        }
-        .account-row:last-child {
-            border-bottom: none;
-            padding-bottom: 0;
-        }
-        .account-row:first-child {
-            padding-top: 0;
-        }
-        .label {
-            color: #64748b;
-        }
-        .val {
-            color: #f1f5f9;
-            font-weight: 600;
-        }
-        .balance-val {
-            color: #00e676;
-            font-weight: 700;
-            font-size: 16px;
-        }
-        .cta-container {
-            text-align: center;
-            margin: 32px 0 28px;
-        }
-        .btn {
-            display: inline-block;
-            background: linear-gradient(135deg, #00e676 0%, #00b0ff 100%);
-            color: #0b0e14 !important;
-            text-decoration: none;
-            font-size: 15px;
-            font-weight: 700;
-            padding: 14px 34px;
-            border-radius: 10px;
-            box-shadow: 0 6px 20px rgba(0, 230, 118, 0.35);
-            letter-spacing: 0.3px;
-        }
-        .features {
-            margin: 28px 0;
-            padding: 0;
-            list-style: none;
-        }
-        .feature-item {
-            padding: 10px 0;
-            display: flex;
-            align-items: center;
-            font-size: 14px;
-            color: #cbd5e1;
-        }
-        .feature-icon {
-            display: inline-block;
-            width: 24px;
-            height: 24px;
-            line-height: 24px;
-            text-align: center;
-            background: rgba(0, 176, 255, 0.15);
-            color: #00b0ff;
-            border-radius: 6px;
-            margin-right: 12px;
-            font-size: 12px;
-            font-weight: bold;
-        }
-        .security-notice {
-            background: rgba(245, 158, 11, 0.08);
-            border-left: 3px solid #f59e0b;
-            padding: 14px 16px;
-            border-radius: 6px;
-            font-size: 13px;
-            color: #fbbf24;
-            line-height: 1.5;
-            margin: 24px 0 0;
-        }
-        .footer {
-            background: #0d111a;
-            border-top: 1px solid #1a202c;
-            padding: 24px 30px;
-            text-align: center;
-            font-size: 12px;
-            color: #64748b;
-            line-height: 1.6;
-        }
-        .footer a {
-            color: #94a3b8;
-            text-decoration: underline;
-        }
-    </style>
 </head>
-<body>
-    <div class="wrapper">
-        <div class="container">
-            <div class="header">
-                <div class="badge">Account Verified & Ready</div>
-                <h1 class="logo">{$platformName}</h1>
-            </div>
-            <div class="body">
-                <h1>Welcome aboard, {$name}!</h1>
-                <p>Your trading account has been successfully created. You're now equipped with institutional-grade real-time market data, instant one-click execution, and smart trading tools.</p>
+<body style="margin: 0; padding: 0; background-color: #0c1017; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #e2e8f0; -webkit-font-smoothing: antialiased; line-height: 1.5;">
+    <!-- Outer Table -->
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed; background-color: #0c1017; margin: 0; padding: 32px 12px 40px;">
+        <tr>
+            <td align="center" valign="top">
+                <!-- Main Container -->
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #151c28; border: 1px solid #222d42; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);">
+                    
+                    <!-- Header Bar -->
+                    <tr>
+                        <td align="center" style="background-color: #101620; padding: 26px 32px; border-bottom: 1px solid #222d42;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="left" style="font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff;">
+                                        {$platformName}<span style="color: #0073e6;">.</span>
+                                    </td>
+                                    <td align="right">
+                                        <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #00e676; background-color: #0f2320; border: 1px solid rgba(0, 230, 118, 0.3); padding: 5px 12px; border-radius: 4px; display: inline-block;">
+                                            Official Notification
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
 
-                <table width="100%" cellpadding="0" cellspacing="0" class="account-card" style="border-collapse:collapse;">
+                    <!-- Body Content -->
                     <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #232c40; color:#64748b; font-size:14px;">Registered Email:</td>
-                        <td align="right" style="padding:10px 0; border-bottom:1px solid #232c40; color:#f1f5f9; font-size:14px; font-weight:600;">{$email}</td>
+                        <td style="padding: 36px 36px 28px;">
+                            <h1 style="margin: 0 0 16px; font-size: 22px; font-weight: 700; color: #ffffff; line-height: 1.3;">
+                                Welcome to {$platformName}
+                            </h1>
+                            <p style="margin: 0 0 16px; font-size: 15px; color: #cbd5e1; line-height: 1.6;">
+                                Dear <strong style="color: #ffffff;">{$name}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+                                Thank you for registering with {$platformName}. Your trading profile has been successfully set up and is now ready for use. You have immediate access to real-time market data, rapid trade execution, and professional charting tools.
+                            </p>
+
+                            <!-- Account Details Table -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #101620; border: 1px solid #222d42; border-radius: 6px; margin: 0 0 28px; border-collapse: collapse;">
+                                <tr>
+                                    <td colspan="2" style="padding: 12px 18px; background-color: #1a2232; border-bottom: 1px solid #222d42; font-size: 12px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.8px; color: #94a3b8;">
+                                        Trading Account Summary
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; color: #94a3b8;">Account ID:</td>
+                                    <td align="right" style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; font-weight: 600; color: #f1f5f9; font-family: 'Courier New', Courier, monospace;">{$accountIdFormatted}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; color: #94a3b8;">Registered Email:</td>
+                                    <td align="right" style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; font-weight: 600; color: #f1f5f9;">{$email}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; color: #94a3b8;">Account Currency:</td>
+                                    <td align="right" style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; font-weight: 600; color: #f1f5f9;">{$currency}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 13px; color: #94a3b8;">Practice (Demo) Balance:</td>
+                                    <td align="right" style="padding: 12px 18px; border-bottom: 1px solid #1c2638; font-size: 14px; font-weight: 700; color: #00e676;">{$currencySign}{$demoBalance} {$currency}</td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 12px 18px; font-size: 13px; color: #94a3b8;">Account Status:</td>
+                                    <td align="right" style="padding: 12px 18px; font-size: 13px; font-weight: 600; color: #00b0ff;">Active</td>
+                                </tr>
+                            </table>
+
+                            <!-- Primary CTA Button (Quotex Solid Style) -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 0 0 32px;">
+                                <tr>
+                                    <td align="center">
+                                        <table border="0" cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td align="center" bgcolor="#0073e6" style="border-radius: 6px; background-color: #0073e6;">
+                                                    <a href="{$tradeUrl}" target="_blank" style="font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; padding: 14px 40px; display: inline-block; letter-spacing: 0.3px; border-radius: 6px; font-family: inherit;">
+                                                        START TRADING NOW &rarr;
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- 3-Step Quick Guide -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 0 0 28px; border-top: 1px solid #222d42; padding-top: 24px;">
+                                <tr>
+                                    <td style="font-size: 14px; font-weight: 700; color: #ffffff; padding-bottom: 14px;">
+                                        Quick Start Guide:
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td valign="top" width="28" style="font-size: 13px; font-weight: 700; color: #0073e6;">1.</td>
+                                                <td style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                                                    <strong style="color: #ffffff;">Practice Risk-Free:</strong> Test trading strategies and familiarize yourself with tools using your virtual demo funds.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td valign="top" width="28" style="font-size: 13px; font-weight: 700; color: #0073e6;">2.</td>
+                                                <td style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                                                    <strong style="color: #ffffff;">Fund Your Account:</strong> Make a secure deposit using UPI, Bank Cards, E-Wallets, or Cryptocurrency to unlock live trading.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                                <tr>
+                                    <td style="padding: 8px 0;">
+                                        <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                            <tr>
+                                                <td valign="top" width="28" style="font-size: 13px; font-weight: 700; color: #0073e6;">3.</td>
+                                                <td style="font-size: 13px; color: #cbd5e1; line-height: 1.5;">
+                                                    <strong style="color: #ffffff;">Execute Trades:</strong> Open positions across 400+ assets with lightning-fast execution and real-time market data.
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Security Information Box -->
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #101620; border-left: 3px solid #0073e6; border-radius: 4px; padding: 14px 16px; margin: 0 0 20px;">
+                                <tr>
+                                    <td style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                                        <strong style="color: #ffffff;">Account Security:</strong> Never disclose your account credentials or passwords. {$platformName} staff will never request your password or one-time verification codes.
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <!-- Support Section -->
+                            <p style="margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                                If you require assistance, our customer support team is available 24/7 at <a href="mailto:{$supportEmail}" style="color: #0073e6; text-decoration: none;">{$supportEmail}</a>.
+                            </p>
+                        </td>
                     </tr>
+
+                    <!-- Footer -->
                     <tr>
-                        <td style="padding:10px 0; border-bottom:1px solid #232c40; color:#64748b; font-size:14px;">Practice Balance:</td>
-                        <td align="right" style="padding:10px 0; border-bottom:1px solid #232c40; color:#00e676; font-size:15px; font-weight:700;">{$currencySign}{$demoBalance} {$currency}</td>
+                        <td style="background-color: #101620; border-top: 1px solid #222d42; padding: 24px 36px; text-align: center;">
+                            <p style="margin: 0 0 12px; font-size: 11px; color: #64748b; line-height: 1.6; text-align: justify;">
+                                <strong style="color: #94a3b8;">Risk Warning:</strong> Financial operations provided on the platform may involve high risk. Engaging in trading financial instruments and digital contracts carries substantial risk of capital loss. Please assess your investment objectives and risk appetite prior to trading.
+                            </p>
+                            <p style="margin: 0 0 12px; font-size: 11px; color: #64748b;">
+                                <a href="{$tradeUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Trading Platform</a> &bull;
+                                <a href="{$termsUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Terms of Service</a> &bull;
+                                <a href="{$privacyUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Privacy Policy</a>
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569;">
+                                &copy; {$year} {$platformName}. All rights reserved.
+                            </p>
+                        </td>
                     </tr>
-                    <tr>
-                        <td style="padding:10px 0; color:#64748b; font-size:14px;">Account Status:</td>
-                        <td align="right" style="padding:10px 0; color:#00b0ff; font-size:14px; font-weight:600;">Active</td>
-                    </tr>
+
                 </table>
-
-                <div class="cta-container">
-                    <a href="{$tradeUrl}" class="btn" target="_blank">Start Trading Now &rarr;</a>
-                </div>
-
-                <div style="font-size:13px; color:#cbd5e1; margin-top:20px;">
-                    <p style="margin-bottom:8px; font-weight:600; color:#ffffff;">Quick Start Steps:</p>
-                    <div style="padding:6px 0;">&#10003; <strong>Practice Risk-Free:</strong> Master your strategies using your practice balance.</div>
-                    <div style="padding:6px 0;">&#10003; <strong>Deposit Securely:</strong> Fund your Live account with UPI, Cards, or Crypto anytime.</div>
-                    <div style="padding:6px 0;">&#10003; <strong>Instant Execution:</strong> Enjoy ultra-fast trade placement with accurate price streaming.</div>
-                </div>
-
-                <div class="security-notice">
-                    <strong>Security Reminder:</strong> Never share your login credentials or password with anyone. {$platformName} support will never ask for your password.
-                </div>
-            </div>
-            <div class="footer">
-                <p style="margin:0 0 8px;">Questions or need assistance? Contact us at <a href="mailto:{$supportEmail}">{$supportEmail}</a>.</p>
-                <p style="margin:0;">&copy; 2026 {$platformName}. All rights reserved.</p>
-            </div>
-        </div>
-    </div>
+                <!-- End Main Container -->
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
 
     $text = <<<TEXT
-Hello {$name},
+Welcome to {$platformName}
+========================================
 
-Welcome to {$platformName}!
+Dear {$name},
 
-Your trading account has been successfully created and is ready to use.
+Thank you for registering with {$platformName}. Your trading profile has been successfully set up and is now ready for use.
 
-Account Details:
+Trading Account Summary:
+- Account ID: {$accountIdFormatted}
 - Registered Email: {$email}
-- Practice Balance: {$currencySign}{$demoBalance} {$currency}
+- Account Currency: {$currency}
+- Practice (Demo) Balance: {$currencySign}{$demoBalance} {$currency}
 - Account Status: Active
 
-Start Trading Now:
+Start Trading:
 {$tradeUrl}
 
+Quick Start Guide:
+1. Practice Risk-Free: Test trading strategies using your virtual demo funds.
+2. Fund Your Account: Make a secure deposit using cards, UPI, or crypto to unlock live trading.
+3. Execute Trades: Open positions with lightning-fast execution and real-time quotes.
+
 Security Reminder:
-Never share your password with anyone. {$platformName} support will never ask for your password.
+Never disclose your account credentials to anyone. {$platformName} staff will never request your password or verification codes.
 
-If you have any questions, contact our support team at: {$supportEmail}
+Need Help?
+Our support team is available 24/7 at {$supportEmail}.
 
-Regards,
-The {$platformName} Team
+----------------------------------------
+Risk Warning: Financial operations provided on the platform may involve high risk. Engaging in trading financial instruments carries substantial risk of capital loss. Please assess your risk appetite prior to trading.
+
+© {$year} {$platformName}. All rights reserved.
 TEXT;
 
     return send_email($email, $subject, $html, $text, $name);
@@ -620,39 +592,104 @@ function send_password_reset_email(array $user, string $resetUrl): bool
     $config = mailer_config();
     $platformName = $config['from_name'];
     $supportEmail = (string)(setting('support_email') ?: 'support@tradexa.pro');
+    $baseUrl = rtrim((string)app_config('url'), '/');
+    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
+        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
+        $baseUrl = $scheme . $host;
+    }
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $year = date('Y');
 
     $subject = "Reset Your {$platformName} Password";
 
     $html = <<<HTML
-<!DOCTYPE html>
-<html lang="en">
+<!DOCTYPE html PUBLIC "-//W3C//DTD XHTML 1.0 Transitional//EN" "http://www.w3.org/TR/xhtml1/DTD/xhtml1-transitional.dtd">
+<html xmlns="http://www.w3.org/1999/xhtml" lang="en">
 <head>
-    <meta charset="UTF-8">
-    <title>Password Reset</title>
+    <meta http-equiv="Content-Type" content="text/html; charset=UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Password Reset - {$platformName}</title>
 </head>
-<body style="margin:0;padding:0;background:#0b0e14;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Helvetica,Arial,sans-serif;color:#e2e8f0;">
-    <div style="width:100%;padding:30px 15px;background:#0b0e14;box-sizing:border-box;">
-        <div style="max-width:540px;margin:0 auto;background:#131722;border:1px solid #1f2736;border-radius:14px;overflow:hidden;">
-            <div style="background:#172033;padding:28px 24px;text-align:center;border-bottom:1px solid #1f2736;">
-                <h1 style="color:#ffffff;margin:0;font-size:24px;">{$platformName}</h1>
-            </div>
-            <div style="padding:32px 28px;">
-                <h2 style="color:#ffffff;font-size:18px;margin:0 0 16px;">Hello {$name},</h2>
-                <p style="color:#94a3b8;font-size:15px;line-height:1.6;margin:0 0 20px;">
-                    We received a request to reset the password for your {$platformName} account. Click the button below to choose a new password:
-                </p>
-                <div style="text-align:center;margin:30px 0;">
-                    <a href="{$resetUrl}" style="display:inline-block;background:#00e676;color:#0b0e14;text-decoration:none;font-size:15px;font-weight:700;padding:12px 30px;border-radius:8px;" target="_blank">Reset Password</a>
-                </div>
-                <p style="color:#64748b;font-size:13px;line-height:1.5;margin:20px 0 0;">
-                    This link will expire in <strong>30 minutes</strong>. If you did not request a password reset, you can safely ignore this email.
-                </p>
-            </div>
-            <div style="background:#0d111a;border-top:1px solid #1a202c;padding:20px;text-align:center;font-size:12px;color:#64748b;">
-                Need help? Contact <a href="mailto:{$supportEmail}" style="color:#94a3b8;">{$supportEmail}</a>
-            </div>
-        </div>
-    </div>
+<body style="margin: 0; padding: 0; background-color: #0c1017; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; color: #e2e8f0; -webkit-font-smoothing: antialiased; line-height: 1.5;">
+    <table border="0" cellpadding="0" cellspacing="0" width="100%" style="table-layout: fixed; background-color: #0c1017; margin: 0; padding: 32px 12px 40px;">
+        <tr>
+            <td align="center" valign="top">
+                <table border="0" cellpadding="0" cellspacing="0" width="100%" style="max-width: 600px; background-color: #151c28; border: 1px solid #222d42; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 24px rgba(0, 0, 0, 0.45);">
+                    <tr>
+                        <td align="center" style="background-color: #101620; padding: 26px 32px; border-bottom: 1px solid #222d42;">
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%">
+                                <tr>
+                                    <td align="left" style="font-size: 24px; font-weight: 800; letter-spacing: -0.5px; color: #ffffff;">
+                                        {$platformName}<span style="color: #0073e6;">.</span>
+                                    </td>
+                                    <td align="right">
+                                        <span style="font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 1px; color: #00b0ff; background-color: #0f1c2b; border: 1px solid rgba(0, 176, 255, 0.3); padding: 5px 12px; border-radius: 4px; display: inline-block;">
+                                            Security Request
+                                        </span>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="padding: 36px 36px 28px;">
+                            <h1 style="margin: 0 0 16px; font-size: 20px; font-weight: 700; color: #ffffff; line-height: 1.3;">
+                                Reset Your Password
+                            </h1>
+                            <p style="margin: 0 0 16px; font-size: 15px; color: #cbd5e1; line-height: 1.6;">
+                                Hello <strong style="color: #ffffff;">{$name}</strong>,
+                            </p>
+                            <p style="margin: 0 0 24px; font-size: 14px; color: #94a3b8; line-height: 1.6;">
+                                We received a request to reset the password associated with your {$platformName} account. Click the button below to set a new password:
+                            </p>
+
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="margin: 0 0 28px;">
+                                <tr>
+                                    <td align="center">
+                                        <table border="0" cellpadding="0" cellspacing="0">
+                                            <tr>
+                                                <td align="center" bgcolor="#0073e6" style="border-radius: 6px; background-color: #0073e6;">
+                                                    <a href="{$resetUrl}" target="_blank" style="font-size: 15px; font-weight: 700; color: #ffffff; text-decoration: none; padding: 14px 40px; display: inline-block; letter-spacing: 0.3px; border-radius: 6px; font-family: inherit;">
+                                                        RESET PASSWORD &rarr;
+                                                    </a>
+                                                </td>
+                                            </tr>
+                                        </table>
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <table border="0" cellpadding="0" cellspacing="0" width="100%" style="background-color: #101620; border-left: 3px solid #00b0ff; border-radius: 4px; padding: 14px 16px; margin: 0 0 24px;">
+                                <tr>
+                                    <td style="font-size: 12px; color: #94a3b8; line-height: 1.5;">
+                                        This reset link will expire in <strong style="color: #ffffff;">30 minutes</strong>. If you did not initiate this request, no action is required and your account remains secure.
+                                    </td>
+                                </tr>
+                            </table>
+
+                            <p style="margin: 0; font-size: 13px; color: #94a3b8; line-height: 1.5;">
+                                For any questions, please contact our support team at <a href="mailto:{$supportEmail}" style="color: #0073e6; text-decoration: none;">{$supportEmail}</a>.
+                            </p>
+                        </td>
+                    </tr>
+                    <tr>
+                        <td style="background-color: #101620; border-top: 1px solid #222d42; padding: 24px 36px; text-align: center;">
+                            <p style="margin: 0 0 12px; font-size: 11px; color: #64748b;">
+                                <a href="{$baseUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Platform Home</a> &bull;
+                                <a href="{$termsUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Terms of Service</a> &bull;
+                                <a href="{$privacyUrl}" style="color: #94a3b8; text-decoration: none; margin: 0 8px;">Privacy Policy</a>
+                            </p>
+                            <p style="margin: 0; font-size: 11px; color: #475569;">
+                                &copy; {$year} {$platformName}. All rights reserved.
+                            </p>
+                        </td>
+                    </tr>
+                </table>
+            </td>
+        </tr>
+    </table>
 </body>
 </html>
 HTML;
@@ -667,8 +704,10 @@ Reset your password using the link below (valid for 30 minutes):
 
 If you did not request this, you can safely ignore this email.
 
-Regards,
-The {$platformName} Team
+Need Help?
+Support is available 24/7 at {$supportEmail}.
+
+© {$year} {$platformName}. All rights reserved.
 TEXT;
 
     return send_email($email, $subject, $html, $text, $name);

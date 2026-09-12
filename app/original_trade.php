@@ -191,7 +191,7 @@ function render_original_trade_page(array $user): void
         'trade-max-amount' => number_format($maximum, 2, '.', ''),
         'trade-allowed-durations' => implode(',', $durations),
         'trade-default-duration' => (string)$defaultDuration,
-        'trade-chart-history-count' => (string)max(60, min(1000, (int)setting('chart_history_candles', 300))),
+        'trade-chart-history-count' => (string)max(60, min(10000, (int)setting('chart_history_candles', 10000))),
         'trade-quote-poll-ms' => (string)max(250, min(2000, (int)setting('chart_quote_interval_ms', 650))),
         'trade-bootstrap-assets' => $bootstrapAssetsEncoded,
         'trade-server-time' => (string)$bootstrapTime,

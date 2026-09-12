@@ -338,7 +338,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $p1 = max($hLowR, min($hHighR, $p1));
                         $p2 = max($hLowR, min($hHighR, $p2));
 
-                        array_unshift($historicalCandles, [
+                        $historicalCandles[] = [
                             'time' => $tMs,
                             'open' => $hOpenR,
                             'high' => $hHighR,
@@ -352,12 +352,12 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                                 [$tMs + (int)round($intervalMs * 0.67), $p2],
                                 [$candleEnd, $hCloseR],
                             ],
-                        ]);
+                        ];
 
                         $anchorPrice = $hOpen;
                     }
 
-                    $candles = array_merge($historicalCandles, $candles);
+                    $candles = array_merge(array_reverse($historicalCandles), $candles);
                 }
 
                 return $candles;
