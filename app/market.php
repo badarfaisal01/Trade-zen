@@ -533,7 +533,7 @@ function refresh_market_api_price(int $assetId): float
     $source = 'unknown';
 
     // Try Twelve Data API first (for Forex, Crypto)
-    $twelvedataKey = getenv('TWELVEDATA_API_KEY');
+    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
     if (!empty($twelvedataKey)) {
         try {
             $price = fetch_twelvedata_price($symbol, $twelvedataKey);
@@ -545,7 +545,7 @@ function refresh_market_api_price(int $assetId): float
 
     // Try Metals API for precious metals
     if ($price === null && (stripos($symbol, 'XAU') !== false || stripos($symbol, 'XAG') !== false || stripos($symbol, 'GOLD') !== false || stripos($symbol, 'SILVER') !== false)) {
-        $metalsKey = getenv('METALS_API_KEY');
+        $metalsKey = (string)env('METALS_API_KEY', '');
         if (!empty($metalsKey)) {
             try {
                 $price = fetch_metals_api_price($symbol, 'USD', $metalsKey);

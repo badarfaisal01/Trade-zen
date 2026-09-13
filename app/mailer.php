@@ -8,35 +8,8 @@ declare(strict_types=1);
 
 function mailer_env(string $key, ?string $default = null): ?string
 {
-    if (isset($_ENV[$key]) && (string)$_ENV[$key] !== '') {
-        return (string)$_ENV[$key];
-    }
-    if (isset($_SERVER[$key]) && (string)$_SERVER[$key] !== '') {
-        return (string)$_SERVER[$key];
-    }
-    $val = getenv($key);
-    if ($val !== false && (string)$val !== '') {
-        return (string)$val;
-    }
-    static $envCache = null;
-    if ($envCache === null) {
-        $envCache = [];
-        $envFile = defined('BASE_PATH') ? BASE_PATH . '/.env' : dirname(__DIR__) . '/.env';
-        if (file_exists($envFile)) {
-            $lines = file($envFile, FILE_IGNORE_NEW_LINES | FILE_SKIP_EMPTY_LINES);
-            foreach ($lines as $line) {
-                if (strpos($line, '#') === 0 || strpos($line, '=') === false) continue;
-                [$k, $v] = explode('=', $line, 2);
-                $k = trim($k);
-                $v = trim($v);
-                if ((str_starts_with($v, '"') && str_ends_with($v, '"')) || (str_starts_with($v, "'") && str_ends_with($v, "'"))) {
-                    $v = substr($v, 1, -1);
-                }
-                $envCache[$k] = $v;
-            }
-        }
-    }
-    return $envCache[$key] ?? $default;
+    $val = env($key, $default);
+    return $val !== null ? (string)$val : null;
 }
 
 function mailer_config(): array

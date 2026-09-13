@@ -51,7 +51,7 @@ function normalize_twelvedata_symbol(string $symbol): string
 
 function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
 {
-    $apiKey = $apiKey ?? getenv('TWELVEDATA_API_KEY');
+    $apiKey = $apiKey ?? (string)env('TWELVEDATA_API_KEY', '');
     if (empty($apiKey)) {
         throw new RuntimeException('Twelve Data API key not configured. Add TWELVEDATA_API_KEY to .env');
     }
@@ -112,7 +112,7 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
  */
 function fetch_metals_api_price(string $symbol, string $baseCurrency = 'USD', ?string $apiKey = null): float
 {
-    $apiKey = $apiKey ?? getenv('METALS_API_KEY');
+    $apiKey = $apiKey ?? (string)env('METALS_API_KEY', '');
     if (empty($apiKey)) {
         throw new RuntimeException('Metals API key not configured. Add METALS_API_KEY to .env');
     }
@@ -683,7 +683,7 @@ function test_market_api_connection(): array
     }
 
     // Test Metals API only if a key was supplied
-    if (!empty(getenv('METALS_API_KEY'))) {
+    if (!empty(env('METALS_API_KEY'))) {
         try {
             $price = fetch_metals_api_price('XAU', 'USD');
             if ($price > 0) {

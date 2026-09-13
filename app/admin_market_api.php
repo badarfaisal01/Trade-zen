@@ -12,9 +12,9 @@ function render_admin_market_api_page(): void
     }
 
     // Get current configuration from environment
-    $twelvedataKey = getenv('TWELVEDATA_API_KEY') ?: '';
-    $metalsKey = getenv('METALS_API_KEY') ?: '';
-    $apiProvider = getenv('MARKET_API_PROVIDER') ?: 'twelvedata';
+    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
+    $metalsKey = (string)env('METALS_API_KEY', '');
+    $apiProvider = (string)env('MARKET_API_PROVIDER', 'binance');
     
     $assets = market_assets(false);
     

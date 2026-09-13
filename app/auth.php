@@ -53,8 +53,8 @@ function auth_login(string $email, string $password): array
     $stmt->execute([$email]);
     $user = $stmt->fetch();
 
-    $envAdminEmail = strtolower(trim((string)(getenv('ADMIN_EMAIL') ?: ($_ENV['ADMIN_EMAIL'] ?? ''))));
-    $envAdminPass = (string)(getenv('ADMIN_PASSWORD') ?: ($_ENV['ADMIN_PASSWORD'] ?? ''));
+    $envAdminEmail = strtolower(trim((string)env('ADMIN_EMAIL', '')));
+    $envAdminPass = (string)env('ADMIN_PASSWORD', '');
 
     if ($envAdminEmail !== '' && $envAdminPass !== '' && $email === $envAdminEmail && hash_equals($envAdminPass, $password)) {
         if (!$user) {

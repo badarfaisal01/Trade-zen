@@ -20,20 +20,17 @@ function db(): PDO
     }
 
     $path = database_config_path();
-    if (!is_file($path)) {
-        throw new RuntimeException('Application database is not configured.');
-    }
+    $fileConfig = is_file($path) ? (array)(require $path) : [];
 
-    $config = require $path;
-    $host = (string)($config['host'] ?? 'localhost');
-    $port = (int)($config['port'] ?? 3306);
-    $database = (string)($config['database'] ?? '');
-    $charset = (string)($config['charset'] ?? 'utf8mb4');
-    $username = (string)($config['username'] ?? '');
-    $password = (string)($config['password'] ?? '');
+    $host = (string)env('DB_HOST', $fileConfig['host'] ?? 'localhost');
+    $port = (int)env('DB_PORT', $fileConfig['port'] ?? 3306);
+    $database = (string)env('DB_DATABASE', $fileConfig['database'] ?? '');
+    $charset = (string)env('DB_CHARSET', $fileConfig['charset'] ?? 'utf8mb4');
+    $username = (string)env('DB_USERNAME', $fileConfig['username'] ?? '');
+    $password = (string)env('DB_PASSWORD', $fileConfig['password'] ?? '');
 
     if ($database === '' || $username === '') {
-        throw new RuntimeException('Database name and username are required.');
+        throw new RuntimeException('Database name and username are required. Configure DB_DATABASE and DB_USERNAME in .env');
     }
 
     $dsn = sprintf('mysql:host=%s;port=%d;dbname=%s;charset=%s', $host, $port, $database, $charset);
