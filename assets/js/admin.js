@@ -173,9 +173,19 @@
     event.preventDefault();
     setBusy(form, true);
     try {
+      let formData;
+      try {
+        formData = event.submitter ? new FormData(form, event.submitter) : new FormData(form);
+      } catch (_) {
+        formData = new FormData(form);
+      }
+      if (event.submitter && event.submitter.name && !formData.has(event.submitter.name)) {
+        formData.append(event.submitter.name, event.submitter.value || '');
+      }
+
       const response = await fetch(form.action || window.location.href, {
         method: 'POST',
-        body: new FormData(form),
+        body: formData,
         credentials: 'same-origin',
         headers: {Accept: 'application/json'}
       });

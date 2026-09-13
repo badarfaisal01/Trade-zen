@@ -243,9 +243,29 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     $lastCandleTime = (int)$candles[$lastIdx]['time'];
                     $prevClose = (float)$candles[$lastIdx]['close'];
 
+                    // If historical candles have a huge time gap from current time, shift them forward
+                    if (($endMs - $lastCandleTime) > ($count * $intervalMs * 2)) {
+                        $shiftMs = $endMs - $lastCandleTime - $intervalMs;
+                        foreach ($candles as &$c) {
+                            $c['time'] += $shiftMs;
+                            $c['lastTickTime'] += $shiftMs;
+                            if (!empty($c['ticks']) && is_array($c['ticks'])) {
+                                foreach ($c['ticks'] as &$tk) {
+                                    $tk[0] += $shiftMs;
+                                }
+                                unset($tk);
+                            }
+                        }
+                        unset($c);
+                        $lastCandleTime = (int)$candles[$lastIdx]['time'];
+                    }
+
                     if (($lastCandleTime + $intervalMs) <= $endMs) {
                         $currTime = $lastCandleTime + $intervalMs;
-                        while ($currTime <= $endMs) {
+                        $fillCount = 0;
+                        $maxFill = min(500, $count);
+                        while ($currTime <= $endMs && $fillCount < $maxFill) {
+                            $fillCount++;
                             $cEnd = min($currTime + $intervalMs - 1, $endMs);
                             $isCurrent = ($currTime + $intervalMs) > $endMs;
                             $cClose = $isCurrent ? market_price_at($asset, $endMs) : $prevClose;

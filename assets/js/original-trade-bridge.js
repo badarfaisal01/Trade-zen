@@ -161,6 +161,7 @@
     if (lowered === 'crypto' || lowered === 'cryptocurrency') return 'crypto';
     if (lowered === 'commodity' || lowered === 'commodities') return 'commodities';
     if (lowered === 'stock' || lowered === 'stocks') return 'stocks';
+    if (lowered === 'indices' || lowered === 'index') return 'indices';
     return lowered;
   }
 
@@ -181,7 +182,7 @@
       });
     });
 
-    var order = ['currencies', 'crypto', 'commodities', 'stocks'];
+    var order = ['currencies', 'crypto', 'commodities', 'indices', 'stocks'];
     return order.filter(function (key) { return grouped[key]; }).map(function (key) {
       return grouped[key];
     }).concat(Object.keys(grouped).filter(function (key) { return order.indexOf(key) === -1; }).map(function (key) {
@@ -522,6 +523,7 @@
     if (key.indexOf('crypto') !== -1) return 'cryptocurrency';
     if (key.indexOf('commod') !== -1) return 'commodity';
     if (key.indexOf('stock') !== -1) return 'stock';
+    if (key.indexOf('indic') !== -1) return 'indices';
     return 'currency';
   }
 

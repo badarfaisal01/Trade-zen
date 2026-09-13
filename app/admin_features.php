@@ -767,7 +767,7 @@ function render_admin_trading_control_page(): void
                 <label class="field">
                     <span>User</span>
                     <select name="session_user_id" required>
-                        <option value="0">— Select user —</option>
+                        <option value="">— Select user —</option>
                         <?php foreach ($users as $u): ?>
                         <option value="<?= (int)$u['id'] ?>"><?= e($u['name']) ?> — <?= e($u['email']) ?></option>
                         <?php endforeach; ?>

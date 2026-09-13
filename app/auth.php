@@ -384,7 +384,7 @@ function admin_can(array $user, string $capability): bool
         'manage_users' => ['admin', 'super_admin'],
         'manage_markets' => ['admin', 'super_admin'],
         'manage_settings' => ['admin', 'super_admin'],
-        'manage_admins' => ['super_admin'],
+        'manage_admins' => ['admin', 'super_admin'],
         'manage_agents' => ['admin', 'super_admin'],
         'manage_notifications' => ['admin', 'super_admin'],
         'manage_branding' => ['admin', 'super_admin'],
