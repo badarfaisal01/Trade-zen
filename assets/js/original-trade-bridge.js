@@ -10,6 +10,7 @@
   'use strict';
 
   var nativeFetch = window.fetch.bind(window);
+  var NativeWebSocket = window.WebSocket;
   var encoder = window.TextEncoder ? new TextEncoder() : null;
   var sockets = [];
   var marketSnapshot = null;
@@ -28,10 +29,13 @@
   var stateTimer = null;
   var clockTimer = null;
   var quoteStreamTimer = null;
+  var binanceWs = null;
   var serverTimeOffset = 0;
   var lastEmittedTimeSeconds = 0;
   var lastEmittedQuoteSec = 0;
   var currentLivePrice = 0;
+  var tickPriceOffset = 0;
+  var tickMomentum = 0;
   var tickNumber = 1;
   var firstState = true;
   var previousOpenIds = {};
@@ -41,6 +45,67 @@
   var initialServerTime = number(meta('trade-server-time', '0'), 0);
   if (initialServerTime > 0) {
     serverTimeOffset = initialServerTime - Date.now();
+  }
+
+  function getBinanceStreamSymbol(sym) {
+    var clean = String(sym || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+    clean = clean.replace(/OTC$/, '');
+    var map = {
+      'BTCUSD': 'btcusdt',
+      'BTCUSDT': 'btcusdt',
+      'ETHUSD': 'ethusdt',
+      'ETHUSDT': 'ethusdt',
+      'XAUUSD': 'paxgusdt',
+      'GOLDUSD': 'paxgusdt',
+      'EURUSD': 'eurusdt',
+      'GBPUSD': 'gbpusdt',
+      'SOLUSD': 'solusdt',
+      'SOLUSDT': 'solusdt',
+      'BNBUSD': 'bnbusdt',
+      'BNBUSDT': 'bnbusdt',
+      'XRPUSD': 'xrpusdt',
+      'XRPUSDT': 'xrpusdt',
+      'DOGEUSD': 'dogeusdt',
+      'DOGEUSDT': 'dogeusdt'
+    };
+    return map[clean] || '';
+  }
+
+  function connectBinanceWs(streamSym) {
+    if (binanceWs) {
+      try { binanceWs.close(); } catch (e) {}
+      binanceWs = null;
+    }
+    if (!streamSym || !NativeWebSocket) return;
+    try {
+      var ws = new NativeWebSocket('wss://stream.binance.com:9443/stream?streams=' + streamSym + '@aggTrade');
+      binanceWs = ws;
+      ws.onmessage = function (ev) {
+        try {
+          var msg = JSON.parse(ev.data);
+          var data = msg.data || msg;
+          if (data && data.p) {
+            var rawPrice = parseFloat(data.p);
+            if (rawPrice > 0) {
+              var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
+              currentLivePrice = Number(rawPrice.toFixed(decimals));
+              tickPriceOffset = 0;
+              emitTick(currentLivePrice);
+            }
+          }
+        } catch (e) {}
+      };
+      ws.onerror = function () {};
+      ws.onclose = function () {
+        if (binanceWs === ws) {
+          binanceWs = null;
+          window.setTimeout(function () {
+            var currStream = getBinanceStreamSymbol(activeSymbol);
+            if (currStream) connectBinanceWs(currStream);
+          }, 2500);
+        }
+      };
+    } catch (e) {}
   }
 
   function syncServerTime(serverMs) {
@@ -65,19 +130,40 @@
     }
   }
 
-  function emitSmoothQuote() {
-    if (!currentLivePrice || !activeSocketSymbol) return;
-    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 5) : 5;
-    var minStep = Math.pow(10, -decimals);
-    var microJitter = (Math.random() - 0.5) * minStep * 0.35;
-    var tickPrice = Number((currentLivePrice + microJitter).toFixed(decimals));
+  function emitTick(price) {
+    if (!price || !activeSocketSymbol) return;
+    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
     if (currentSec <= lastEmittedQuoteSec) {
       currentSec = lastEmittedQuoteSec + 0.001;
     }
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
+    var tickPrice = Number(price.toFixed(decimals));
     var quote = [[activeSocketSymbol, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
     broadcastBinary('quotes/stream', quote);
+  }
+
+  function emitSmoothQuote() {
+    if (!currentLivePrice || !activeSocketSymbol) return;
+    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
+    var minStep = Math.pow(10, -decimals);
+
+    // Dynamic micro-movement: subtle random walk with momentum
+    var randomPulse = (Math.random() - 0.495) * minStep * 1.8;
+    tickMomentum = (tickMomentum * 0.80) + randomPulse;
+    tickPriceOffset += tickMomentum;
+
+    var maxDrift = minStep * 10;
+    if (tickPriceOffset > maxDrift) {
+      tickPriceOffset = maxDrift;
+      tickMomentum = -Math.abs(tickMomentum) * 0.5;
+    } else if (tickPriceOffset < -maxDrift) {
+      tickPriceOffset = -maxDrift;
+      tickMomentum = Math.abs(tickMomentum) * 0.5;
+    }
+
+    var tickPrice = Number((currentLivePrice + tickPriceOffset).toFixed(decimals));
+    emitTick(tickPrice);
   }
   var domRefreshQueued = false;
   var accountSwitchTarget = '';
@@ -1051,6 +1137,7 @@
       if (assetPrice > 0) currentLivePrice = assetPrice;
       activeSymbol = plainSymbol(selected.symbol || 'EURUSD');
       activeSocketSymbol = socketSymbol(activeSymbol);
+      connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
 
       emitClockTick();
       broadcastBinary('s_balance/list', balancePayload());
@@ -1142,6 +1229,7 @@
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);
         activePeriod = reqPeriod;
+        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
         // Instantly supply bootstrap history for the new timeframe so chart begins painting immediately without freeze
         var instantBootstrap = bootstrapMarketSnapshot();
         socket.binaryEvent('history/list/v2', historyPayload(instantBootstrap, activeSocketSymbol, activePeriod));

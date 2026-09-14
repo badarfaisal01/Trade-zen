@@ -1,16 +1,12 @@
 const fs = require('fs');
-
-function inspect() {
-  const content = fs.readFileSync('trade-room/react/app.514f7c2627cb588c0e57.js', 'utf8');
-  const lines = content.split('\n');
-  console.log('Total lines:', lines.length);
-
-  // Let's search for any occurrences of history/
-  for (let i = 0; i < lines.length; i++) {
-    if (lines[i].includes('_x') && lines[i].includes('5af75c')) {
-      console.log('Line', i + 1, ':', lines[i].slice(0, 100));
+const dir = 'trade-room/react/';
+fs.readdirSync(dir).filter(f => f.endsWith('.js')).forEach(file => {
+  const content = fs.readFileSync(dir + file, 'utf8');
+  const m = content.match(/["'][a-zA-Z0-9_\/]{3,35}["']/g);
+  if (m) {
+    const events = m.filter(s => s.includes('quote') || s.includes('tick') || s.includes('price') || s.includes('candle') || s.includes('history'));
+    if (events.length) {
+      console.log(file, [...new Set(events)]);
     }
   }
-}
-
-inspect();
+});

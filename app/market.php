@@ -87,11 +87,13 @@ function market_price_at(array $asset, int $timestampMs): float
     $volatility = max(0.0005, (float)($asset['volatility'] ?? 0.002));
     $phase = ($seed % 997) / 17.0;
 
-    $macro = sin(($seconds + $phase) / 181.0) * 0.58;
-    $mid = sin(($seconds + ($phase * 3.1)) / 47.0) * 0.27;
-    $micro = sin(($seconds + ($phase * 7.7)) / 11.0) * 0.15;
+    // Multi-period wave cycles for natural up and down market trends
+    $macro = sin(($seconds + $phase * 10.0) / 600.0) * 0.50;
+    $mid   = sin(($seconds + $phase * 31.0) / 180.0) * 0.30;
+    $micro = sin(($seconds + $phase * 73.0) / 60.0)  * 0.20;
 
-    $bucketSize = 2;
+    // Smooth continuous spline drift
+    $bucketSize = 10;
     $bucket = (int)floor($seconds / $bucketSize);
     $fraction = fmod($seconds, (float)$bucketSize) / $bucketSize;
     if ($fraction < 0) {
@@ -102,14 +104,10 @@ function market_price_at(array $asset, int $timestampMs): float
     $noiseB = market_noise($seed, $bucket + 1);
     $noise = $noiseA + (($noiseB - $noiseA) * $smooth);
 
-    $fastNoise = market_noise($seed + 13, (int)floor($seconds));
+    $fastNoise = market_noise($seed + 13, (int)floor($seconds / 2.0));
 
-    $ratio = (($macro + $mid + $micro) * $volatility * 2.5) + ($noise * $volatility * 1.2) + ($fastNoise * $volatility * 0.8);
+    $ratio = (($macro + $mid + $micro) * $volatility * 3.2) + ($noise * $volatility * 1.6) + ($fastNoise * $volatility * 0.3);
     $price = max($base * 0.1, $base * (1.0 + $ratio));
-
-    // Ensure price delta is active above minStep
-    $pipStep = ($fastNoise * $minStep * 4.0);
-    $price += $pipStep;
 
     return round($price, $decimals);
 }
@@ -138,6 +136,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                 $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
                 $seed = (int)($asset['market_seed'] ?? 100);
 
+                // Pre-process raw klines to add natural trend motion across flat/stale price stretches
+                $processedKlines = [];
+                $prevKlineClose = null;
+
                 foreach ($binanceKlines as $k) {
                     $openTime = (int)$k['openTime'];
                     $closeTime = (int)$k['closeTime'];
@@ -146,31 +148,43 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                     $low = (float)$k['low'];
                     $close = (float)$k['close'];
 
-                    // Eliminate flat line candles if price had zero movement
-                    if ($high <= $low || ($high === $low && $high === $open)) {
-                        $noise = market_noise($seed, (int)($openTime / 1000));
-                        $spread = max($minStep * 3.0, $open * $volatility * 0.12);
-                        $high = $open + abs($spread * (0.6 + 0.4 * $noise));
-                        $low = $open - abs($spread * (0.6 + 0.4 * (1.0 - $noise)));
-                        if ($open === $close) {
-                            $close = $noise >= 0 ? min($high, $open + $minStep) : max($low, $open - $minStep);
-                        }
+                    $isFlat = ($high <= $low || ($high === $low && $high === $open) || abs($close - $open) < $minStep);
+                    if ($isFlat) {
+                        $sec = $openTime / 1000.0;
+                        $kWave = sin(($sec + $seed) / 240.0) * 0.55 + sin(($sec + $seed * 3) / 75.0) * 0.35 + sin(($sec + $seed * 7) / 25.0) * 0.10;
+                        $kSpread = max($minStep * 4.0, $open * $volatility * 0.35);
+                        $kDelta = $kSpread * $kWave;
+
+                        $open = $prevKlineClose !== null ? $prevKlineClose : $open;
+                        $close = max($minStep * 10.0, $open + $kDelta);
+                        $bodyDelta = abs($close - $open);
+                        $wickDelta = max($minStep, min($bodyDelta * 0.18, $open * $volatility * 0.03));
+
+                        $high = max($open, $close) + $wickDelta;
+                        $low = max($minStep, min($open, $close) - $wickDelta);
                     }
+
+                    $prevKlineClose = $close;
+                    $processedKlines[] = [
+                        'openTime' => $openTime,
+                        'closeTime' => $closeTime,
+                        'open' => $open,
+                        'high' => $high,
+                        'low' => $low,
+                        'close' => $close,
+                    ];
+                }
+
+                foreach ($processedKlines as $k) {
+                    $openTime = (int)$k['openTime'];
+                    $closeTime = (int)$k['closeTime'];
+                    $open = (float)$k['open'];
+                    $high = (float)$k['high'];
+                    $low = (float)$k['low'];
+                    $close = (float)$k['close'];
 
                     $klineDurationMs = max(1000, $closeTime - $openTime);
                     $subUnits = max(1, (int)round($klineDurationMs / $intervalMs));
-                    $firstPivot = $close >= $open ? $low : $high;
-                    $secondPivot = $close >= $open ? $high : $low;
-
-                    $calcPriceAtFrac = static function (float $frac) use ($open, $close, $firstPivot, $secondPivot): float {
-                        if ($frac <= 0.33) {
-                            return $open + ($firstPivot - $open) * ($frac / 0.33);
-                        }
-                        if ($frac <= 0.67) {
-                            return $firstPivot + ($secondPivot - $firstPivot) * (($frac - 0.33) / 0.34);
-                        }
-                        return $secondPivot + ($close - $secondPivot) * (($frac - 0.67) / 0.33);
-                    };
 
                     for ($subIdx = 0; $subIdx < $subUnits; $subIdx++) {
                         $subOpenTime = $openTime + ($subIdx * $intervalMs);
@@ -178,18 +192,21 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $f1 = $subIdx / $subUnits;
                         $f2 = ($subIdx + 1) / $subUnits;
 
-                        $sOpen = $calcPriceAtFrac($f1);
-                        $sClose = $calcPriceAtFrac($f2);
+                        $sOpen = ($subIdx === 0 && !empty($candles)) ? $candles[count($candles) - 1]['close'] : $open + ($close - $open) * $f1;
+                        $sClose = $open + ($close - $open) * $f2;
 
-                        if ($subUnits > 1) {
-                            $noiseVal = market_noise($seed, (int)($subOpenTime / 1000));
-                            $spreadVal = max($minStep * 2.0, abs($sClose - $sOpen) * 0.4 + ($open * $volatility * 0.05));
-                            $sHigh = max($sOpen, $sClose) + abs($spreadVal * (0.5 + 0.5 * $noiseVal));
-                            $sLow = max($minStep, min($sOpen, $sClose) - abs($spreadVal * (0.5 + 0.5 * (1.0 - $noiseVal))));
-                        } else {
-                            $sHigh = $high;
-                            $sLow = $low;
+                        if (abs($sClose - $sOpen) < $minStep) {
+                            $dir = market_noise($seed + 33, (int)($subOpenTime / 1000));
+                            $sClose = $dir >= 0 ? $sOpen + ($minStep * 2) : max($minStep, $sOpen - ($minStep * 2));
                         }
+
+                        $bodySize = abs($sClose - $sOpen);
+                        $wickSpread = max($minStep, min($bodySize * 0.15, $open * $volatility * 0.02));
+                        $n1 = abs(market_noise($seed + 77, (int)($subOpenTime / 1000)));
+                        $n2 = abs(market_noise($seed + 88, (int)($subOpenTime / 1000)));
+
+                        $sHigh = max($sOpen, $sClose) + ($wickSpread * (0.2 + 0.8 * $n1));
+                        $sLow  = max($minStep, min($sOpen, $sClose) - ($wickSpread * (0.2 + 0.8 * $n2)));
 
                         $sOpenR = round($sOpen, $decimals);
                         $sHighR = round(max($sHigh, $sOpen, $sClose), $decimals);
@@ -197,13 +214,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $sCloseR = round($sClose, $decimals);
 
                         if ($sHighR <= $sLowR) {
-                            $noiseVal = market_noise($seed + 99, (int)($subOpenTime / 1000));
-                            $spreadVal = max($minStep * 3.0, $sOpenR * $volatility * 0.2);
-                            $sHighR = round(max($sOpenR, $sCloseR) + abs($spreadVal * (0.6 + 0.4 * $noiseVal)) + $minStep, $decimals);
-                            $sLowR = round(max($minStep, min($sOpenR, $sCloseR) - abs($spreadVal * (0.6 + 0.4 * (1.0 - $noiseVal))) - $minStep), $decimals);
-                            if ($sOpenR === $sCloseR) {
-                                $sCloseR = $noiseVal >= 0 ? round($sOpenR + $minStep, $decimals) : round(max($minStep, $sOpenR - $minStep), $decimals);
-                            }
+                            $sHighR = round(max($sOpenR, $sCloseR) + $minStep, $decimals);
+                            $sLowR = round(max($minStep, min($sOpenR, $sCloseR) - $minStep), $decimals);
                         }
 
                         $subDurationMs = max(100, $subCloseTime - $subOpenTime);
@@ -212,16 +224,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
                         $p1 = max($sLowR, min($sHighR, $p1));
                         $p2 = max($sLowR, min($sHighR, $p2));
 
-                        $tMs1 = $subOpenTime;
-                        $tMs2 = $subOpenTime + (int)round($subDurationMs * 0.33);
-                        $tMs3 = $subOpenTime + (int)round($subDurationMs * 0.67);
-                        $tMs4 = $subCloseTime;
-
                         $ticks = [
-                            [$tMs1, $sOpenR],
-                            [$tMs2, $p1],
-                            [$tMs3, $p2],
-                            [$tMs4, $sCloseR],
+                            [$subOpenTime, $sOpenR],
+                            [$subOpenTime + (int)round($subDurationMs * 0.33), $p1],
+                            [$subOpenTime + (int)round($subDurationMs * 0.67), $p2],
+                            [$subCloseTime, $sCloseR],
                         ];
 
                         $candles[] = [
@@ -402,25 +409,29 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 500
             continue;
         }
 
-        // Compute only open and close — that is all we need for OHLC.
-        // The old density-sample loop computed up to $density prices per candle
-        // and then discarded all of them, replacing with these same 4 synthetic
-        // tick points. Skipping that loop cuts PHP CPU time by 80%+ at high counts.
-        $open  = market_price_at($asset, $time);
+        $minStep = pow(10, -$decimals);
+        // Continuous open from previous close
+        $open = ($i === 0) ? market_price_at($asset, $time) : $candles[$i - 1]['close'];
         $close = market_price_at($asset, $candleEndMs);
 
-        $minStep = pow(10, -$decimals);
-        $noiseVal = market_noise($seed + 99, (int)($time / 1000));
-        $spreadVal = max($minStep * 3.0, max($open, $close) * $vol * 0.18);
-        $high = round(max($open, $close) + abs($spreadVal * (0.55 + 0.45 * abs($noiseVal))), $decimals);
-        $low  = round(max($minStep, min($open, $close) - abs($spreadVal * (0.55 + 0.45 * (1.0 - abs($noiseVal))))), $decimals);
+        // Ensure visible candle body with directional movement
+        if (abs($close - $open) < $minStep) {
+            $noiseDir = market_noise($seed + 55, (int)($time / 1000));
+            $close = round($noiseDir >= 0 ? $open + ($minStep * 2) : max($minStep, $open - ($minStep * 2)), $decimals);
+        }
+
+        // Short, neat wicks (upper & lower lines much shorter, bold rectangular candle bodies)
+        $bodyHeight = abs($close - $open);
+        $wickRange = max($minStep, min($bodyHeight * 0.20, $open * $vol * 0.03));
+        $noiseUpper = abs(market_noise($seed + 99, (int)($time / 1000)));
+        $noiseLower = abs(market_noise($seed + 101, (int)($time / 1000)));
+
+        $high = round(max($open, $close) + ($wickRange * (0.2 + 0.8 * $noiseUpper)), $decimals);
+        $low  = round(max($minStep, min($open, $close) - ($wickRange * (0.2 + 0.8 * $noiseLower))), $decimals);
 
         if ($high <= $low) {
-            $high = round(max($open, $close) + $minStep * 3.0, $decimals);
-            $low  = round(max($minStep, min($open, $close) - $minStep * 3.0), $decimals);
-            if ($open === $close) {
-                $close = $noiseVal >= 0 ? round($open + $minStep, $decimals) : round(max($minStep, $open - $minStep), $decimals);
-            }
+            $high = round(max($open, $close) + $minStep, $decimals);
+            $low  = round(max($minStep, min($open, $close) - $minStep), $decimals);
         }
 
         $p1 = $close >= $open ? $low : $high;
