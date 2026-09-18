@@ -118,7 +118,7 @@ function auth_login(string $email, string $password): array
     return ['ok' => true, 'user' => current_user(true)];
 }
 
-function auth_register(string $name, string $email, string $password, string $country = 'IN', string $referralCode = ''): array
+function auth_register(string $name, string $email, string $password, string $country = 'PK', string $referralCode = ''): array
 {
     $name = trim(preg_replace('/\s+/', ' ', $name) ?? '');
     $email = strtolower(trim($email));

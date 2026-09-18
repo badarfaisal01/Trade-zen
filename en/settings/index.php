@@ -210,7 +210,29 @@ render_flashes();
                 <div class="field-grid"><label class="field qx-cabinet-field"><span>Full name</span><input name="name" value="<?= e($user['name']) ?>" minlength="2" maxlength="80" autocomplete="name" required></label><label class="field qx-cabinet-field"><span>Nickname</span><input name="nickname" value="<?= e((string)$user['nickname']) ?>" maxlength="80" autocomplete="nickname" placeholder="Public display name"></label></div>
                 <label class="field qx-cabinet-field qx-email-field"><span>Email address</span><input value="<?= e($user['email']) ?>" autocomplete="email" disabled><small>Email changes require administrator support.</small></label>
                 <div class="field-grid"><label class="field qx-cabinet-field"><span>Phone</span><input type="tel" name="phone" value="<?= e((string)$user['phone']) ?>" maxlength="30" autocomplete="tel" placeholder="+91 ..."></label><label class="field qx-cabinet-field"><span>Date of birth</span><input type="date" name="date_of_birth" value="<?= e((string)$user['date_of_birth']) ?>" max="<?= e(date('Y-m-d', strtotime('-18 years'))) ?>"></label></div>
-                <label class="field qx-cabinet-field"><span>Country</span><select name="country" autocomplete="country"><option value="IN" <?= $user['country']==='IN'?'selected':'' ?>>India</option><option value="AE" <?= $user['country']==='AE'?'selected':'' ?>>United Arab Emirates</option><option value="GB" <?= $user['country']==='GB'?'selected':'' ?>>United Kingdom</option><option value="US" <?= $user['country']==='US'?'selected':'' ?>>United States</option><option value="ZZ" <?= $user['country']==='ZZ'?'selected':'' ?>>Other</option></select></label>
+                <label class="field qx-cabinet-field"><span>Country</span><select name="country" autocomplete="country">
+                        <option value="PK" <?= ($user['country'] ?? '') === 'PK' ? 'selected' : '' ?>>Pakistan</option>
+                        <option value="IN" <?= ($user['country'] ?? '') === 'IN' ? 'selected' : '' ?>>India</option>
+                        <option value="AE" <?= ($user['country'] ?? '') === 'AE' ? 'selected' : '' ?>>United Arab Emirates</option>
+                        <option value="GB" <?= ($user['country'] ?? '') === 'GB' ? 'selected' : '' ?>>United Kingdom</option>
+                        <option value="US" <?= ($user['country'] ?? '') === 'US' ? 'selected' : '' ?>>United States</option>
+                        <option value="BD" <?= ($user['country'] ?? '') === 'BD' ? 'selected' : '' ?>>Bangladesh</option>
+                        <option value="SA" <?= ($user['country'] ?? '') === 'SA' ? 'selected' : '' ?>>Saudi Arabia</option>
+                        <option value="QA" <?= ($user['country'] ?? '') === 'QA' ? 'selected' : '' ?>>Qatar</option>
+                        <option value="OM" <?= ($user['country'] ?? '') === 'OM' ? 'selected' : '' ?>>Oman</option>
+                        <option value="KW" <?= ($user['country'] ?? '') === 'KW' ? 'selected' : '' ?>>Kuwait</option>
+                        <option value="BH" <?= ($user['country'] ?? '') === 'BH' ? 'selected' : '' ?>>Bahrain</option>
+                        <option value="TR" <?= ($user['country'] ?? '') === 'TR' ? 'selected' : '' ?>>Turkey</option>
+                        <option value="EG" <?= ($user['country'] ?? '') === 'EG' ? 'selected' : '' ?>>Egypt</option>
+                        <option value="NG" <?= ($user['country'] ?? '') === 'NG' ? 'selected' : '' ?>>Nigeria</option>
+                        <option value="ZA" <?= ($user['country'] ?? '') === 'ZA' ? 'selected' : '' ?>>South Africa</option>
+                        <option value="BR" <?= ($user['country'] ?? '') === 'BR' ? 'selected' : '' ?>>Brazil</option>
+                        <option value="ID" <?= ($user['country'] ?? '') === 'ID' ? 'selected' : '' ?>>Indonesia</option>
+                        <option value="MY" <?= ($user['country'] ?? '') === 'MY' ? 'selected' : '' ?>>Malaysia</option>
+                        <option value="PH" <?= ($user['country'] ?? '') === 'PH' ? 'selected' : '' ?>>Philippines</option>
+                        <option value="VN" <?= ($user['country'] ?? '') === 'VN' ? 'selected' : '' ?>>Vietnam</option>
+                        <option value="ZZ" <?= ($user['country'] ?? '') === 'ZZ' ? 'selected' : '' ?>>Other</option>
+                    </select></label>
                 <?php if ($user['avatar_filename']): ?><label class="check-field qx-remove-avatar"><input type="checkbox" name="remove_avatar" value="1"><span>Remove current profile photo</span></label><?php endif; ?>
                 <button class="button button--primary qx-profile-save">Save personal data</button>
             </form>

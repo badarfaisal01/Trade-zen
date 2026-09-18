@@ -31,7 +31,7 @@ if (is_post()) {
     } else {
         $localPart = strstr($email, '@', true);
         $name = trim((string)$localPart) !== '' ? ucwords(str_replace(['.', '_', '-'], ' ', (string)$localPart)) : 'Account Holder';
-        $result = auth_register($name, $email, (string)($_POST['password'] ?? ''), (string)($_POST['country-code'] ?? 'IN'), $referralCode);
+        $result = auth_register($name, $email, (string)($_POST['password'] ?? ''), (string)($_POST['country-code'] ?? 'PK'), $referralCode);
         if ($result['ok']) {
             unset($_SESSION['pending_referral_code']);
             redirect('/en/trade/');
