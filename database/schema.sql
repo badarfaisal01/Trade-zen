@@ -44,7 +44,7 @@ CREATE TABLE IF NOT EXISTS market_assets (
     payout_percent DECIMAL(5,2) NOT NULL DEFAULT 82.00,
     volatility DECIMAL(10,8) NOT NULL DEFAULT 0.00250000,
     market_seed INT UNSIGNED NOT NULL,
-    price_source ENUM('internal','manual','api') NOT NULL DEFAULT 'internal',
+    price_source ENUM('internal','manual','api','binance') NOT NULL DEFAULT 'binance',
     api_symbol VARCHAR(60) NULL,
     is_active TINYINT(1) NOT NULL DEFAULT 1,
     sort_order INT NOT NULL DEFAULT 0,
@@ -395,6 +395,45 @@ CREATE TABLE IF NOT EXISTS market_price_cache (
     raw_response_hash CHAR(64) NULL,
     PRIMARY KEY (asset_id),
     CONSTRAINT market_price_cache_asset_fk FOREIGN KEY (asset_id) REFERENCES market_assets (id) ON DELETE CASCADE
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS trading_controls (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    asset_id INT UNSIGNED NULL,
+    user_id BIGINT UNSIGNED NULL,
+    direction ENUM('up','down','none') NOT NULL DEFAULT 'none',
+    win_rate DECIMAL(5,2) NULL,
+    is_active TINYINT(1) NOT NULL DEFAULT 1,
+    expires_at DATETIME NULL,
+    label VARCHAR(120) NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY trading_controls_active_index (is_active, expires_at),
+    KEY trading_controls_asset_user_index (asset_id, user_id),
+    CONSTRAINT trading_controls_asset_fk FOREIGN KEY (asset_id) REFERENCES market_assets (id) ON DELETE CASCADE,
+    CONSTRAINT trading_controls_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT trading_controls_creator_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
+
+CREATE TABLE IF NOT EXISTS user_trading_sessions (
+    id BIGINT UNSIGNED NOT NULL AUTO_INCREMENT,
+    user_id BIGINT UNSIGNED NOT NULL,
+    asset_id INT UNSIGNED NULL,
+    payout_override DECIMAL(5,2) NULL,
+    is_blocked TINYINT(1) NOT NULL DEFAULT 0,
+    block_reason VARCHAR(255) NULL,
+    expires_at DATETIME NULL,
+    created_by BIGINT UNSIGNED NULL,
+    created_at DATETIME NOT NULL,
+    updated_at DATETIME NOT NULL,
+    PRIMARY KEY (id),
+    KEY uts_user_asset_index (user_id, asset_id),
+    KEY uts_active_index (is_blocked, expires_at),
+    CONSTRAINT uts_user_fk FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE,
+    CONSTRAINT uts_asset_fk FOREIGN KEY (asset_id) REFERENCES market_assets (id) ON DELETE CASCADE,
+    CONSTRAINT uts_creator_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 CREATE TABLE IF NOT EXISTS schema_migrations (

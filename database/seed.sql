@@ -1,19 +1,27 @@
-INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, is_active, sort_order, created_at, updated_at) VALUES
-('EURUSD', 'EUR/USD', 'Forex', 1.08642, 5, 87.00, 0.00210000, 550101, 1, 10, NOW(), NOW()),
-('GBPUSD', 'GBP/USD', 'Forex', 1.27135, 5, 84.00, 0.00230000, 550102, 1, 20, NOW(), NOW()),
-('USDJPY', 'USD/JPY', 'Forex', 146.825, 3, 82.00, 0.00200000, 550103, 1, 30, NOW(), NOW()),
-('AUDCAD', 'AUD/CAD', 'Forex', 0.89612, 5, 80.00, 0.00250000, 550104, 1, 40, NOW(), NOW()),
-('EURJPY', 'EUR/JPY', 'Forex', 159.510, 3, 83.00, 0.00230000, 550105, 1, 50, NOW(), NOW()),
-('BTCUSD', 'Bitcoin / USD', 'Crypto', 68650.00, 2, 78.00, 0.00650000, 550201, 1, 60, NOW(), NOW()),
-('ETHUSD', 'Ethereum / USD', 'Crypto', 3560.00, 2, 80.00, 0.00600000, 550202, 1, 70, NOW(), NOW()),
-('XAUUSD', 'Gold / USD', 'Commodities', 2448.50, 2, 81.00, 0.00310000, 550301, 1, 80, NOW(), NOW())
-ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), category = VALUES(category), updated_at = NOW();
+INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, price_source, api_symbol, sort_order, is_active, created_at, updated_at) VALUES
+('BTCUSD', 'Bitcoin / USD', 'Crypto', 77000.00, 2, 90.00, 0.00400000, 88301, 'binance', 'BTCUSDT', 10, 1, NOW(), NOW()),
+('ETHUSD', 'Ethereum / USD', 'Crypto', 2500.00, 2, 88.00, 0.00450000, 88302, 'binance', 'ETHUSDT', 11, 1, NOW(), NOW()),
+('SOLUSD', 'Solana / USD', 'Crypto', 98.00, 2, 86.00, 0.00400000, 88303, 'binance', 'SOLUSDT', 12, 1, NOW(), NOW()),
+('BNBUSD', 'BNB / USD', 'Crypto', 720.00, 2, 86.00, 0.00400000, 88304, 'binance', 'BNBUSDT', 13, 1, NOW(), NOW()),
+('XRPUSD', 'XRP / USD', 'Crypto', 1.25, 4, 86.00, 0.00400000, 88305, 'binance', 'XRPUSDT', 14, 1, NOW(), NOW()),
+('DOGEUSD', 'Dogecoin / USD', 'Crypto', 0.08, 5, 86.00, 0.00400000, 88306, 'binance', 'DOGEUSDT', 15, 1, NOW(), NOW()),
+('EURUSD', 'EUR/USD', 'Currencies', 1.0850, 5, 88.00, 0.00150000, 88401, 'binance', 'EURUSDT', 20, 1, NOW(), NOW()),
+('GBPUSD', 'GBP/USD', 'Currencies', 1.2800, 5, 87.00, 0.00180000, 88402, 'binance', 'GBPUSDT', 21, 1, NOW(), NOW()),
+('USDJPY', 'USD/JPY', 'Currencies', 153.50, 3, 82.00, 0.00200000, 88404, 'binance', 'USDJPY', 22, 1, NOW(), NOW()),
+('JPYUSD', 'JPY/USD', 'Currencies', 0.00651, 6, 82.00, 0.00200000, 88403, 'binance', 'JPYUSD', 23, 1, NOW(), NOW()),
+('XAUUSD', 'Gold / USD', 'Commodities', 2650.00, 2, 85.00, 0.00250000, 88101, 'binance', 'PAXGUSDT', 30, 1, NOW(), NOW()),
+('XAUTUSD', 'Tether Gold / USD', 'Commodities', 2646.00, 2, 85.00, 0.00250000, 88102, 'binance', 'XAUTUSDT', 31, 1, NOW(), NOW()),
+('GASUSD', 'Natural Gas / USD', 'Commodities', 3.80, 4, 85.00, 0.00350000, 88103, 'binance', 'GASUSDT', 32, 1, NOW(), NOW()),
+('TSLAUSD', 'Tesla / USD', 'Stocks', 360.00, 2, 85.00, 0.00300000, 88201, 'binance', 'TSLABUSDT', 40, 1, NOW(), NOW()),
+('AAPLUSD', 'Apple / USD', 'Stocks', 232.00, 2, 85.00, 0.00250000, 88202, 'binance', 'AAPLBUSDT', 41, 1, NOW(), NOW()),
+('NVDAUSD', 'Nvidia / USD', 'Stocks', 126.00, 2, 85.00, 0.00350000, 88203, 'binance', 'NVDABUSDT', 42, 1, NOW(), NOW())
+ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), category = VALUES(category), base_price = VALUES(base_price), decimal_places = VALUES(decimal_places), payout_percent = VALUES(payout_percent), volatility = VALUES(volatility), price_source = VALUES(price_source), api_symbol = VALUES(api_symbol), sort_order = VALUES(sort_order), is_active = VALUES(is_active), updated_at = NOW();
 
 INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name, is_public, updated_at) VALUES
-('platform_name', '55AK Trade', 'string', 'general', 1, NOW()),
-('platform_tagline', 'Smart market trading platform', 'string', 'general', 1, NOW()),
-('platform_domain', 'https://trading.55ak.xyz', 'string', 'general', 1, NOW()),
-('support_email', 'support@55ak.xyz', 'string', 'general', 1, NOW()),
+('platform_name', 'TradeZen', 'string', 'general', 1, NOW()),
+('platform_tagline', 'Smart live market trading platform', 'string', 'general', 1, NOW()),
+('platform_domain', 'https://yourdomain.com', 'string', 'general', 1, NOW()),
+('support_email', 'support@yourdomain.com', 'string', 'general', 1, NOW()),
 ('demo_starting_balance', '0', 'number', 'wallet', 1, NOW()),
 ('practice_starting_balance', '1000', 'number', 'trading', 1, NOW()),
 ('minimum_trade_amount', '1', 'number', 'trading', 1, NOW()),
@@ -41,19 +49,31 @@ INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name,
 ('withdrawals_enabled', '1', 'boolean', 'wallet', 1, NOW()),
 ('payment_proof_max_mb', '5', 'number', 'wallet', 0, NOW()),
 ('payment_order_minutes', '15', 'number', 'wallet', 1, NOW()),
-('market_data_mode', 'internal', 'string', 'trading', 1, NOW()),
+('market_data_mode', 'binance', 'string', 'trading', 1, NOW()),
 ('market_api_url', '', 'string', 'trading', 0, NOW()),
 ('market_api_key', '', 'string', 'trading', 0, NOW()),
 ('market_api_price_path', 'price', 'string', 'trading', 0, NOW())
-ON DUPLICATE KEY UPDATE setting_type = VALUES(setting_type), group_name = VALUES(group_name), is_public = VALUES(is_public), updated_at = NOW();
+ON DUPLICATE KEY UPDATE setting_value = VALUES(setting_value), setting_type = VALUES(setting_type), group_name = VALUES(group_name), is_public = VALUES(is_public), updated_at = NOW();
 
 INSERT INTO payment_methods (code, name, category, icon_key, account_name, account_identifier, network, instructions, qr_filename, minimum_amount, maximum_amount, deposit_enabled, withdrawal_enabled, require_reference, require_proof, is_active, sort_order, created_at, updated_at) VALUES
-('upi', 'UPI', 'upi', 'upi', '55AK Trade', 'deepansu@ybl', 'UPI', 'Pay to the displayed UPI ID or QR, then submit the successful UTR. Never share a UPI PIN or OTP.', 'upi-deepansu-ybl.png', 10, 100000, 1, 1, 1, 1, 1, 10, NOW(), NOW()),
-('phonepe', 'PhonePe', 'wallet', 'phonepe', '55AK Trade', 'deepansu@ybl', 'UPI / PhonePe', 'Pay through PhonePe to the displayed UPI ID or QR, then submit the successful UTR. Never share a UPI PIN or OTP.', 'upi-deepansu-ybl.png', 10, 100000, 1, 1, 1, 1, 1, 20, NOW(), NOW()),
+('upi', 'UPI', 'upi', 'upi', 'TradeZen Payments', 'payments@upi', 'UPI', 'Pay to the displayed UPI ID or QR, then submit the successful UTR. Never share a UPI PIN or OTP.', 'upi-default.png', 10, 100000, 1, 1, 1, 1, 1, 10, NOW(), NOW()),
+('phonepe', 'PhonePe', 'wallet', 'phonepe', 'TradeZen Payments', 'payments@upi', 'UPI / PhonePe', 'Pay through PhonePe to the displayed UPI ID or QR, then submit the successful UTR. Never share a UPI PIN or OTP.', 'upi-default.png', 10, 100000, 1, 1, 1, 1, 1, 20, NOW(), NOW()),
 ('paytm', 'Paytm', 'wallet', 'paytm', NULL, NULL, NULL, 'Complete the payment and submit the transaction reference for review.', NULL, 10, 100000, 1, 1, 1, 1, 1, 30, NOW(), NOW()),
-('binance-pay', 'Binance Pay', 'crypto', 'binance', '55AK Trade', '234543334', 'Binance Pay', 'Send through Binance Pay to the displayed Pay ID, then submit the Binance order ID.', 'binance-pay-234543334.png', 10, 100000, 1, 1, 1, 0, 1, 40, NOW(), NOW()),
+('binance-pay', 'Binance Pay', 'crypto', 'binance', 'TradeZen Official', '234543334', 'Binance Pay', 'Send through Binance Pay to the displayed Pay ID, then submit the Binance order ID.', 'binance-pay-default.png', 10, 100000, 1, 1, 1, 0, 1, 40, NOW(), NOW()),
 ('usdt-trc20', 'USDT (TRC-20)', 'crypto', 'usdt', NULL, NULL, 'TRC-20', 'Send USDT only on the TRC-20 network and submit the transaction hash.', NULL, 10, 100000, 1, 1, 1, 0, 1, 50, NOW(), NOW()),
 ('usdt-bep20', 'USDT (BEP-20)', 'crypto', 'usdt', NULL, NULL, 'BEP-20', 'Send USDT only on the BEP-20 network and submit the transaction hash.', NULL, 10, 100000, 1, 1, 1, 0, 1, 60, NOW(), NOW())
 ON DUPLICATE KEY UPDATE name = VALUES(name), category = VALUES(category), icon_key = VALUES(icon_key), network = COALESCE(NULLIF(network,''), VALUES(network)), account_name = COALESCE(NULLIF(account_name,''), VALUES(account_name)), account_identifier = COALESCE(NULLIF(account_identifier,''), VALUES(account_identifier)), qr_filename = COALESCE(NULLIF(qr_filename,''), VALUES(qr_filename)), instructions = VALUES(instructions), updated_at = NOW();
 
-INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES ('4.1.2', NOW());
+INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES
+('4.1.0', NOW()),
+('4.1.2', NOW()),
+('4.2.0', NOW()),
+('4.3.0', NOW()),
+('4.3.1', NOW()),
+('4.4.0', NOW()),
+('4.4.1', NOW()),
+('4.4.5', NOW()),
+('4.4.6', NOW()),
+('4.5.0', NOW()),
+('4.6.0', NOW()),
+('4.7.0', NOW());
