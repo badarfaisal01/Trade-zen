@@ -7,7 +7,7 @@ declare(strict_types=1);
  */
 
 return [
-    'name' => (string)env('APP_NAME', '55AK Trade'),
+    'name' => (string)env('APP_NAME', 'Quotex'),
     'tagline' => (string)env('APP_TAGLINE', 'Smart market trading platform'),
     'url' => (string)env('APP_URL', 'http://localhost'),
     'timezone' => (string)env('APP_TIMEZONE', 'Asia/Kolkata'),

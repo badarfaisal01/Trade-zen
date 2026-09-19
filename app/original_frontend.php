@@ -25,9 +25,9 @@ function render_original_auth_template(string $templatePath, string $error = '',
     $html = (string)preg_replace('~https?://blog\.qxbroker\.com[^"\'<>\s]*~i', '/en/blog/', $html);
     $html = str_replace('https://qxbroker.com', '', $html);
     $html = str_replace('http://qxbroker.com', '', $html);
-    $platformName = trim((string)setting('platform_name', app_config('name'))) ?: '55AK Trade';
+    $platformName = trim((string)setting('platform_name', app_config('name'))) ?: 'Quotex';
     $safePlatformName = e($platformName);
-    $authLogo = trim((string)setting('logo_filename', '')) !== '' ? site_logo_url() : '/assets/img/55ak-wordmark.svg';
+    $authLogo = trim((string)setting('logo_filename', '')) !== '' ? site_logo_url() : '/assets/img/quotex-logo-white.svg';
     $html = (string)preg_replace('~(["\'])/site/img/quotex_logo-white(?:-mobile)?\.svg\1~i', '$1' . $authLogo . '$1', $html);
     $html = (string)preg_replace_callback(
         '~\b(href|src)="https?://[^"]+"~i',
@@ -133,7 +133,7 @@ function render_original_auth_template(string $templatePath, string $error = '',
     }
     $html = str_replace('<div class="modal-sign__block">', $notice . '<div class="modal-sign__block">', $html);
 
-    $headAssets = '<link rel="icon" href="' . e(site_logo_url()) . '"><link rel="stylesheet" href="/assets/css/original-auth-bridge.css">';
+    $headAssets = '<link rel="icon" href="' . e(site_logo_url()) . '"><link rel="stylesheet" href="/assets/css/original-auth-bridge.css?v=' . rawurlencode((string)app_config('version')) . '&t=' . time() . '">';
     $html = str_replace('</head>', $headAssets . '</head>', $html);
     $html = str_replace('</body>', '<script src="/assets/js/original-auth.js" defer></script></body>', $html);
 

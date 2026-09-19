@@ -157,16 +157,12 @@ function site_logo_url(): string
 function brand_logo(bool $compact = false): string
 {
     $name = (string)setting('platform_name', app_config('name'));
-    $parts = preg_split('/\s+/', trim($name)) ?: ['55AK', 'Trade'];
-    $last = array_pop($parts);
-    $prefix = trim(implode(' ', $parts));
-    $label = ($prefix !== '' ? e($prefix) . ' ' : '') . '<b>' . e($last) . '</b>';
-    $word = $compact ? '' : '<span class="brand-word">' . $label . '</span>';
     $customLogo = trim((string)setting('logo_filename', ''));
-    $mark = $customLogo !== ''
-        ? '<img src="' . e(site_logo_url()) . '" alt="" width="25" height="25">'
-        : '<svg viewBox="0 0 44 44"><path d="M7 29 17 17l7 7L37 9"/><path d="M29 9h8v8"/></svg>';
-    return '<span class="brand"><span class="brand-mark" aria-hidden="true">' . $mark . '</span>' . $word . '</span>';
+    if ($customLogo !== '') {
+        $mark = '<img src="' . e(site_logo_url()) . '" alt="" width="25" height="25">';
+        return '<span class="brand"><span class="brand-mark" aria-hidden="true">' . $mark . '</span><span class="brand-word">' . e($name) . '</span></span>';
+    }
+    return '<span class="brand" style="display:inline-flex;align-items:center;gap:8px;"><img src="/assets/img/quotex-logo-white.svg" alt="Quotex" height="32" style="height:32px;width:auto;display:block;"></span>';
 }
 
 function render_document_start(string $title, string $bodyClass = '', array $styles = [], bool $indexable = false): void

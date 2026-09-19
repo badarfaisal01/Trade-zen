@@ -4,7 +4,7 @@
 .original-auth-alert{border:1px solid rgba(255,92,105,.28);color:#ffc0c5;background:rgba(255,74,89,.1)}
 .modal-sign__social,.modal-sign__footer,.header__social,.footer__social,.footer__block>div:last-child{display:none!important}
 .header__logo img,.footer__logo img,.auth-logo img{max-width:175px;height:auto}
-.header__logo .quotex-logo{display:block!important;width:190px!important;height:42px!important;background-image:url('/assets/img/55ak-wordmark.svg')!important;background-position:left center!important;background-repeat:no-repeat!important;background-size:190px 42px!important}
+.header__logo .quotex-logo{display:block!important;width:160px!important;height:40px!important;background-image:url('/assets/img/quotex-logo-white.svg')!important;background-position:left center!important;background-repeat:no-repeat!important;background-size:contain!important}
 .modal-sign__input.select{height:auto!important;min-height:48px!important}
 .select__element{display:block!important;position:relative!important;z-index:3!important;width:100%!important;height:48px!important;min-height:48px!important;opacity:1!important;color:#fff!important;background:#444b5d!important;border:1px solid rgba(255,255,255,.3)!important;border-radius:4px!important;padding:0 12px!important;appearance:auto!important}
 .modal-sign__input.select-icon .icon-input{display:none!important}.modal-sign__input.select-icon .select__element{padding-left:12px!important}
@@ -13,6 +13,6 @@
 video,.main__platform-video__media{display:none!important}
 .modal-sign__input-tooltip{display:none!important}
 .original-footer-note{display:block!important}.original-footer-note .footer__text{max-width:900px!important}.original-footer-note p{margin:0 0 12px!important;line-height:1.55!important}.original-footer-note strong{color:#35e6aa!important}
-@media(max-width:700px){.original-demo-notice,.original-auth-alert{font-size:11px}.header__logo img{max-width:145px}.header__logo .quotex-logo{width:42px!important;height:42px!important;background-size:190px 42px!important}}
+@media(max-width:700px){.original-demo-notice,.original-auth-alert{font-size:11px}.header__logo img{max-width:145px}.header__logo .quotex-logo{width:140px!important;height:36px!important;background-size:contain!important}}
 .original-auth-alert--success { border-color: rgba(21,184,106,.38) !important; background: rgba(21,184,106,.12) !important; color: #b8f4d8 !important; }
 .original-referral-field{position:relative}.original-referral-field small{color:rgba(255,255,255,.45);font-size:10px;font-weight:400}.original-referral-field input{text-transform:uppercase}.original-referral-field input::placeholder{text-transform:none}
