@@ -617,9 +617,9 @@ INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name,
 ('minimum_trade_amount', '1', 'number', 'trading', 1, NOW()),
 ('maximum_trade_amount', '1000', 'number', 'trading', 1, NOW()),
 ('trade_durations', '[5,10,15,30,60,120,300]', 'json', 'trading', 1, NOW()),
-('chart_history_candles', '140', 'number', 'trading', 1, NOW()),
-('chart_tick_density', '10', 'number', 'trading', 1, NOW()),
-('chart_quote_interval_ms', '650', 'number', 'trading', 1, NOW()),
+('chart_history_candles', '800', 'number', 'trading', 1, NOW()),
+('chart_tick_density', '5', 'number', 'trading', 1, NOW()),
+('chart_quote_interval_ms', '1500', 'number', 'trading', 1, NOW()),
 
 -- Wallet & Payment Settings
 ('wallet_currency', 'USD', 'string', 'wallet', 1, NOW()),

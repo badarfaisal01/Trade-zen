@@ -226,8 +226,8 @@ function fetch_binance_all_prices(): array
     static $memoryCacheTime = 0.0;
     $now = microtime(true);
 
-    // 1. Same-request in-memory cache (< 2.5s)
-    if ($memoryCache !== null && ($now - $memoryCacheTime) < 2.5) {
+    // 1. Same-request in-memory cache (< 3.0s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 3.0) {
         return $memoryCache;
     }
 
@@ -237,10 +237,10 @@ function fetch_binance_all_prices(): array
     }
     $cacheFile = $cacheDir . '/binance_prices.json';
 
-    // 2. Cross-request persistent disk cache (< 2.5s)
+    // 2. Cross-request persistent disk cache (< 3.0s)
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 2.5) {
+        if (($now - $mtime) < 3.0) {
             $raw = @file_get_contents($cacheFile);
             if ($raw) {
                 $decoded = json_decode($raw, true);
@@ -257,13 +257,13 @@ function fetch_binance_all_prices(): array
         return $memoryCache ?? [];
     }
 
-    // 3. Fast network fetch from Binance with tight timeouts
+    // 3. Fast network fetch from Binance with tight timeouts (max 2 seconds)
     $url = "https://api.binance.com/api/v3/ticker/price";
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
     curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 2);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
@@ -352,7 +352,7 @@ function fetch_binance_price(string $symbol): float
     if ($apiSymbol === 'USDJPY' && isset($allPrices['BTCJPY'], $allPrices['BTCUSDT']) && $allPrices['BTCUSDT'] > 0) {
         return (float)($allPrices['BTCJPY'] / $allPrices['BTCUSDT']);
     }
-    if ($apiSymbol === 'JPYUSD' && isset($allPrices['BTCJPY'], $allPrices['BTCUSDT']) && $allPrices['BTCJPY'] > 0) {
+    if ($apiSymbol === 'JPYUSD' && isset($allPrices['BTCJPY'], $allPrices['BTCUSDT']) && $allPrices['BTCUSDT'] > 0) {
         return (float)($allPrices['BTCUSDT'] / $allPrices['BTCJPY']);
     }
     if ($apiSymbol === 'XAGUSD' && isset($allPrices['PAXGUSDT']) && $allPrices['PAXGUSDT'] > 0) {
@@ -366,7 +366,7 @@ function fetch_binance_price(string $symbol): float
     }
 
     if (!function_exists('curl_init')) {
-        throw new RuntimeException('PHP cURL is required for market API feeds.');
+        return 0.0;
     }
 
     $url = "https://api.binance.com/api/v3/ticker/price?symbol=" . urlencode($apiSymbol);
@@ -374,31 +374,24 @@ function fetch_binance_price(string $symbol): float
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 2);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
     curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
     $response = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    $curlError = curl_error($ch);
     curl_close($ch);
 
-    if ($curlError) {
-        throw new RuntimeException('Binance API error: ' . $curlError);
+    if ($httpCode === 200 && is_string($response)) {
+        $data = json_decode($response, true);
+        if (is_array($data) && isset($data['price']) && is_numeric($data['price'])) {
+            return (float)$data['price'];
+        }
     }
 
-    if ($httpCode !== 200) {
-        throw new RuntimeException('Binance API returned HTTP ' . $httpCode);
-    }
-
-    $data = json_decode($response, true);
-    if (!is_array($data) || !isset($data['price']) || !is_numeric($data['price'])) {
-        throw new RuntimeException('Binance API: No valid price data for ' . $symbol);
-    }
-
-    return (float)$data['price'];
+    return 0.0;
 }
 
 /**
@@ -534,8 +527,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         }
     }
 
-    // Fetch in batches (max 3 batches to avoid blocking PHP too long)
-    $neededBatches = max(1, min(3, (int)ceil(min(3000, max(1000, $count)) / 1000)));
+    // Fetch in batches (max 2 batches to avoid blocking PHP)
+    $neededBatches = max(1, min(2, (int)ceil(min(2000, max(800, $count)) / 1000)));
     $allKlines = [];
     $endTime = $endTimeMs !== null ? $endTimeMs : null;
 
@@ -548,8 +541,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $ch = curl_init();
         curl_setopt($ch, CURLOPT_URL, $url);
         curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
         curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
@@ -630,7 +623,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
  * Automatically routes to the correct API based on symbol and configuration
  * 
  * @param string $symbol Trading symbol
- * @return float Current market price
+ * @return float Current market price (or 0.0 if not available)
  */
 function fetch_market_price(string $symbol): float
 {
@@ -638,28 +631,27 @@ function fetch_market_price(string $symbol): float
 
     // 1. First try Binance API (free, reliable, real-time for Crypto, Metals/PAXG, Forex/USDT)
     try {
-        return fetch_binance_price($normalized);
-    } catch (Exception $e) {
-        error_log('Binance API failed for ' . $normalized . ': ' . $e->getMessage());
-    }
+        $bPrice = fetch_binance_price($normalized);
+        if ($bPrice > 0) {
+            return $bPrice;
+        }
+    } catch (Throwable $e) {}
 
-    // 2. Fall back to Metals API for Gold/Precious metals
-    if (in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {
+    // 2. Fall back to Metals API for Gold/Precious metals only if API key is configured
+    if (!empty(env('METALS_API_KEY')) && in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {
         try {
             return fetch_metals_api_price('XAU', 'USD');
-        } catch (Exception $e) {
-            error_log('Metals API failed for XAUUSD: ' . $e->getMessage());
-        }
+        } catch (Throwable $e) {}
     }
 
-    // 3. Fall back to Twelve Data
-    try {
-        return fetch_twelvedata_price($normalized);
-    } catch (Exception $e) {
-        error_log('Twelve Data API failed for ' . $normalized . ': ' . $e->getMessage());
+    // 3. Fall back to Twelve Data only if API key is configured
+    if (!empty(env('TWELVEDATA_API_KEY'))) {
+        try {
+            return fetch_twelvedata_price($normalized);
+        } catch (Throwable $e) {}
     }
 
-    throw new RuntimeException('No API provider configured or available for symbol: ' . $normalized);
+    return 0.0;
 }
 
 /**

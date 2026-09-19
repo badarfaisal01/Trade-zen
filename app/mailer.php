@@ -77,7 +77,7 @@ function smtp_send(string $to, string $subject, string $htmlBody, ?string $textB
         return ['ok' => false, 'message' => $errorMsg];
     }
 
-    $timeout = 12;
+    $timeout = 3;
     $errno = 0;
     $errstr = '';
 
@@ -292,6 +292,26 @@ function send_email(string $to, string $subject, string $htmlBody, ?string $text
 }
 
 /**
+ * Generates a clean HTML brand header with the Quotex logo for all email templates
+ */
+function mailer_header_html(string $platformName, string $baseUrl, string $accentColor = '#111111'): string
+{
+    $logoUrl = $baseUrl . '/assets/img/email-logo.png';
+    return <<<HTML
+        <table role="presentation" border="0" cellpadding="0" cellspacing="0" style="margin-bottom: 24px; border-collapse: collapse;">
+            <tr>
+                <td style="vertical-align: middle; padding-right: 12px;">
+                    <img src="{$logoUrl}" alt="{$platformName}" width="42" height="48" style="display: block; width: 42px; height: 48px; max-width: 42px; border: 0; outline: none; border-radius: 4px;" />
+                </td>
+                <td style="vertical-align: middle;">
+                    <span style="font-size: 22px; font-weight: 800; color: {$accentColor}; letter-spacing: -0.3px; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;">{$platformName}</span>
+                </td>
+            </tr>
+        </table>
+HTML;
+}
+
+/**
  * Generates and sends a clean, professional, plain-style HTML Welcome Email upon user account creation
  */
 function send_welcome_email(array $user): bool
@@ -330,6 +350,7 @@ function send_welcome_email(array $user): bool
 
     $subject = "Welcome to {$platformName} – Your Account is Ready";
     $year = date('Y');
+    $headerHtml = mailer_header_html($platformName, $baseUrl);
 
     $html = <<<HTML
 <!DOCTYPE html>
@@ -341,9 +362,7 @@ function send_welcome_email(array $user): bool
 </head>
 <body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
     <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
-        <div style="font-size: 20px; font-weight: 700; color: #111111; margin-bottom: 24px;">
-            {$platformName}
-        </div>
+        {$headerHtml}
 
         <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
 
@@ -461,6 +480,7 @@ function send_password_reset_email(array $user, string $resetUrl): bool
     $year = date('Y');
 
     $subject = "Reset Your {$platformName} Password";
+    $headerHtml = mailer_header_html($platformName, $baseUrl);
 
     $html = <<<HTML
 <!DOCTYPE html>
@@ -472,11 +492,10 @@ function send_password_reset_email(array $user, string $resetUrl): bool
 </head>
 <body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
     <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
-        <div style="font-size: 20px; font-weight: 700; color: #111111; margin-bottom: 24px;">
-            {$platformName}
-        </div>
+        {$headerHtml}
 
         <p style="margin: 0 0 16px 0;">Hello <strong>{$name}</strong>,</p>
+
 
         <p style="margin: 0 0 16px 0;">
             We received a request to reset the password for your {$platformName} account.
@@ -570,6 +589,7 @@ function send_deposit_placed_email(array $user, array $deposit): bool
     $reference = trim((string)($deposit['reference'] ?? $deposit['user_reference'] ?? ''));
 
     $subject = "Deposit Placed (#{$orderId}) – Processing Within 24 Hours";
+    $headerHtml = mailer_header_html($platformName, $baseUrl);
 
     $html = <<<HTML
 <!DOCTYPE html>
@@ -581,9 +601,7 @@ function send_deposit_placed_email(array $user, array $deposit): bool
 </head>
 <body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
     <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
-        <div style="font-size: 20px; font-weight: 700; color: #111111; margin-bottom: 24px;">
-            {$platformName}
-        </div>
+        {$headerHtml}
 
         <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
 
@@ -717,6 +735,7 @@ function send_account_banned_email(array $user, string $reason = ''): bool
     $dateStr = date('d M Y, H:i T');
 
     $subject = "Important Security Notice: Your {$platformName} Account Has Been Suspended";
+    $headerHtml = mailer_header_html($platformName, $baseUrl, '#dc2626');
 
     $html = <<<HTML
 <!DOCTYPE html>
@@ -728,9 +747,7 @@ function send_account_banned_email(array $user, string $reason = ''): bool
 </head>
 <body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
     <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
-        <div style="font-size: 20px; font-weight: 700; color: #dc2626; margin-bottom: 24px;">
-            {$platformName}
-        </div>
+        {$headerHtml}
 
         <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
 

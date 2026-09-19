@@ -3,17 +3,29 @@ declare(strict_types=1);
 
 function market_assets(bool $activeOnly = true): array
 {
+    static $cache = [];
+    $key = $activeOnly ? '1' : '0';
+    if (isset($cache[$key])) {
+        return $cache[$key];
+    }
+
     $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id';
     if ($activeOnly) {
         $sql .= ' WHERE a.is_active = 1';
     }
     $sql .= ' ORDER BY a.sort_order ASC,a.display_name ASC';
-    return db()->query($sql)->fetchAll();
+    $cache[$key] = db()->query($sql)->fetchAll();
+    return $cache[$key];
 }
 
 function market_asset(string $symbol, bool $activeOnly = true): ?array
 {
+    static $assetCache = [];
     $cleanSymbol = strtoupper(trim($symbol));
+    $cacheKey = $cleanSymbol . '_' . ($activeOnly ? '1' : '0');
+    if (array_key_exists($cacheKey, $assetCache)) {
+        return $assetCache[$cacheKey];
+    }
 
     // 1. Try exact match
     $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE a.symbol = ?';
@@ -25,6 +37,7 @@ function market_asset(string $symbol, bool $activeOnly = true): ?array
     $stmt->execute([$cleanSymbol]);
     $asset = $stmt->fetch();
     if ($asset) {
+        $assetCache[$cacheKey] = $asset;
         return $asset;
     }
 
@@ -36,6 +49,7 @@ function market_asset(string $symbol, bool $activeOnly = true): ?array
         $stmt->execute([$stripped]);
         $asset = $stmt->fetch();
         if ($asset) {
+            $assetCache[$cacheKey] = $asset;
             return $asset;
         }
     }
@@ -51,7 +65,9 @@ function market_asset(string $symbol, bool $activeOnly = true): ?array
     $stmtFallback->execute([$target]);
     $asset = $stmtFallback->fetch();
 
-    return $asset ?: null;
+    $result = $asset ?: null;
+    $assetCache[$cacheKey] = $result;
+    return $result;
 }
 
 function market_noise(int $seed, int $bucket): float
@@ -63,22 +79,28 @@ function market_noise(int $seed, int $bucket): float
 
 function market_price_at(array $asset, int $timestampMs): float
 {
+    $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $source = $asset['price_source'] ?? 'internal';
-    if ($source === 'api' || $source === 'binance') {
+    $nowMs = (int)floor(microtime(true) * 1000);
+    $isLive = abs($nowMs - $timestampMs) < 60000;
+
+    if ($isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    return round((float)$livePrice, (int)$asset['decimal_places']);
+                    return round((float)$livePrice, $decimals);
                 }
             } catch (Throwable $exception) {
                 // Ignore API failure, fallback to reference math
             }
         }
+        if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
+            return round((float)$asset['source_price'], $decimals);
+        }
     }
 
-    $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $minStep = pow(10, -$decimals);
 
     $seconds = $timestampMs / 1000.0;
@@ -112,10 +134,10 @@ function market_price_at(array $asset, int $timestampMs): float
     return round($price, $decimals);
 }
 
-function market_candles(array $asset, int $intervalSeconds = 5, int $count = 5000, ?int $endMs = null): array
+function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null): array
 {
     $intervalSeconds = max(1, min(300, $intervalSeconds));
-    $count = max(10, min(10000, $count));
+    $count = max(10, min(3000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
@@ -652,7 +674,7 @@ function market_asset_payload(array $asset, ?int $nowMs = null): array
     ];
 }
 
-function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 72, bool $includeCandles = true, ?int $endMs = null): array
+function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 800, bool $includeCandles = true, ?int $endMs = null): array
 {
     $asset = market_asset($symbol);
     if (!$asset) {
@@ -660,21 +682,36 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $nowMs = (int)floor(microtime(true) * 1000);
-    // Pre-warm Binance batch price cache so all binance assets are fetched in a single HTTP call
-    fetch_binance_all_prices();
+    // Pre-warm Binance batch price cache so all binance assets are fetched in a single fast call
+    try {
+        fetch_binance_all_prices();
+    } catch (Throwable $e) {}
 
     $assets = [];
-    foreach (market_assets(true) as $row) {
-        $assets[] = market_asset_payload($row, $nowMs);
+    try {
+        foreach (market_assets(true) as $row) {
+            $assets[] = market_asset_payload($row, $nowMs);
+        }
+    } catch (Throwable $e) {
+        $assets[] = market_asset_payload($asset, $nowMs);
     }
 
     $targetEndMs = $endMs !== null && $endMs > 0 ? $endMs : $nowMs;
+
+    $candles = [];
+    if ($includeCandles) {
+        try {
+            $candles = market_candles($asset, $intervalSeconds, $count, $targetEndMs);
+        } catch (Throwable $e) {
+            error_log('Failed to generate candles for ' . $symbol . ': ' . $e->getMessage());
+        }
+    }
 
     return [
         'serverTime' => $nowMs,
         'asset' => market_asset_payload($asset, $nowMs),
         'assets' => $assets,
-        'candles' => $includeCandles ? market_candles($asset, $intervalSeconds, $count, $targetEndMs) : [],
+        'candles' => $candles,
         'engine' => 'market-engine-v1',
     ];
 }

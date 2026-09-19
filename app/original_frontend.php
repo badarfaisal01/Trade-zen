@@ -14,6 +14,8 @@ function render_original_auth_template(string $templatePath, string $error = '',
     $html = (string)preg_replace('~<link\b[^>]+(?:debug-bar|googletag|cloudflare)[^>]*>~i', '', $html);
     $html = (string)preg_replace('~\s+onsubmit="[^"]*"~i', '', $html);
     $html = (string)preg_replace('~<input\b[^>]*name="time_offset"[^>]*>~i', '', $html);
+    $html = (string)preg_replace('~<video\b[^>]*>[\s\S]*?</video>~i', '', $html);
+    $html = (string)preg_replace('~<video\b[^>]*>~i', '', $html);
     // Let the browser/password manager distinguish registration credentials
     // from the current login password without ever exposing stored hashes.
     $html = (string)preg_replace('~(<input\b(?=[^>]*\bid="password-input-registration")[^>]*\bautocomplete)="[^"]*"~i', '$1="new-password"', $html);

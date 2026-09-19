@@ -20,8 +20,8 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(10000, Math.floor(number(meta('trade-chart-history-count', '10000'), 10000))));
-  var marketPollIntervalMs = Math.max(250, Math.min(2000, Math.floor(number(meta('trade-quote-poll-ms', '650'), 650))));
+  var chartHistoryCount = Math.max(60, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '800'), 800))));
+  var marketPollIntervalMs = Math.max(1000, Math.min(5000, Math.floor(number(meta('trade-quote-poll-ms', '1500'), 1500))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
   var initializationPromise = null;
@@ -85,26 +85,50 @@
     return map[clean] || '';
   }
 
+  var currentBinanceStream = '';
   function connectBinanceWs(streamSym) {
+    if (!streamSym || !NativeWebSocket) {
+      if (binanceWs) {
+        try { binanceWs.close(); } catch (e) {}
+        binanceWs = null;
+      }
+      currentBinanceStream = '';
+      return;
+    }
+    if (binanceWs && currentBinanceStream === streamSym && (binanceWs.readyState === 0 || binanceWs.readyState === 1)) {
+      return;
+    }
     if (binanceWs) {
       try { binanceWs.close(); } catch (e) {}
       binanceWs = null;
     }
-    if (!streamSym || !NativeWebSocket) return;
+    currentBinanceStream = streamSym;
     try {
       var ws = new NativeWebSocket('wss://stream.binance.com:9443/stream?streams=' + streamSym + '@aggTrade');
       binanceWs = ws;
       ws.onmessage = function (ev) {
         try {
+          if (binanceWs !== ws || streamSym !== getBinanceStreamSymbol(activeSymbol)) {
+            try { ws.close(); } catch (e) {}
+            return;
+          }
           var msg = JSON.parse(ev.data);
           var data = msg.data || msg;
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
-              var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
+              var expectedAsset = findAsset(activeSymbol);
+              var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
+              if (expectedBase > 0) {
+                var scaleRatio = rawPrice / expectedBase;
+                if (scaleRatio < 0.1 || scaleRatio > 10.0) {
+                  return; // Mismatched stream tick, discard immediately
+                }
+              }
+              var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
               currentLivePrice = Number(rawPrice.toFixed(decimals));
               tickPriceOffset = 0;
-              emitTick(currentLivePrice);
+              emitTick(currentLivePrice, activeSocketSymbol);
             }
           }
         } catch (e) {}
@@ -113,6 +137,7 @@
       ws.onclose = function () {
         if (binanceWs === ws) {
           binanceWs = null;
+          currentBinanceStream = '';
           window.setTimeout(function () {
             var currStream = getBinanceStreamSymbol(activeSymbol);
             if (currStream) connectBinanceWs(currStream);
@@ -144,22 +169,42 @@
     }
   }
 
-  function emitTick(price) {
-    if (!price || !activeSocketSymbol) return;
-    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
+  function emitTick(price, targetSocketSym) {
+    var targetSocket = targetSocketSym || activeSocketSymbol;
+    if (!price || !targetSocket) return;
+    var sym = plainSymbol(targetSocket);
+    var expectedAsset = findAsset(sym);
+    var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
+    if (expectedBase > 0) {
+      var ratio = price / expectedBase;
+      if (ratio < 0.1 || ratio > 10.0) {
+        return; // Reject price if outside expected asset range
+      }
+    }
+    var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
     if (currentSec <= lastEmittedQuoteSec) {
       currentSec = lastEmittedQuoteSec + 0.001;
     }
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
     var tickPrice = Number(price.toFixed(decimals));
-    var quote = [[activeSocketSymbol, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
+    var quote = [[targetSocket, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
     broadcastBinary('quotes/stream', quote);
   }
 
   function emitSmoothQuote() {
     if (!currentLivePrice || !activeSocketSymbol) return;
-    var decimals = marketSnapshot && marketSnapshot.asset ? number(marketSnapshot.asset.decimals, 2) : 2;
+    var expectedAsset = findAsset(activeSymbol);
+    var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
+    if (expectedBase > 0) {
+      var ratio = currentLivePrice / expectedBase;
+      if (ratio < 0.1 || ratio > 10.0) {
+        currentLivePrice = expectedBase;
+        tickPriceOffset = 0;
+        tickMomentum = 0;
+      }
+    }
+    var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var minStep = Math.pow(10, -decimals);
 
     // Dynamic micro-movement: subtle random walk with momentum
@@ -177,7 +222,7 @@
     }
 
     var tickPrice = Number((currentLivePrice + tickPriceOffset).toFixed(decimals));
-    emitTick(tickPrice);
+    emitTick(tickPrice, activeSocketSymbol);
   }
   var domRefreshQueued = false;
   var accountSwitchTarget = '';
@@ -531,11 +576,23 @@
   }
 
   function plainSymbol(symbol) {
-    return String(symbol || 'EURUSD').replace(/_otc$/i, '').toUpperCase();
+    var s = String(symbol || 'EURUSD').trim().toUpperCase();
+    s = s.replace(/(_OTC|-OTC|\s*\(OTC\)|OTC)$/i, '');
+    s = s.replace(/[^A-Z0-9]/g, '');
+    return s || 'EURUSD';
   }
 
   function socketSymbol(symbol) {
     return plainSymbol(symbol) + '_otc';
+  }
+
+  function findAsset(sym, list) {
+    var target = plainSymbol(sym);
+    var arr = Array.isArray(list) && list.length ? list : bootstrapAssets;
+    for (var i = 0; i < arr.length; i++) {
+      if (plainSymbol(arr[i].symbol) === target) return arr[i];
+    }
+    return arr.length ? arr[0] : null;
   }
 
   function extractPeriod(payload, fallback) {
@@ -553,24 +610,36 @@
     return plainSymbol(sym || fallback);
   }
 
-  function bootstrapMarketSnapshot() {
-    var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [{
-      symbol: 'EURUSD', name: 'EUR/USD', category: 'Forex', price: 1.16130,
-      decimals: 5, payout: 87, changePercent: 0, active: true
-    }];
-    var selected = assets.filter(function (asset) { return plainSymbol(asset.symbol) === activeSymbol; })[0] || assets[0];
+  function bootstrapMarketSnapshot(targetSymbol) {
+    var sym = plainSymbol(targetSymbol || activeSymbol);
+    var pool = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length) ? marketSnapshot.assets : bootstrapAssets;
+    var selected = findAsset(sym, pool);
+    if (!selected) {
+      selected = {
+        symbol: sym, name: sym, category: 'Currencies', price: 1.159,
+        decimals: 5, payout: 87, changePercent: 0, active: true
+      };
+    }
     activeSymbol = plainSymbol(selected.symbol);
     activeSocketSymbol = socketSymbol(activeSymbol);
     var nowMs = Date.now() + serverTimeOffset;
-    var basePrice = number(selected.price, 1.16130);
-    if (!currentLivePrice || currentLivePrice <= 0) currentLivePrice = basePrice;
+    var basePrice = number(selected.price, 0);
+    if (basePrice <= 0) basePrice = (activeSymbol.indexOf('BTC') !== -1 ? 80000 : (activeSymbol.indexOf('ETH') !== -1 ? 2500 : 1.159));
+
+    var priceScaleRatio = (currentLivePrice > 0 && basePrice > 0) ? (currentLivePrice / basePrice) : 1;
+    if (priceScaleRatio < 0.2 || priceScaleRatio > 5.0) {
+      currentLivePrice = basePrice;
+      tickPriceOffset = 0;
+      tickMomentum = 0;
+    }
+
     var dec = number(selected.decimals, 5);
     var step = Math.pow(10, -dec);
     var candles = [];
     var interval = Math.max(1, Math.min(300, number(activePeriod, 60)));
     var intervalMs = interval * 1000;
     var currBucket = Math.floor(nowMs / intervalMs) * intervalMs;
-    var startBucket = currBucket - (60 * intervalMs);
+    var startBucket = currBucket - (chartHistoryCount * intervalMs);
     var runningPrice = basePrice;
 
     for (var t = startBucket; t <= currBucket; t += intervalMs) {
@@ -602,6 +671,7 @@
       runningPrice = cClose;
     }
 
+    var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [selected];
     return {serverTime: nowMs, asset: selected, assets: assets, candles: candles, engine: 'server-bootstrap'};
   }
 
@@ -803,13 +873,18 @@
       });
     });
 
-    // Seamless connection: ensure the last history point touches current live price & nowSec
+    // Seamless connection: ensure the last history point touches current live price ONLY if within 50% price scale
     if (history.length > 0 && currentLivePrice > 0) {
-      if (previousStamp < nowSec) {
-        var finalStamp = Number(nowSec.toFixed(3));
-        if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
-        history.push([finalStamp, currentLivePrice, ++count]);
-        previousStamp = finalStamp;
+      var lastHistPrice = history[history.length - 1][1];
+      var scaleRatio = lastHistPrice > 0 ? (currentLivePrice / lastHistPrice) : 1;
+      // Completely prevent cross-symbol vertical spikes (e.g. 1.15 to 81,000)
+      if (scaleRatio >= 0.5 && scaleRatio <= 2.0) {
+        if (previousStamp < nowSec) {
+          var finalStamp = Number(nowSec.toFixed(3));
+          if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
+          history.push([finalStamp, currentLivePrice, ++count]);
+          previousStamp = finalStamp;
+        }
       }
     }
 
@@ -985,26 +1060,110 @@
     window.setTimeout(function () { navigateAuthenticated(target); }, 1600);
   }
 
+  function parseTimeStringToSeconds(str) {
+    if (!str || typeof str !== 'string') return NaN;
+    var trimmed = str.trim();
+    var hms = trimmed.match(/^(\d{1,2}):(\d{2}):(\d{2})$/);
+    if (hms) {
+      return (parseInt(hms[1], 10) * 3600) + (parseInt(hms[2], 10) * 60) + parseInt(hms[3], 10);
+    }
+    var ms = trimmed.match(/^(\d{1,2}):(\d{2})$/);
+    if (ms) {
+      return (parseInt(ms[1], 10) * 60) + parseInt(ms[2], 10);
+    }
+    var unit = trimmed.match(/^(\d+)\s*(s|sec|m|min)?$/i);
+    if (unit) {
+      var num = parseInt(unit[1], 10);
+      if (unit[2] && /^m/i.test(unit[2])) return num * 60;
+      return num;
+    }
+    return NaN;
+  }
+
+  function readTradeDurationFromDom() {
+    var root = document.getElementById('root') || document.body;
+
+    // 1. Check if a confirmation modal / popup is visible (e.g. "Time: 00:01:00" or "in 00:01:00")
+    var modal = document.querySelector('.modal, .popup, .dialog, [role="dialog"], [class*="modal"], [class*="confirm"]');
+    if (modal) {
+      var modalText = normalizedText(modal);
+      var timeMatch = modalText.match(/(?:time|in)\s*[:\s]\s*(\d{1,2}:\d{2}(?::\d{2})?)/i) ||
+                      modalText.match(/in\s+[0-9.,]+\s*[$₹€£]\s+in\s+(\d{1,2}:\d{2}(?::\d{2})?)/i) ||
+                      modalText.match(/(\d{1,2}:\d{2}:\d{2})/);
+      if (timeMatch) {
+        var secFromModal = parseTimeStringToSeconds(timeMatch[1]);
+        if (isFinite(secFromModal) && secFromModal >= 5 && secFromModal <= 86400) {
+          return secFromModal;
+        }
+      }
+    }
+
+    // 2. Check input elements in deal panel (right sidebar)
+    var inputs = root.querySelectorAll ? root.querySelectorAll('input') : [];
+    for (var i = 0; i < inputs.length; i++) {
+      var input = inputs[i];
+      if (input.disabled || input.type === 'hidden' || input.type === 'search') continue;
+      var val = String(input.value || '').trim();
+      var parsedSec = parseTimeStringToSeconds(val);
+      if (isFinite(parsedSec) && parsedSec >= 5 && parsedSec <= 86400) {
+        var node = input;
+        var context = '';
+        for (var d = 0; node && d < 4; d++, node = node.parentElement) {
+          context += ' ' + (node.className || '') + ' ' + normalizedText(node);
+        }
+        if (/time|timer|duration|expiration|expiry|period/i.test(context + ' ' + input.name + ' ' + input.id) || /^\d{1,2}:\d{2}(?::\d{2})?$/.test(val)) {
+          return parsedSec;
+        }
+      }
+    }
+
+    // 3. Check active / selected timer chips
+    var activeTimerBtn = root.querySelector ? root.querySelector('.is-active[class*="time"], .active[class*="time"], [class*="time"][class*="selected"], [class*="expiration"][class*="active"]') : null;
+    if (activeTimerBtn) {
+      var btnText = normalizedText(activeTimerBtn);
+      var secFromBtn = parseTimeStringToSeconds(btnText);
+      if (isFinite(secFromBtn) && secFromBtn >= 5 && secFromBtn <= 86400) {
+        return secFromBtn;
+      }
+    }
+
+    return NaN;
+  }
+
   function openLocalTrade(socket, request) {
     if (accountSwitchPromise) {
       return accountSwitchPromise.then(function () { return openLocalTrade(socket, request); });
     }
     var nowSeconds = currentServerSeconds();
     var rawTime = number(request.time, 0);
+    var domDuration = readTradeDurationFromDom();
     var duration = 60;
     var targetCloseTime = null;
 
-    if (rawTime > 100000000000) {
-      rawTime = Math.floor(rawTime / 1000);
-    }
-
-    if (rawTime > 100000000) {
-      // User selected a target clock expiration (e.g. 10:47:00 timestamp)
-      targetCloseTime = rawTime;
-      duration = Math.max(5, targetCloseTime - nowSeconds);
+    if (isFinite(domDuration) && domDuration >= 5 && domDuration <= 86400) {
+      duration = Math.round(domDuration);
+      selectedTradeDuration = duration;
+      targetCloseTime = null;
     } else if (rawTime >= 5 && rawTime <= 86400) {
-      // Fast option: duration in seconds
       duration = Math.round(rawTime);
+      selectedTradeDuration = duration;
+      targetCloseTime = null;
+    } else if (rawTime > 100000000000) {
+      rawTime = Math.floor(rawTime / 1000);
+      var diff = rawTime - nowSeconds;
+      if (diff >= 5 && diff <= 86400) {
+        duration = diff;
+      } else {
+        duration = selectedTradeDuration || 60;
+      }
+      targetCloseTime = null;
+    } else if (rawTime > 100000000) {
+      var diff2 = rawTime - nowSeconds;
+      if (diff2 >= 5 && diff2 <= 86400) {
+        duration = diff2;
+      } else {
+        duration = selectedTradeDuration || 60;
+      }
       targetCloseTime = null;
     } else {
       duration = allowedTradeDurations.indexOf(selectedTradeDuration) !== -1 ? selectedTradeDuration : 60;
@@ -1217,6 +1376,17 @@
       activeSymbol = reqSymStore;
       activeSocketSymbol = socketSymbol(activeSymbol);
       activePeriod = reqPerStore;
+
+      if (storeChanged) {
+        var storeAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
+        if (storeAsset && number(storeAsset.price, 0) > 0) {
+          currentLivePrice = number(storeAsset.price, 0);
+          tickPriceOffset = 0;
+          tickMomentum = 0;
+        }
+        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
+      }
+
       if (!marketSnapshot || storeChanged) {
         refreshMarket(true, socket, chartHistoryCount);
       }
@@ -1229,6 +1399,17 @@
       activeSymbol = reqSym;
       activeSocketSymbol = socketSymbol(activeSymbol);
       activePeriod = reqPer;
+
+      if (instChanged) {
+        var instAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
+        if (instAsset && number(instAsset.price, 0) > 0) {
+          currentLivePrice = number(instAsset.price, 0);
+          tickPriceOffset = 0;
+          tickMomentum = 0;
+        }
+        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
+      }
+
       if (!marketSnapshot || instChanged) {
         refreshMarket(true, socket, chartHistoryCount);
       }
@@ -1243,15 +1424,22 @@
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);
         activePeriod = reqPeriod;
+
+        var nextAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
+        if (nextAsset && number(nextAsset.price, 0) > 0) {
+          currentLivePrice = number(nextAsset.price, 0);
+          tickPriceOffset = 0;
+          tickMomentum = 0;
+        }
+
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-        // Instantly supply bootstrap history for the new timeframe so chart begins painting immediately without freeze
-        var instantBootstrap = bootstrapMarketSnapshot();
-        socket.binaryEvent('history/list/v2', historyPayload(instantBootstrap, activeSocketSymbol, activePeriod));
+        refreshMarket(true, socket, chartHistoryCount);
         emitClockTick();
         emitSmoothQuote();
+        return;
       }
 
-      if (!marketSnapshot || symbolOrPeriodChanged) {
+      if (!marketSnapshot) {
         refreshMarket(true, socket, chartHistoryCount);
       } else {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
@@ -1593,11 +1781,13 @@
     var intent = pendingTradeIntent && pendingTradeIntent.at === socketEventTime ? pendingTradeIntent : null;
     var fallbackRequestId = intent ? intent.id : 'trade-fallback-' + socketEventTime;
     recentTradeIntent = {id: fallbackRequestId, direction: direction, at: socketEventTime};
+    var domDuration = readTradeDurationFromDom();
+    var fallbackDuration = (isFinite(domDuration) && domDuration >= 5) ? domDuration : (selectedTradeDuration || 60);
     openLocalTrade(socket, {
       asset: activeSocketSymbol,
       action: direction === 'down' ? 'put' : 'call',
       amount: amount,
-      time: currentServerSeconds() + selectedTradeDuration,
+      time: fallbackDuration,
       requestId: 'fallback-' + Date.now(),
       clientRequestId: fallbackRequestId,
       optionType: 1
