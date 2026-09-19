@@ -87,6 +87,15 @@
 
   var currentBinanceStream = '';
   function connectBinanceWs(streamSym) {
+    var expectedAsset = findAsset(activeSymbol);
+    if (!isAssetActive(expectedAsset)) {
+      if (binanceWs) {
+        try { binanceWs.close(); } catch (e) {}
+        binanceWs = null;
+      }
+      currentBinanceStream = '';
+      return;
+    }
     if (!streamSym || !NativeWebSocket) {
       if (binanceWs) {
         try { binanceWs.close(); } catch (e) {}
@@ -117,15 +126,18 @@
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
-              var expectedAsset = findAsset(activeSymbol);
-              var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
+              var currAssetObj = findAsset(activeSymbol);
+              if (!isAssetActive(currAssetObj)) {
+                return;
+              }
+              var expectedBase = currAssetObj ? number(currAssetObj.price, 0) : 0;
               if (expectedBase > 0) {
                 var scaleRatio = rawPrice / expectedBase;
                 if (scaleRatio < 0.1 || scaleRatio > 10.0) {
                   return; // Mismatched stream tick, discard immediately
                 }
               }
-              var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
+              var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
               currentLivePrice = Number(rawPrice.toFixed(decimals));
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
@@ -174,6 +186,10 @@
     if (!price || !targetSocket) return;
     var sym = plainSymbol(targetSocket);
     var expectedAsset = findAsset(sym);
+    if (!isAssetActive(expectedAsset)) {
+      // Market is closed: do not emit fake moving ticks
+      return;
+    }
     var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
     if (expectedBase > 0) {
       var ratio = price / expectedBase;
@@ -195,6 +211,10 @@
   function emitSmoothQuote() {
     if (!currentLivePrice || !activeSocketSymbol) return;
     var expectedAsset = findAsset(activeSymbol);
+    if (!isAssetActive(expectedAsset)) {
+      // Market is closed: freeze quote completely at close price
+      return;
+    }
     var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
     if (expectedBase > 0) {
       var ratio = currentLivePrice / expectedBase;
@@ -287,11 +307,52 @@
     }
   }
 
+  function parseInitialSnapshot() {
+    var encoded = String(meta('trade-initial-snapshot', '') || '');
+    if (!encoded || !/^[A-Za-z0-9_-]+$/.test(encoded)) return null;
+    try {
+      while (encoded.length % 4) encoded += '=';
+      var binary = window.atob(encoded.replace(/-/g, '+').replace(/_/g, '/'));
+      var bytes = new Uint8Array(binary.length);
+      for (var index = 0; index < binary.length; index++) bytes[index] = binary.charCodeAt(index);
+      var json = window.TextDecoder
+        ? new TextDecoder('utf-8').decode(bytes)
+        : decodeURIComponent(Array.prototype.map.call(bytes, function (byte) { return '%' + byte.toString(16).padStart(2, '0'); }).join(''));
+      var snap = JSON.parse(json);
+      return snap && snap.asset && Array.isArray(snap.candles) && snap.candles.length ? snap : null;
+    } catch (ignored) {
+      return null;
+    }
+  }
+
   var bootstrapAssets = parseBootstrapAssets();
+  var defaultSymbolMeta = meta('trade-default-symbol', '');
+  var initialOpenAsset = null;
   if (bootstrapAssets.length) {
-    var initialAsset = bootstrapAssets.filter(function (a) { return plainSymbol(a.symbol) === activeSymbol; })[0] || bootstrapAssets[0];
-    if (initialAsset && number(initialAsset.price, 0) > 0) {
-      currentLivePrice = number(initialAsset.price, 0);
+    var openAssets = bootstrapAssets.filter(function (a) { return isAssetActive(a); });
+    initialOpenAsset = openAssets.length ? openAssets[0] : bootstrapAssets[0];
+  }
+  if (initialOpenAsset) {
+    activeSymbol = plainSymbol(initialOpenAsset.symbol);
+    activeSocketSymbol = socketSymbol(activeSymbol);
+    if (number(initialOpenAsset.price, 0) > 0) {
+      currentLivePrice = number(initialOpenAsset.price, 0);
+    }
+  } else if (defaultSymbolMeta) {
+    activeSymbol = plainSymbol(defaultSymbolMeta);
+    activeSocketSymbol = socketSymbol(activeSymbol);
+  }
+
+  var embeddedSnapshot = parseInitialSnapshot();
+  if (embeddedSnapshot) {
+    marketSnapshot = embeddedSnapshot;
+    var embAsset = embeddedSnapshot.asset || {};
+    if (embAsset.symbol) {
+      activeSymbol = plainSymbol(embAsset.symbol);
+      activeSocketSymbol = socketSymbol(activeSymbol);
+    }
+    if (number(embAsset.price, 0) > 0) {
+      currentLivePrice = number(embAsset.price, 0);
     }
   }
   if (!currentLivePrice || currentLivePrice <= 0) {
@@ -310,6 +371,14 @@
     return lowered;
   }
 
+  function isAssetActive(asset) {
+    if (!asset) return false;
+    if (asset.active === false || asset.active === 0 || asset.active === '0') return false;
+    if (asset.is_active === false || asset.is_active === 0 || asset.is_active === '0') return false;
+    if (asset.is_open === false || asset.is_open === 0 || asset.is_open === '0') return false;
+    return true;
+  }
+
   function buildModalsFromAssets() {
     var grouped = {};
     bootstrapAssets.forEach(function (asset) {
@@ -318,12 +387,15 @@
       if (!grouped[key]) {
         grouped[key] = {id: key, title: category, type: 'market_list', items: []};
       }
+      var active = isAssetActive(asset);
       grouped[key].items.push({
         symbol: String(asset.symbol || ''),
         name: String(asset.name || asset.symbol || ''),
         category: category,
-        payout: number(asset.payout, 0),
-        volatility: number(asset.volatility, 0)
+        payout: active ? number(asset.payout, 0) : 0,
+        volatility: number(asset.volatility, 0),
+        active: active,
+        is_open: active
       });
     });
 
@@ -598,8 +670,13 @@
   function extractPeriod(payload, fallback) {
     if (!payload) return Math.max(1, Math.min(300, number(fallback, 60)));
     var settings = payload.settings || {};
-    var val = payload.period || payload.interval || payload.timeframe || payload.chartPeriod || payload.timePeriod || payload.value ||
-              settings.period || settings.interval || settings.timeframe || settings.chartPeriod || settings.timePeriod || settings.value;
+    // PRIORITY: Look specifically for candle timeframe properties.
+    // NEVER fallback to timePeriod (which is trade expiration duration, e.g. 5, 10, 30, 60)!
+    var val = payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
+              settings.chartPeriod || settings.timeframe || settings.period || settings.interval;
+    if (!val && typeof payload === 'number' && payload > 0) {
+      val = payload;
+    }
     return Math.max(1, Math.min(300, number(val, fallback)));
   }
 
@@ -614,6 +691,13 @@
     var sym = plainSymbol(targetSymbol || activeSymbol);
     var pool = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length) ? marketSnapshot.assets : bootstrapAssets;
     var selected = findAsset(sym, pool);
+    if (!selected || !isAssetActive(selected)) {
+      var firstActive = pool.filter(isAssetActive)[0];
+      if (firstActive) {
+        selected = firstActive;
+        sym = plainSymbol(selected.symbol);
+      }
+    }
     if (!selected) {
       selected = {
         symbol: sym, name: sym, category: 'Currencies', price: 1.159,
@@ -698,12 +782,29 @@
   }
 
   function instrumentPayload(asset, index) {
-    var payout = number(asset.payout, 0);
+    var active = isAssetActive(asset);
+    var payout = active ? number(asset.payout, 0) : 0;
     var timeframes = [5, 10, 15, 30, 60, 120, 180, 300].map(function (time) {
       return {time: time};
     });
     var display = String(asset.name || asset.symbol || 'Market');
-    if (display.toLowerCase().indexOf('(otc)') === -1) display += ' (OTC)';
+    var isOtc = (asset.symbol && asset.symbol.toLowerCase().indexOf('otc') !== -1) || (display.toLowerCase().indexOf('(otc)') !== -1);
+    if (isOtc && display.toLowerCase().indexOf('(otc)') === -1) {
+      display += ' (OTC)';
+    }
+
+    var dec = typeof asset.decimals === 'number' ? asset.decimals : 2;
+    var closePrice = (asset.closed_price !== undefined && asset.closed_price !== null && Number(asset.closed_price) > 0)
+      ? Number(asset.closed_price).toFixed(dec)
+      : (asset.price ? Number(asset.price).toFixed(dec) : '');
+
+    if (!active) {
+      if (closePrice) {
+        display += ' (Closed: ' + closePrice + ')';
+      } else {
+        display += ' (Closed)';
+      }
+    }
 
     return [
       index + 1,
@@ -796,6 +897,7 @@
       closeTimestamp: Math.floor(expiresAt / 1000),
       duration: duration,
       percentProfit: payout,
+      percentLoss: 100,
       payout: payout,
       profit: resultReturn,
       profitLoss: profitLoss,
@@ -805,6 +907,9 @@
       isDemo: String(trade.accountType || user.accountType) === 'demo' ? 1 : 0,
       isClosed: closed,
       status: status,
+      resultReturn: resultReturn,
+      userBalance: stateBalance,
+      refundReason: trade.refundReason || null,
       optionType: 1,
       createdAt: socketTime(openedAt),
       settledAt: trade.settledAt ? socketTime(trade.settledAt) : null
@@ -812,17 +917,31 @@
   }
 
   function openDeals() {
-    if (!tradeState || !Array.isArray(tradeState.trades)) return [];
-    return tradeState.trades.filter(function (trade) {
-      return trade.status === 'open';
-    }).map(function (trade) { return mapTrade(trade); });
+    var list = tradeState && Array.isArray(tradeState.openTrades) ? tradeState.openTrades : [];
+    if (!list.length && tradeState && Array.isArray(tradeState.trades)) {
+      list = tradeState.trades.filter(function (trade) { return trade.status === 'open'; });
+    }
+    return list.map(function (trade) { return mapTrade(trade); });
   }
 
   function closedDeals() {
-    if (!tradeState || !Array.isArray(tradeState.trades)) return [];
-    return tradeState.trades.filter(function (trade) {
-      return trade.status !== 'open';
-    }).map(function (trade) { return mapTrade(trade); });
+    var list = tradeState && Array.isArray(tradeState.closedTrades) ? tradeState.closedTrades : [];
+    if (!list.length && tradeState && Array.isArray(tradeState.trades)) {
+      list = tradeState.trades.filter(function (trade) { return trade.status !== 'open'; });
+    }
+    return list.map(function (trade) { return mapTrade(trade); });
+  }
+
+  function emitTradeLists(targetSocket) {
+    var opened = openDeals();
+    var closed = closedDeals();
+    if (targetSocket) {
+      targetSocket.binaryEvent('orders/opened/list', opened);
+      targetSocket.binaryEvent('orders/closed/list', closed);
+      return;
+    }
+    broadcastBinary('orders/opened/list', opened);
+    broadcastBinary('orders/closed/list', closed);
   }
 
   function historyPayload(snapshot, requestedSymbol, period) {
@@ -831,9 +950,14 @@
     var candles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
     var safePeriod = Math.max(1, Math.min(300, number(period, 60)));
     var nowSec = (Date.now() + serverTimeOffset) / 1000;
+    var currentAssetObj = snapshot && snapshot.asset ? snapshot.asset : findAsset(requestedSymbol);
+    var isClosed = !isAssetActive(currentAssetObj);
     var serverSeconds = number(snapshot && snapshot.serverTime, 0) / 1000;
     if (!serverSeconds || serverSeconds <= 0) serverSeconds = nowSec;
     var maxHistorySec = Math.min(serverSeconds, nowSec);
+    if (isClosed && currentAssetObj && currentAssetObj.closed_at) {
+      maxHistorySec = Math.min(maxHistorySec, number(currentAssetObj.closed_at, 0) / 1000);
+    }
     var previousStamp = -Infinity;
     var totalCandles = candles.length;
 
@@ -873,8 +997,9 @@
       });
     });
 
-    // Seamless connection: ensure the last history point touches current live price ONLY if within 50% price scale
-    if (history.length > 0 && currentLivePrice > 0) {
+    // Seamless connection: ensure the last history point touches current live price ONLY if this is the live current chart (i.e. reaches present time)
+    var isLiveStream = (nowSec - previousStamp) <= (safePeriod * 2);
+    if (isLiveStream && history.length > 0 && currentLivePrice > 0) {
       var lastHistPrice = history[history.length - 1][1];
       var scaleRatio = lastHistPrice > 0 ? (currentLivePrice / lastHistPrice) : 1;
       // Completely prevent cross-symbol vertical spikes (e.g. 1.15 to 81,000)
@@ -911,13 +1036,6 @@
       if (socket.readyState === LocalTradeSocket.OPEN) socket.binaryEvent(event, payload);
     });
   }
-
-  function emitTradeLists(socket) {
-    socket.binaryEvent('orders/opened/list', openDeals());
-    socket.binaryEvent('orders/closed/list', closedDeals());
-  }
-
-
 
   function refreshMarket(sendHistory, socket, customCount) {
     if (marketRequestRunning) {
@@ -983,8 +1101,9 @@
       window.settings.demoBalance = user.demoBalance.toFixed(8);
       window.settings.isDemo = user.accountType === 'demo' ? 1 : 0;
       window.settings.isDemoProfile = user.accountType === 'demo';
+
       var currentOpen = {};
-      var trades = Array.isArray(state.trades) ? state.trades : [];
+      var trades = Array.isArray(state.trades) ? state.trades : (Array.isArray(state.openTrades) ? state.openTrades.concat(state.closedTrades || []) : []);
       trades.forEach(function (trade) {
         if (trade.status === 'open') currentOpen[String(trade.id)] = true;
       });
@@ -1185,6 +1304,13 @@
       requestId: clientRequestId
     };
 
+    var currentAssetObj = findAsset(data.symbol || activeSymbol);
+    if (!isAssetActive(currentAssetObj)) {
+      var assetTitle = currentAssetObj && (currentAssetObj.name || currentAssetObj.symbol) || data.symbol || activeSymbol;
+      showNotice('Market is closed for ' + assetTitle + '. Trading is currently unavailable.', 'warning', 4000);
+      return Promise.resolve(null);
+    }
+
     // Keep the original trade UI, but send a user with insufficient funds to
     // the dedicated deposit page instead of leaving the trade button in a
     // confusing error state.
@@ -1371,11 +1497,15 @@
         selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
       var reqSymStore = extractSymbol(payload, activeSymbol);
-      var reqPerStore = extractPeriod(payload, activePeriod);
-      var storeChanged = reqSymStore !== activeSymbol || reqPerStore !== activePeriod;
+      var hasChartPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
+                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
+      var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
       activeSymbol = reqSymStore;
       activeSocketSymbol = socketSymbol(activeSymbol);
-      activePeriod = reqPerStore;
+      if (hasChartPeriod) {
+        activePeriod = reqPerStore;
+      }
 
       if (storeChanged) {
         var storeAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
@@ -1394,11 +1524,15 @@
     }
     if (event === 'instruments/update') {
       var reqSym = extractSymbol(payload, activeSymbol);
-      var reqPer = extractPeriod(payload, activePeriod);
-      var instChanged = reqSym !== activeSymbol || reqPer !== activePeriod;
+      var hasInstPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
+                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var reqPer = hasInstPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
+      var instChanged = reqSym !== activeSymbol || (hasInstPeriod && reqPer !== activePeriod);
       activeSymbol = reqSym;
       activeSocketSymbol = socketSymbol(activeSymbol);
-      activePeriod = reqPer;
+      if (hasInstPeriod) {
+        activePeriod = reqPer;
+      }
 
       if (instChanged) {
         var instAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
@@ -1417,13 +1551,17 @@
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
       var reqSymbol = extractSymbol(payload, activeSymbol);
-      var reqPeriod = extractPeriod(payload, activePeriod);
-      var symbolOrPeriodChanged = reqSymbol !== activeSymbol || reqPeriod !== activePeriod;
+      var hasHistPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
+                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var reqPeriod = hasHistPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
+      var symbolOrPeriodChanged = reqSymbol !== activeSymbol || (hasHistPeriod && reqPeriod !== activePeriod);
 
       if (symbolOrPeriodChanged) {
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);
-        activePeriod = reqPeriod;
+        if (hasHistPeriod) {
+          activePeriod = reqPeriod;
+        }
 
         var nextAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
         if (nextAsset && number(nextAsset.price, 0) > 0) {
@@ -1439,7 +1577,23 @@
         return;
       }
 
-      if (!marketSnapshot) {
+      var beforeTimeSec = payload && (payload.time || payload.end || payload.before) ? number(payload.time || payload.end || payload.before, 0) : 0;
+      if (beforeTimeSec > 0 && (event === 'history/load' || event === 'history/load/v2' || event.indexOf('load') !== -1)) {
+        var beforeMs = Math.round(beforeTimeSec * 1000);
+        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=' + encodeURIComponent(String(chartHistoryCount)) + '&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
+          var olderPayload = historyPayload(olderSnapshot, activeSocketSymbol, activePeriod);
+          if (payload && payload.index !== undefined) {
+            olderPayload.index = payload.index;
+          }
+          socket.binaryEvent(event, olderPayload);
+        }).catch(function () {
+          // ignore
+        });
+        return;
+      }
+
+      var currentSnapSymbol = marketSnapshot && marketSnapshot.asset ? plainSymbol(marketSnapshot.asset.symbol) : '';
+      if (!marketSnapshot || currentSnapSymbol !== activeSymbol) {
         refreshMarket(true, socket, chartHistoryCount);
       } else {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
@@ -1760,6 +1914,12 @@
   function openFallbackTrade(direction, socketEventTime) {
     fallbackTradeTimer = null;
     if (lastSocketOrderAt >= socketEventTime) return;
+    var currentAssetObj = findAsset(activeSymbol);
+    if (!isAssetActive(currentAssetObj)) {
+      var assetTitle = currentAssetObj && (currentAssetObj.name || currentAssetObj.symbol) || activeSymbol;
+      showNotice('Market is closed for ' + assetTitle + '. Trading is currently unavailable.', 'warning', 4000);
+      return;
+    }
     var socket = sockets.filter(function (item) { return item.readyState === LocalTradeSocket.OPEN; })[0];
     if (!socket) {
       showNotice('Trade engine is still loading. Try again in a moment.', 'warning', 2200);
@@ -1809,6 +1969,14 @@
     ].join(' ');
     var direction = detectTradeDirection(text, hint);
     if (!direction) return;
+    var currentAssetObj = findAsset(activeSymbol);
+    if (!isAssetActive(currentAssetObj)) {
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      var assetTitle = currentAssetObj && (currentAssetObj.name || currentAssetObj.symbol) || activeSymbol;
+      showNotice('Market is closed for ' + assetTitle + '. Trading is currently unavailable.', 'warning', 4000);
+      return;
+    }
     if (user.balance + 0.000001 < user.minAmount) return;
     var socketEventTime = Date.now();
     pendingTradeIntent = {id: 'trade-click-' + socketEventTime + '-' + Math.random().toString(36).slice(2, 10), direction: direction, at: socketEventTime};
@@ -2016,6 +2184,63 @@
         element.classList.add('original-hidden');
       }
     });
+
+    document.querySelectorAll('tr, [role="button"], button, [class*="item"]').forEach(function (row) {
+      var text = (row.innerText || row.textContent || '');
+      if (text.indexOf('(Closed') !== -1 || text.indexOf('Market Closed') !== -1 || text.indexOf('Closed:') !== -1) {
+        row.setAttribute('data-closed', '1');
+        row.setAttribute('title', 'Market is currently closed');
+      }
+    });
+
+    var curAsset = findAsset(activeSymbol);
+    var isClosed = !isAssetActive(curAsset);
+    if (isClosed) {
+      document.body.classList.add('is-market-closed-active');
+      var existingBanner = document.getElementById('originalMarketClosedBanner');
+      if (!existingBanner) {
+        existingBanner = document.createElement('div');
+        existingBanner.id = 'originalMarketClosedBanner';
+        existingBanner.className = 'original-market-closed-banner';
+      }
+      var closePriceVal = (curAsset && (curAsset.closed_price !== undefined && curAsset.closed_price !== null)) ? curAsset.closed_price : (curAsset ? curAsset.price : null);
+      var dec = (curAsset && typeof curAsset.decimals === 'number') ? curAsset.decimals : 2;
+      var priceDisplay = (closePriceVal !== null && closePriceVal !== undefined && Number(closePriceVal) > 0) ? Number(closePriceVal).toFixed(dec) : '';
+      var statusMsg = (curAsset && curAsset.status_text) ? curAsset.status_text : 'Market is Closed';
+      
+      existingBanner.innerHTML = '<svg viewBox="0 0 24 24" width="15" height="15" fill="currentColor" style="flex-shrink:0;margin-top:2px;"><path d="M18 8h-1V6c0-2.76-2.24-5-5-5S7 3.24 7 6v2H6c-1.1 0-2 .9-2 2v10c0 1.1.9 2 2 2h12c1.1 0 2-.9 2-2V10c0-1.1-.9-2-2-2zm-6 9c-1.1 0-2-.9-2-2s.9-2 2-2 2 .9 2 2-.9 2-2 2zm3.1-9H8.9V6c0-1.71 1.39-3.1 3.1-3.1 1.71 0 3.1 1.39 3.1 3.1v2z"/></svg>' +
+        '<div style="display:flex;flex-direction:column;align-items:center;gap:2px;text-align:center;width:100%;">' +
+          '<div style="font-weight:700;font-size:12px;letter-spacing:0.02em;">' + statusMsg + '</div>' +
+          (priceDisplay ? '<div style="font-size:11px;opacity:0.9;font-weight:600;">Closed at point: <strong style="color:#fff;">' + priceDisplay + '</strong></div>' : '') +
+        '</div>';
+      
+      // Target the trade options menu on the right (below the Down/Put trade button)
+      var downBtn = null;
+      var allButtons = document.querySelectorAll('button');
+      for (var bi = 0; bi < allButtons.length; bi++) {
+        var btnText = normalizedText(allButtons[bi]).toLowerCase();
+        if (btnText === 'down' || btnText === 'put' || allButtons[bi].getAttribute('data-text') === 'Down') {
+          downBtn = allButtons[bi];
+          break;
+        }
+      }
+
+      if (downBtn && downBtn.parentElement) {
+        var host = downBtn.parentElement;
+        if (existingBanner.parentElement !== host || host.lastChild !== existingBanner) {
+          host.appendChild(existingBanner);
+        }
+      } else {
+        var dealContainer = document.querySelector('.section-deal') || document.querySelector('.deal-form') || document.querySelector('[class*="section-deal"]') || document.querySelector('[class*="deal-form"]');
+        if (dealContainer && existingBanner.parentElement !== dealContainer) {
+          dealContainer.appendChild(existingBanner);
+        }
+      }
+    } else {
+      document.body.classList.remove('is-market-closed-active');
+      var bannerToRemove = document.getElementById('originalMarketClosedBanner');
+      if (bannerToRemove) bannerToRemove.remove();
+    }
   }
 
   function scheduleDomRefresh() {
@@ -2052,6 +2277,7 @@
   ['pointerdown', 'mousedown', 'touchstart', 'click'].forEach(function (eventName) {
     document.addEventListener(eventName, interceptDepositShortcut, {capture: true, passive: false});
   });
+
 
   // Disabled HTML buttons do not emit a normal click event. The captured
   // React UI can disable Up/Down at a zero balance, so catch pointer-down in
@@ -2304,6 +2530,54 @@
   document.addEventListener('DOMContentLoaded', function () {
     scheduleDomRefresh();
     mountOnboarding();
+
+    // Prevent selecting closed market pairs ONLY inside the "Select trade pair" modal / dropdown
+    document.addEventListener('click', function (e) {
+      var target = e.target;
+      if (!target) return;
+
+      // NEVER block tab close / cancel buttons (e.g. the "x" on tabs) or anything in the tab bar
+      if (target.closest('button[class*="close"], [class*="tab__close"], [class*="close"], [aria-label*="close" i], svg, path')) {
+        var isModalDialog = target.closest('[role="dialog"], [class*="modal"], [class*="dialog"]');
+        if (!isModalDialog) {
+          return; // Allow closing tabs freely!
+        }
+      }
+
+      // ONLY apply to the trade pair selection modal dialog
+      var modal = target.closest('[role="dialog"], [class*="modal"], [class*="dialog"]');
+      if (!modal) {
+        return; // Allow clicking tabs, header, charts, controls freely!
+      }
+
+      // Inside the modal, check if user is clicking on a closed trade pair row/item
+      var row = target.closest('tr, [role="button"], button, [class*="item"], [class*="row"]');
+      if (!row) return;
+
+      var text = (row.innerText || row.textContent || '').trim();
+      if (/closed/i.test(text)) {
+        var pool = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length) ? marketSnapshot.assets : bootstrapAssets;
+        var foundClosed = pool.filter(function (a) {
+          if (isAssetActive(a)) return false;
+          var s = plainSymbol(a.symbol);
+          var n = String(a.name || a.symbol);
+          return text.indexOf(s) !== -1 || text.indexOf(n) !== -1 || (a.closed_price && text.indexOf(String(a.closed_price)) !== -1);
+        })[0];
+
+        if (foundClosed || /market\s+closed/i.test(text) || /\(closed/i.test(text)) {
+          e.preventDefault();
+          e.stopPropagation();
+          e.stopImmediatePropagation();
+          var closedName = foundClosed ? (foundClosed.name || foundClosed.symbol) : 'Selected market';
+          var dec = foundClosed && typeof foundClosed.decimals === 'number' ? foundClosed.decimals : 2;
+          var closedPr = foundClosed && foundClosed.closed_price ? Number(foundClosed.closed_price).toFixed(dec) : '';
+          var msg = 'Market is closed for ' + closedName + (closedPr ? ' (at ' + closedPr + ')' : '') + '. Please choose an active market.';
+          showNotice(msg, 'warning', 3500);
+          return false;
+        }
+      }
+    }, true);
+
     var announcement = meta('trade-announcement-message', '');
     if (announcement) {
       var announcementTitle = meta('trade-announcement-title', 'Platform notice');

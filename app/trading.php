@@ -269,9 +269,12 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
     }
 
     settle_open_trades($userId);
-    $asset = market_asset($symbol);
+    $asset = market_asset($symbol, false);
     if (!$asset) {
         throw new InvalidArgumentException('Selected market is unavailable.');
+    }
+    if (!(bool)($asset['is_active'] ?? true)) {
+        throw new RuntimeException('Market is closed for this asset.');
     }
     $accountType = $requestedAccountType === null ? trade_account_type() : strtolower(trim($requestedAccountType));
     if (!in_array($accountType, ['live', 'demo'], true)) {

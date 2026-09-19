@@ -18,7 +18,7 @@ function original_trade_settings(array $user): array
     $balance = $accountType === 'demo' ? $demoBalance : $liveBalance;
 
     // Build modals with market assets
-    $assets = market_assets(true);
+    $assets = market_assets(false);
     $byCategory = [];
     foreach ($assets as $asset) {
         $category = (string)($asset['category'] ?? 'forex');
@@ -34,12 +34,15 @@ function original_trade_settings(array $user): array
             'title' => ucfirst($category),
             'type' => 'market_list',
             'items' => array_map(static function(array $asset): array {
+                $isActive = (bool)($asset['is_active'] ?? true);
                 return [
                     'symbol' => (string)$asset['symbol'],
                     'name' => (string)$asset['display_name'],
                     'category' => (string)$asset['category'],
-                    'payout' => (float)$asset['payout_percent'],
+                    'payout' => $isActive ? (float)$asset['payout_percent'] : 0.0,
                     'volatility' => (float)$asset['volatility'],
+                    'active' => $isActive,
+                    'is_open' => $isActive,
                 ];
             }, $categoryAssets),
         ];
@@ -145,9 +148,9 @@ function render_original_trade_route(array $user): void
 
 function render_original_trade_page(array $user): void
 {
-    $assets = market_assets(true);
+    $assets = market_assets(false);
     if (!$assets) {
-        throw new RuntimeException('No active markets are configured.');
+        throw new RuntimeException('No markets are configured.');
     }
 
     $minimum = (float)setting('minimum_trade_amount', 1);
@@ -163,8 +166,24 @@ function render_original_trade_page(array $user): void
     $activeBalance = $accountType === 'demo' ? $demoBalance : $liveBalance;
     $bootstrapTime = (int)floor(microtime(true) * 1000);
     $bootstrapAssets = array_map(static fn (array $asset): array => market_asset_payload($asset, $bootstrapTime), $assets);
+    usort($bootstrapAssets, static function ($a, $b) {
+        $aActive = !empty($a['active']) || !empty($a['is_open']) ? 1 : 0;
+        $bActive = !empty($b['active']) || !empty($b['is_open']) ? 1 : 0;
+        if ($aActive !== $bActive) {
+            return $bActive <=> $aActive;
+        }
+        return 0;
+    });
     $bootstrapAssetsJson = (string)json_encode($bootstrapAssets, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
     $bootstrapAssetsEncoded = rtrim(strtr(base64_encode($bootstrapAssetsJson), '+/', '-_'), '=');
+    $defaultSymbol = (string)($bootstrapAssets[0]['symbol'] ?? 'BTCUSD');
+    try {
+        $initialSnapshot = market_snapshot($defaultSymbol, 5, 800, true);
+        $initialSnapshotJson = (string)json_encode($initialSnapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+        $initialSnapshotEncoded = rtrim(strtr(base64_encode($initialSnapshotJson), '+/', '-_'), '=');
+    } catch (Throwable $e) {
+        $initialSnapshotEncoded = '';
+    }
     $notificationStmt = db()->prepare("SELECT id,title,message,NULL image_filename,level FROM user_notifications WHERE is_active=1 AND (user_id IS NULL OR user_id=?) AND (starts_at IS NULL OR starts_at<=NOW()) AND (expires_at IS NULL OR expires_at>=NOW()) ORDER BY (user_id IS NOT NULL) DESC,id DESC LIMIT 1");
     $notificationStmt->execute([(int)$user['id']]);
     $announcement = $notificationStmt->fetch();
@@ -194,6 +213,8 @@ function render_original_trade_page(array $user): void
         'trade-chart-history-count' => (string)max(60, min(3000, (int)setting('chart_history_candles', 800))),
         'trade-quote-poll-ms' => (string)max(1000, min(5000, (int)setting('chart_quote_interval_ms', 1500))),
         'trade-bootstrap-assets' => $bootstrapAssetsEncoded,
+        'trade-initial-snapshot' => $initialSnapshotEncoded,
+        'trade-default-symbol' => $defaultSymbol,
         'trade-server-time' => (string)$bootstrapTime,
         'trade-platform-name' => $platformName,
     ];

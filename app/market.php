@@ -9,7 +9,7 @@ function market_assets(bool $activeOnly = true): array
         return $cache[$key];
     }
 
-    $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id';
+    $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,a.updated_at,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id';
     if ($activeOnly) {
         $sql .= ' WHERE a.is_active = 1';
     }
@@ -28,7 +28,7 @@ function market_asset(string $symbol, bool $activeOnly = true): ?array
     }
 
     // 1. Try exact match
-    $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE a.symbol = ?';
+    $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,a.updated_at,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE a.symbol = ?';
     if ($activeOnly) {
         $sql .= ' AND a.is_active = 1';
     }
@@ -56,7 +56,7 @@ function market_asset(string $symbol, bool $activeOnly = true): ?array
 
     // 3. Fallback: match normalized DB symbols
     $target = $stripped !== '' ? $stripped : str_replace([' ', '_', '-', '/'], '', $cleanSymbol);
-    $sqlFallback = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(a.symbol), "_", ""), "-", ""), "/", ""), " ", "") = ?';
+    $sqlFallback = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,a.updated_at,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id WHERE REPLACE(REPLACE(REPLACE(REPLACE(UPPER(a.symbol), "_", ""), "-", ""), "/", ""), " ", "") = ?';
     if ($activeOnly) {
         $sqlFallback .= ' AND a.is_active = 1';
     }
@@ -655,11 +655,191 @@ function refresh_market_api_price(int $assetId): float
     return $price;
 }
 
+function market_status(array $asset, ?int $nowMs = null): array
+{
+    $nowMs = $nowMs ?? (int)floor(microtime(true) * 1000);
+    $nowSec = (int)floor($nowMs / 1000);
+    $isActive = (bool)($asset['is_active'] ?? true);
+    $symbol = strtoupper(trim((string)($asset['symbol'] ?? '')));
+    $category = strtolower(trim((string)($asset['category'] ?? 'forex')));
+    
+    // 1. Check if manually disabled/closed by admin
+    if (!$isActive) {
+        $updatedAt = !empty($asset['updated_at']) ? strtotime((string)$asset['updated_at']) : 0;
+        if ($updatedAt <= 0) {
+            $updatedAt = (int)floor($nowSec / 86400) * 86400;
+        }
+        $closedAtMs = $updatedAt * 1000;
+        $closedPrice = market_price_at($asset, $closedAtMs);
+        return [
+            'isOpen' => false,
+            'isOtc' => false,
+            'reason' => 'disabled',
+            'closedAt' => $closedAtMs,
+            'closedPrice' => $closedPrice,
+            'nextOpenAt' => null,
+            'statusText' => 'Market is Closed'
+        ];
+    }
+
+    $displayName = (string)($asset['display_name'] ?? '');
+    $isOtc = (stripos($symbol, 'OTC') !== false || stripos($displayName, 'OTC') !== false || $category === 'otc' || stripos($category, 'otc') !== false);
+    $isCrypto = ($category === 'crypto' || $category === 'cryptocurrency' || stripos($symbol, 'BTC') !== false || stripos($symbol, 'ETH') !== false || stripos($symbol, 'SOL') !== false || stripos($symbol, 'DOGE') !== false || stripos($symbol, 'XRP') !== false || stripos($symbol, 'BNB') !== false);
+
+    // Crypto and OTC assets trade 24/7
+    if ($isOtc || $isCrypto) {
+        return [
+            'isOpen' => true,
+            'isOtc' => $isOtc,
+            'reason' => 'open_24_7',
+            'closedAt' => null,
+            'closedPrice' => null,
+            'nextOpenAt' => null,
+            'statusText' => 'Market Open 24/7'
+        ];
+    }
+
+    $isStock = ($category === 'stock' || $category === 'stocks' || in_array($symbol, ['AAPL', 'TSLA', 'NVDA', 'MSFT', 'AMZN', 'GOOGL', 'META', 'NFLX', 'BABA', 'INTC', 'AMD']));
+    
+    $dt = new DateTime('@' . $nowSec);
+    $dt->setTimezone(new DateTimeZone('America/New_York')); // US Eastern Time
+    
+    $dayOfWeek = (int)$dt->format('w'); // 0 = Sun, 1 = Mon, ..., 6 = Sat
+    $hour = (int)$dt->format('G'); // 0-23
+    $minute = (int)$dt->format('i');
+    $timeVal = $hour * 60 + $minute; // Minutes since midnight EST
+
+    if ($isStock) {
+        // US Stocks: Mon-Fri 9:30 AM (570 min) to 4:00 PM (960 min) EST
+        $isWeekday = ($dayOfWeek >= 1 && $dayOfWeek <= 5);
+        $isTradingHours = ($timeVal >= 570 && $timeVal < 960);
+        
+        if ($isWeekday && $isTradingHours) {
+            return [
+                'isOpen' => true,
+                'isOtc' => false,
+                'reason' => 'open_stock_session',
+                'closedAt' => null,
+                'closedPrice' => null,
+                'nextOpenAt' => null,
+                'statusText' => 'Market Open'
+            ];
+        }
+
+        $closeDt = clone $dt;
+        if ($isWeekday && $timeVal >= 960) {
+            $closeDt->setTime(16, 0, 0);
+        } elseif ($isWeekday && $timeVal < 570) {
+            if ($dayOfWeek === 1) {
+                $closeDt->modify('-3 days');
+            } else {
+                $closeDt->modify('-1 day');
+            }
+            $closeDt->setTime(16, 0, 0);
+        } elseif ($dayOfWeek === 6) {
+            $closeDt->modify('-1 day');
+            $closeDt->setTime(16, 0, 0);
+        } else {
+            $closeDt->modify('-2 days');
+            $closeDt->setTime(16, 0, 0);
+        }
+
+        $openDt = clone $dt;
+        if ($isWeekday && $timeVal < 570) {
+            $openDt->setTime(9, 30, 0);
+        } elseif ($dayOfWeek === 5 && $timeVal >= 960) {
+            $openDt->modify('+3 days');
+            $openDt->setTime(9, 30, 0);
+        } elseif ($dayOfWeek === 6) {
+            $openDt->modify('+2 days');
+            $openDt->setTime(9, 30, 0);
+        } elseif ($dayOfWeek === 0) {
+            $openDt->modify('+1 day');
+            $openDt->setTime(9, 30, 0);
+        } else {
+            $openDt->modify('+1 day');
+            $openDt->setTime(9, 30, 0);
+        }
+
+        $closedAtMs = $closeDt->getTimestamp() * 1000;
+        $closedPrice = market_price_at($asset, $closedAtMs);
+
+        return [
+            'isOpen' => false,
+            'isOtc' => false,
+            'reason' => 'stock_hours_closed',
+            'closedAt' => $closedAtMs,
+            'closedPrice' => $closedPrice,
+            'nextOpenAt' => $openDt->getTimestamp() * 1000,
+            'statusText' => 'Market Closed (Opens ' . $openDt->format('D 9:30 AM EST') . ')'
+        ];
+    }
+
+    // Forex / Commodities: Sun 17:00 EST (22:00 UTC) to Fri 17:00 EST (22:00 UTC)
+    $isForexClosed = false;
+    if ($dayOfWeek === 5 && $timeVal >= 1020) {
+        $isForexClosed = true;
+    } elseif ($dayOfWeek === 6) {
+        $isForexClosed = true;
+    } elseif ($dayOfWeek === 0 && $timeVal < 1020) {
+        $isForexClosed = true;
+    }
+
+    if (!$isForexClosed) {
+        return [
+            'isOpen' => true,
+            'isOtc' => false,
+            'reason' => 'open_forex_session',
+            'closedAt' => null,
+            'closedPrice' => null,
+            'nextOpenAt' => null,
+            'statusText' => 'Market Open'
+        ];
+    }
+
+    $closeDt = clone $dt;
+    if ($dayOfWeek === 5) {
+        $closeDt->setTime(17, 0, 0);
+    } elseif ($dayOfWeek === 6) {
+        $closeDt->modify('-1 day');
+        $closeDt->setTime(17, 0, 0);
+    } else {
+        $closeDt->modify('-2 days');
+        $closeDt->setTime(17, 0, 0);
+    }
+
+    $openDt = clone $dt;
+    if ($dayOfWeek === 5) {
+        $openDt->modify('+2 days');
+        $openDt->setTime(17, 0, 0);
+    } elseif ($dayOfWeek === 6) {
+        $openDt->modify('+1 day');
+        $openDt->setTime(17, 0, 0);
+    } else {
+        $openDt->setTime(17, 0, 0);
+    }
+
+    $closedAtMs = $closeDt->getTimestamp() * 1000;
+    $closedPrice = market_price_at($asset, $closedAtMs);
+
+    return [
+        'isOpen' => false,
+        'isOtc' => false,
+        'reason' => 'weekend_closed',
+        'closedAt' => $closedAtMs,
+        'closedPrice' => $closedPrice,
+        'nextOpenAt' => $openDt->getTimestamp() * 1000,
+        'statusText' => 'Market Closed (Opens Sunday 5:00 PM EST)'
+    ];
+}
+
 function market_asset_payload(array $asset, ?int $nowMs = null): array
 {
     $nowMs = $nowMs ?? (int)floor(microtime(true) * 1000);
-    $price = market_price_at($asset, $nowMs);
-    $past = market_price_at($asset, $nowMs - 300000);
+    $status = market_status($asset, $nowMs);
+    $effectiveTime = $status['isOpen'] ? $nowMs : $status['closedAt'];
+    $price = $status['isOpen'] ? market_price_at($asset, $nowMs) : (float)$status['closedPrice'];
+    $past = market_price_at($asset, $effectiveTime - 300000);
     $change = $past > 0 ? (($price - $past) / $past) * 100 : 0.0;
 
     return [
@@ -668,20 +848,29 @@ function market_asset_payload(array $asset, ?int $nowMs = null): array
         'category' => $asset['category'],
         'price' => $price,
         'decimals' => (int)$asset['decimal_places'],
-        'payout' => (float)$asset['payout_percent'],
+        'payout' => $status['isOpen'] ? (float)$asset['payout_percent'] : 0.0,
         'changePercent' => round($change, 2),
-        'active' => (bool)$asset['is_active'],
+        'active' => $status['isOpen'],
+        'is_active' => $status['isOpen'] ? 1 : 0,
+        'is_open' => $status['isOpen'],
+        'closed_at' => $status['closedAt'],
+        'closed_price' => $status['closedPrice'],
+        'next_open_at' => $status['nextOpenAt'],
+        'status_text' => $status['statusText'],
+        'reason' => $status['reason'],
     ];
 }
 
 function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 800, bool $includeCandles = true, ?int $endMs = null): array
 {
-    $asset = market_asset($symbol);
+    $asset = market_asset($symbol, false);
     if (!$asset) {
         throw new InvalidArgumentException('Selected market is unavailable.');
     }
 
     $nowMs = (int)floor(microtime(true) * 1000);
+    $status = market_status($asset, $nowMs);
+
     // Pre-warm Binance batch price cache so all binance assets are fetched in a single fast call
     try {
         fetch_binance_all_prices();
@@ -689,14 +878,14 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
 
     $assets = [];
     try {
-        foreach (market_assets(true) as $row) {
+        foreach (market_assets(false) as $row) {
             $assets[] = market_asset_payload($row, $nowMs);
         }
     } catch (Throwable $e) {
         $assets[] = market_asset_payload($asset, $nowMs);
     }
 
-    $targetEndMs = $endMs !== null && $endMs > 0 ? $endMs : $nowMs;
+    $targetEndMs = $status['isOpen'] ? ($endMs !== null && $endMs > 0 ? $endMs : $nowMs) : $status['closedAt'];
 
     $candles = [];
     if ($includeCandles) {

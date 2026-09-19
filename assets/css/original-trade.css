@@ -219,3 +219,80 @@ body.original-trade-page select {
 .original-onboarding-primary,.original-onboarding-secondary,.original-onboarding-link{font:700 14px Roboto,Arial,sans-serif;cursor:pointer}.original-onboarding-primary{width:100%;min-height:42px;border:0;border-radius:5px;color:#fff;background:#0fbb62;box-shadow:0 7px 16px rgba(15,187,98,.18)}.original-onboarding-primary:hover{background:#14ca6b}.original-onboarding-link{margin:16px 0 0;border:0;color:#168cf4;background:transparent}.original-onboarding-link:hover{text-decoration:underline}.original-onboarding-card.is-confirm{width:min(360px,calc(100vw - 28px));padding-top:43px}.original-onboarding-card.is-confirm h2{margin-top:5px}.original-onboarding-card.is-confirm p{font-size:16px}.original-onboarding-eyebrow{display:inline-flex;padding:5px 9px;border-radius:20px;color:#72baff;background:rgba(43,153,255,.12);font-size:11px;font-weight:800;text-transform:uppercase;letter-spacing:.08em}
 .onboarding-account-art,.onboarding-control-art,.onboarding-direction-art{display:grid;gap:8px;margin:22px 0 8px;padding:16px;border:1px solid rgba(255,255,255,.08);border-radius:8px;background:#202534}.onboarding-account-art{grid-template-columns:1fr 1fr;text-align:left}.onboarding-account-art span{color:#fff;font-weight:800}.onboarding-account-art b{color:#97a0b3;font-size:11px}.onboarding-account-art i{grid-column:1/-1;height:1px;background:rgba(255,255,255,.07)}.onboarding-control-art{grid-template-columns:1fr 1fr}.onboarding-control-art span{padding:12px;border:1px solid rgba(255,255,255,.08);border-radius:6px;text-align:left}.onboarding-control-art small{display:block;margin-bottom:5px;color:#8993a8}.onboarding-control-art b{color:#fff}.onboarding-direction-art{grid-template-columns:1fr 1fr}.onboarding-direction-art span{display:flex;align-items:center;justify-content:space-between;padding:14px 16px;border-radius:5px;color:#fff;font-weight:800}.onboarding-direction-art .is-up{background:#12b963}.onboarding-direction-art .is-down{background:#ea4b3d}.onboarding-direction-art b{font-size:20px}.original-onboarding-progress{height:4px;margin:22px 0 18px;overflow:hidden;border-radius:5px;background:rgba(255,255,255,.08)}.original-onboarding-progress i{display:block;height:100%;border-radius:inherit;background:linear-gradient(90deg,#2497ff,#14c96b);transition:width .2s}.original-onboarding-actions{display:grid;grid-template-columns:1fr 1.7fr;gap:10px}.original-onboarding-secondary{min-height:42px;border:1px solid rgba(255,255,255,.13);border-radius:5px;color:#dce1eb;background:#3a4051}.original-onboarding-secondary:hover{background:#454c60}
 @media(max-width:520px){.original-onboarding-card{padding:36px 20px 24px}.original-onboarding-card h2{font-size:22px}.original-onboarding-card p{font-size:14px}.original-onboarding-actions{grid-template-columns:1fr}.original-onboarding-actions>span{display:none}}
+
+/* Market closed indicator & status */
+.original-market-closed-banner {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin: 10px 0 6px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: rgba(234, 75, 61, 0.12);
+  border: 1px solid rgba(234, 75, 61, 0.35);
+  color: #ff7266;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-align: center;
+  box-sizing: border-box;
+  animation: originalFadeIn 0.25s ease-out;
+}
+
+.original-market-closed-banner svg {
+  flex-shrink: 0;
+  fill: #ff7266;
+}
+
+body.is-market-closed-active .section-deal button[class*="call"],
+body.is-market-closed-active .section-deal button[class*="put"],
+body.is-market-closed-active .deal-form button[class*="call"],
+body.is-market-closed-active .deal-form button[class*="put"],
+body.is-market-closed-active button[data-text*="Up"],
+body.is-market-closed-active button[data-text*="Down"] {
+  opacity: 0.42 !important;
+  cursor: not-allowed !important;
+  filter: grayscale(50%);
+}
+
+@keyframes originalFadeIn {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* Closed items in asset dropdown and modal list */
+[data-closed="1"],
+tr[data-closed="1"],
+div[data-closed="1"],
+button[class*="asset"]:has(span:empty),
+[class*="item"]:has([data-closed]) {
+  opacity: 0.50 !important;
+  cursor: not-allowed !important;
+  user-select: none !important;
+}
+
+[data-closed="1"] *,
+tr[data-closed="1"] * {
+  cursor: not-allowed !important;
+}
+
+/* Ensure modal table cells show full pair name and closed price without ellipsis truncation */
+div[role="dialog"] [class*="truncate"],
+div[class*="modal"] [class*="truncate"],
+div[class*="dialog"] [class*="truncate"],
+div[role="dialog"] table td,
+div[class*="modal"] table td,
+div[class*="dialog"] table td {
+  text-overflow: clip !important;
+  white-space: nowrap !important;
+  overflow: visible !important;
+  max-width: none !important;
+}
+
+div[role="dialog"],
+div[class*="modal-dialog"],
+div[class*="modal-content"] {
+  max-width: min(880px, calc(100vw - 24px)) !important;
+}
