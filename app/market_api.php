@@ -202,6 +202,22 @@ function binance_api_symbol_map(string $symbol): string
 }
 
 /**
+ * Build standard headers for Binance API requests with optional API Key from .env
+ */
+function binance_request_headers(): array
+{
+    $headers = [
+        'User-Agent: Mozilla/5.0 (Windows NT 10.0; Win64; x64) TradeZen/1.0',
+        'Accept: application/json',
+    ];
+    $apiKey = trim((string)env('BINANCE_API_KEY', ''));
+    if ($apiKey !== '') {
+        $headers[] = 'X-MBX-APIKEY: ' . $apiKey;
+    }
+    return $headers;
+}
+
+/**
  * Fetch all ticker prices from Binance in a single fast call with persistent cross-request caching
  */
 function fetch_binance_all_prices(): array
@@ -250,7 +266,7 @@ function fetch_binance_all_prices(): array
     curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+    curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
     $response = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -362,7 +378,7 @@ function fetch_binance_price(string $symbol): float
     curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+    curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
     $response = curl_exec($ch);
     $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
@@ -536,7 +552,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         curl_setopt($ch, CURLOPT_TIMEOUT, 6);
         curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
         curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) 55AKTrade/1.0');
+        curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
         $response = curl_exec($ch);
         $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);

@@ -17,7 +17,7 @@ function mailer_config(): array
     $host = trim((string)(mailer_env('MAIL_HOST', 'smtp.hostinger.com')));
     $port = (int)(mailer_env('MAIL_PORT', '465'));
     $encryption = strtolower(trim((string)(mailer_env('MAIL_ENCRYPTION', $port === 465 ? 'ssl' : 'tls'))));
-    $username = trim((string)(mailer_env('MAIL_USERNAME', 'noreply@tradexa.pro')));
+    $username = trim((string)(mailer_env('MAIL_USERNAME', 'noreply@qxquotax.online')));
     $password = (string)(mailer_env('MAIL_PASSWORD', ''));
     $fromAddress = trim((string)(mailer_env('MAIL_FROM_ADDRESS', $username)));
     $fromName = trim((string)(mailer_env('MAIL_FROM_NAME', (setting('platform_name') ?: 'Tradexa'))));
@@ -132,9 +132,9 @@ function smtp_send(string $to, string $subject, string $htmlBody, ?string $textB
         return ['ok' => false, 'message' => $errorMsg];
     }
 
-    // 2. EHLO using sender domain (tradexa.pro) for trusted SMTP relay
+    // 2. EHLO using sender domain (qxquotax.online) for trusted SMTP relay
     $senderDomain = substr(strrchr($fromAddress, '@'), 1);
-    $clientHost = !empty($senderDomain) ? $senderDomain : 'tradexa.pro';
+    $clientHost = !empty($senderDomain) ? $senderDomain : 'qxquotax.online';
     $ehlo = $sendCommand("EHLO {$clientHost}");
     if ($ehlo['code'] !== 250) {
         fclose($socket);
@@ -320,7 +320,7 @@ function send_welcome_email(array $user): bool
     }
 
     $tradeUrl = $baseUrl . '/en/trade/';
-    $supportEmail = (string)(setting('support_email') ?: 'support@tradexa.pro');
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
     $termsUrl = $baseUrl . '/en/terms/';
     $privacyUrl = $baseUrl . '/en/privacy/';
 
@@ -449,7 +449,7 @@ function send_password_reset_email(array $user, string $resetUrl): bool
     $name = trim((string)($user['name'] ?? 'Account Holder'));
     $config = mailer_config();
     $platformName = $config['from_name'];
-    $supportEmail = (string)(setting('support_email') ?: 'support@tradexa.pro');
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
     $baseUrl = rtrim((string)app_config('url'), '/');
     if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
         $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
@@ -526,3 +526,291 @@ TEXT;
 
     return send_email($email, $subject, $html, $text, $name);
 }
+
+/**
+ * Send Deposit Placed Confirmation Email (Processed within 24 Hours)
+ */
+function send_deposit_placed_email(array $user, array $deposit): bool
+{
+    $email = trim((string)($user['email'] ?? ''));
+    if ($email === '') {
+        return false;
+    }
+
+    $name = trim((string)($user['name'] ?? 'Trader'));
+    if ($name === '') {
+        $name = 'Trader';
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
+
+    $config = mailer_config();
+    $platformName = $config['from_name'];
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
+
+    $baseUrl = rtrim((string)app_config('url'), '/');
+    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
+        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
+        $baseUrl = $scheme . $host;
+    }
+
+    $tradeUrl = $baseUrl . '/en/trade/';
+    $walletUrl = $baseUrl . '/en/wallet/';
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $year = date('Y');
+
+    $orderId = (string)($deposit['public_id'] ?? $deposit['id'] ?? 'D' . time());
+    $currency = strtoupper((string)($deposit['currency'] ?? $user['currency'] ?? 'USD'));
+    $currencySign = $currency === 'INR' ? '₹' : '$';
+    $amount = number_format((float)($deposit['amount'] ?? 0.00), 2, '.', ',');
+    $method = trim((string)($deposit['method'] ?? $deposit['method_name'] ?? 'Online Payment'));
+    $reference = trim((string)($deposit['reference'] ?? $deposit['user_reference'] ?? ''));
+
+    $subject = "Deposit Placed (#{$orderId}) – Processing Within 24 Hours";
+
+    $html = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deposit Placed - {$platformName}</title>
+</head>
+<body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
+        <div style="font-size: 20px; font-weight: 700; color: #111111; margin-bottom: 24px;">
+            {$platformName}
+        </div>
+
+        <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
+
+        <p style="margin: 0 0 16px 0;">
+            Your deposit request for <strong>{$currencySign}{$amount} {$currency}</strong> has been successfully placed and received in our system.
+        </p>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px; margin: 0 0 20px 0; color: #166534;">
+            <strong style="display: block; margin-bottom: 4px; font-size: 16px;">⏱️ Processing SLA: Within 24 Hours</strong>
+            <span>Our financial operations team is reviewing your transaction. The balance will be verified and credited to your live account within 24 hours.</span>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Deposit Summary:</p>
+        <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #333333;">
+            <li style="margin-bottom: 4px;">Order ID: <strong>{$orderId}</strong></li>
+            <li style="margin-bottom: 4px;">Account ID: <strong>{$accountIdFormatted}</strong></li>
+            <li style="margin-bottom: 4px;">Deposit Amount: <strong>{$currencySign}{$amount} {$currency}</strong></li>
+            <li style="margin-bottom: 4px;">Payment Method: <strong>{$method}</strong></li>
+HTML;
+
+    if ($reference !== '') {
+        $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Transaction Reference: <strong>{$reference}</strong></li>
+HTML;
+    }
+
+    $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Status: <strong style="color: #059669;">Pending Verification</strong></li>
+        </ul>
+
+        <p style="margin: 0 0 20px 0;">
+            You can monitor your transaction status in your wallet anytime:<br>
+            <a href="{$walletUrl}" style="color: #1a73e8; text-decoration: underline; font-weight: 600;">{$walletUrl}</a>
+        </p>
+
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #555555;">
+            <strong>Need Immediate Assistance?</strong> If you have any questions regarding your deposit, reach out to our 24/7 support desk at <a href="mailto:{$supportEmail}" style="color: #1a73e8; text-decoration: underline;">{$supportEmail}</a> with your Order ID <strong>{$orderId}</strong>.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+
+        <p style="margin: 0 0 8px 0; font-size: 12px; color: #777777;">
+            <strong>Risk Warning:</strong> Trading financial instruments carries risk of capital loss. Please trade responsibly.
+        </p>
+
+        <p style="margin: 0; font-size: 12px; color: #777777;">
+            <a href="{$tradeUrl}" style="color: #1a73e8; text-decoration: underline;">Trading Room</a> &bull;
+            <a href="{$walletUrl}" style="color: #1a73e8; text-decoration: underline;">Wallet</a> &bull;
+            <a href="{$termsUrl}" style="color: #1a73e8; text-decoration: underline;">Terms of Service</a> &bull;
+            <a href="{$privacyUrl}" style="color: #1a73e8; text-decoration: underline;">Privacy Policy</a><br>
+            &copy; {$year} {$platformName}. All rights reserved.
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $text = <<<TEXT
+Deposit Placed - {$platformName}
+========================================
+
+Dear {$name},
+
+Your deposit request for {$currencySign}{$amount} {$currency} has been placed and received.
+
+Processing SLA: Within 24 Hours
+Our financial operations team is verifying your payment details. The funds will be credited to your live balance within 24 hours.
+
+Deposit Summary:
+- Order ID: {$orderId}
+- Account ID: {$accountIdFormatted}
+- Amount: {$currencySign}{$amount} {$currency}
+- Payment Method: {$method}
+TEXT;
+
+    if ($reference !== '') {
+        $text .= "\n- Transaction Reference: {$reference}";
+    }
+
+    $text .= <<<TEXT
+
+- Status: Pending Verification
+
+Check order status:
+{$walletUrl}
+
+If you have any questions, please contact our support team at {$supportEmail}.
+
+----------------------------------------
+Risk Warning: Trading financial instruments carries risk of capital loss. Please trade responsibly.
+
+© {$year} {$platformName}. All rights reserved.
+TEXT;
+
+    return send_email($email, $subject, $html, $text, $name);
+}
+
+/**
+ * Send Account Banned / Suspended Notification Email
+ */
+function send_account_banned_email(array $user, string $reason = ''): bool
+{
+    $email = trim((string)($user['email'] ?? ''));
+    if ($email === '') {
+        return false;
+    }
+
+    $name = trim((string)($user['name'] ?? 'Account Holder'));
+    if ($name === '') {
+        $name = 'Account Holder';
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
+
+    $config = mailer_config();
+    $platformName = $config['from_name'];
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
+
+    $baseUrl = rtrim((string)app_config('url'), '/');
+    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
+        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
+        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
+        $baseUrl = $scheme . $host;
+    }
+
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $supportUrl = $baseUrl . '/en/support/';
+    $year = date('Y');
+    $dateStr = date('d M Y, H:i T');
+
+    $subject = "Important Security Notice: Your {$platformName} Account Has Been Suspended";
+
+    $html = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Suspended - {$platformName}</title>
+</head>
+<body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
+        <div style="font-size: 20px; font-weight: 700; color: #dc2626; margin-bottom: 24px;">
+            {$platformName}
+        </div>
+
+        <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
+
+        <p style="margin: 0 0 16px 0;">
+            This email is an official notification that your trading account on {$platformName} has been <strong>suspended / blocked</strong>.
+        </p>
+
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px; margin: 0 0 20px 0; color: #991b1b;">
+            <strong style="display: block; margin-bottom: 4px; font-size: 15px;">⚠️ Account Restriction Notice</strong>
+            <span>In accordance with our platform terms of service and compliance guidelines, active trading, deposits, and session logins have been disabled for this account.</span>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Account Details:</p>
+        <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #333333;">
+            <li style="margin-bottom: 4px;">Account ID: <strong>{$accountIdFormatted}</strong></li>
+            <li style="margin-bottom: 4px;">Registered Email: <strong>{$email}</strong></li>
+            <li style="margin-bottom: 4px;">Action Taken: <strong style="color: #dc2626;">Blocked / Suspended</strong></li>
+            <li style="margin-bottom: 4px;">Effective Date: <strong>{$dateStr}</strong></li>
+        </ul>
+HTML;
+
+    if ($reason !== '') {
+        $html .= <<<HTML
+        <p style="margin: 0 0 16px 0; font-size: 14px; color: #555555;">
+            <strong>Reason for Action:</strong> {$reason}
+        </p>
+HTML;
+    }
+
+    $html .= <<<HTML
+        <p style="margin: 0 0 16px 0;">
+            <strong>How to Appeal or Request Information:</strong>
+        </p>
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #444444;">
+            If you believe this suspension was made in error or wish to submit an appeal, please contact our support department directly at <a href="mailto:{$supportEmail}" style="color: #1a73e8; text-decoration: underline; font-weight: 600;">{$supportEmail}</a>.
+            Please include your Account ID (<strong>{$accountIdFormatted}</strong>) and registered email address to expedite your inquiry.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+
+        <p style="margin: 0; font-size: 12px; color: #777777;">
+            <a href="{$termsUrl}" style="color: #1a73e8; text-decoration: underline;">Terms of Service</a> &bull;
+            <a href="{$privacyUrl}" style="color: #1a73e8; text-decoration: underline;">Privacy Policy</a> &bull;
+            <a href="{$supportUrl}" style="color: #1a73e8; text-decoration: underline;">Support</a><br>
+            &copy; {$year} {$platformName}. All rights reserved.
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $text = <<<TEXT
+Security Notice: Account Suspended - {$platformName}
+========================================
+
+Dear {$name},
+
+This email is an official notification that your trading account on {$platformName} has been suspended / blocked.
+
+Account Details:
+- Account ID: {$accountIdFormatted}
+- Registered Email: {$email}
+- Action Taken: Blocked / Suspended
+- Effective Date: {$dateStr}
+TEXT;
+
+    if ($reason !== '') {
+        $text .= "\n- Reason: {$reason}";
+    }
+
+    $text .= <<<TEXT
+
+How to Appeal or Request Information:
+If you believe this suspension was made in error or wish to submit an appeal, please contact our support desk at {$supportEmail}.
+Please include your Account ID ({$accountIdFormatted}) with your inquiry.
+
+----------------------------------------
+© {$year} {$platformName}. All rights reserved.
+TEXT;
+
+    return send_email($email, $subject, $html, $text, $name);
+}
+

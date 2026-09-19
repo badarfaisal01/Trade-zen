@@ -556,11 +556,32 @@ function confirm_deposit_order(int $userId, int $requestId, string $reference, ?
         if ($update->rowCount() !== 1) {
             throw new RuntimeException('Payment confirmation could not be saved. Refresh and try again.');
         }
-        return ['id' => $order['public_id'], 'status' => 'pending', 'duplicate' => false];
+        return ['id' => $order['public_id'], 'status' => 'pending', 'duplicate' => false, 'order_data' => $order];
     });
     if (!empty($result['expired'])) {
         throw new RuntimeException('This payment order has expired. Create a new order.');
     }
+
+    if (!empty($result['status']) && $result['status'] === 'pending' && empty($result['duplicate'])) {
+        try {
+            $userStmt = db()->prepare('SELECT id, name, email, currency FROM users WHERE id = ? LIMIT 1');
+            $userStmt->execute([$userId]);
+            $depositUser = $userStmt->fetch();
+            if ($depositUser) {
+                $orderData = $result['order_data'] ?? [];
+                send_deposit_placed_email($depositUser, [
+                    'public_id' => $result['id'],
+                    'amount' => (float)($orderData['amount'] ?? 0.00),
+                    'currency' => $depositUser['currency'] ?? 'USD',
+                    'method' => (string)($orderData['method_name'] ?? 'Payment Gateway'),
+                    'reference' => $reference,
+                ]);
+            }
+        } catch (Throwable $mailErr) {
+            mailer_log("Deposit confirmed email dispatch error for order {$result['id']}: " . $mailErr->getMessage());
+        }
+    }
+
     return $result;
 }
 
@@ -678,6 +699,26 @@ function create_fund_request(
         return ['id' => $publicId, 'database_id' => $requestId, 'type' => $requestType, 'amount' => $amount, 'fee' => $fee, 'bonus' => $bonus, 'method' => $method['name'], 'status' => 'pending'];
     });
     current_user(true);
+
+    if ($requestType === 'deposit') {
+        try {
+            $userStmt = db()->prepare('SELECT id, name, email, currency FROM users WHERE id = ? LIMIT 1');
+            $userStmt->execute([$userId]);
+            $depositUser = $userStmt->fetch();
+            if ($depositUser) {
+                send_deposit_placed_email($depositUser, [
+                    'public_id' => $result['id'],
+                    'amount' => $amount,
+                    'currency' => $depositUser['currency'] ?? 'USD',
+                    'method' => $method['name'],
+                    'reference' => $reference,
+                ]);
+            }
+        } catch (Throwable $mailErr) {
+            mailer_log("Deposit placed email dispatch error for order {$result['id']}: " . $mailErr->getMessage());
+        }
+    }
+
     return $result;
 }
 

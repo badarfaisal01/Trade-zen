@@ -53,14 +53,23 @@ if (is_post()) {
             if ($userId < 1 || $userId === (int)$admin['id'] || !in_array($statusValue, ['active','blocked'], true)) {
                 throw new InvalidArgumentException('Invalid user status request.');
             }
-            $targetStmt = db()->prepare('SELECT role FROM users WHERE id=? LIMIT 1');
+            $targetStmt = db()->prepare('SELECT id, role, name, email, currency FROM users WHERE id=? LIMIT 1');
             $targetStmt->execute([$userId]);
-            $targetRole = $targetStmt->fetchColumn();
-            if ($targetRole !== 'user') {
+            $targetUser = $targetStmt->fetch();
+            if (!$targetUser || $targetUser['role'] !== 'user') {
                 throw new RuntimeException('Use the Administrators page for staff accounts.');
             }
             db()->prepare('UPDATE users SET status=?,updated_at=NOW() WHERE id=?')->execute([$statusValue, $userId]);
             admin_audit((int)$admin['id'], 'user_status_changed', 'user', $userId, ['status' => $statusValue]);
+
+            if ($statusValue === 'blocked') {
+                try {
+                    send_account_banned_email($targetUser);
+                } catch (Throwable $mailErr) {
+                    mailer_log("Account ban email delivery failed for user #{$userId}: " . $mailErr->getMessage());
+                }
+            }
+
             flash('success', 'User status updated.');
         } elseif ($action === 'verification_review') {
             require_admin_capability($admin, 'manage_users');

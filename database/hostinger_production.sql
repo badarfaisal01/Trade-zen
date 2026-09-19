@@ -601,8 +601,8 @@ ON DUPLICATE KEY UPDATE
 INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name, is_public, updated_at) VALUES
 ('platform_name', 'TradeZen', 'string', 'general', 1, NOW()),
 ('platform_tagline', 'Smart live market trading platform', 'string', 'general', 1, NOW()),
-('platform_domain', 'https://yourdomain.com', 'string', 'general', 1, NOW()),
-('support_email', 'support@yourdomain.com', 'string', 'general', 1, NOW()),
+('platform_domain', 'https://qxquotax.online', 'string', 'general', 1, NOW()),
+('support_email', 'support@qxquotax.online', 'string', 'general', 1, NOW()),
 ('logo_filename', '', 'string', 'general', 0, NOW()),
 ('maintenance_mode', '0', 'boolean', 'general', 1, NOW()),
 
