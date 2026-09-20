@@ -28,37 +28,33 @@ body.original-trade-page select {
 }
 
 /* Header logo display with Hexagon Badge and QUOTEX text wordmark */
-.TJbx1 .V8tvg {
+.TJbx1 .V8tvg,
+header a[class*="V8tvg"],
+div[class*="TJbx1"] a {
   display: inline-flex !important;
   width: auto !important;
   min-width: 0 !important;
   height: 38px !important;
   align-items: center !important;
-  gap: 8px !important;
+  gap: 0 !important;
   text-decoration: none !important;
 }
 
-.TJbx1 .V8tvg svg {
+.TJbx1 .V8tvg *,
+header a[class*="V8tvg"] *,
+div[class*="TJbx1"] a * {
   display: none !important;
 }
 
-.TJbx1 .V8tvg::before,
-.TJbx1 .V8tvg::after {
-  display: none !important;
-  content: "" !important;
-}
-
-.TJbx1 .V8tvg .original-custom-logo {
+.TJbx1 .V8tvg img.original-custom-logo,
+header a[class*="V8tvg"] img.original-custom-logo,
+div[class*="TJbx1"] a img.original-custom-logo {
   display: block !important;
-  width: 135px !important;
-  height: 28px !important;
-  max-height: 28px !important;
-  max-width: 145px !important;
+  width: 140px !important;
+  height: 30px !important;
+  max-height: 32px !important;
+  max-width: 150px !important;
   object-fit: contain !important;
-}
-
-.TJbx1 .V8tvg .original-logo-text {
-  display: none !important;
 }
 
 .TJbx1 .WQMTk,

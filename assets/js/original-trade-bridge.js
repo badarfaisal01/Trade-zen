@@ -2515,8 +2515,9 @@
     ensureAffiliateShortcut();
     ensureMobileLogoutButton();
 
-    var headerLogo = document.querySelector('.TJbx1 .V8tvg');
-    if (headerLogo) {
+    var headerLogos = document.querySelectorAll('.TJbx1 .V8tvg, header a[class*="V8tvg"], header a[class*="logo"], div[class*="TJbx1"] a');
+    headerLogos.forEach(function (headerLogo) {
+      if (!headerLogo) return;
       headerLogo.classList.add('is-local-branded');
       headerLogo.removeAttribute('data-platform-name');
       headerLogo.removeAttribute('data-platform-mark');
@@ -2530,29 +2531,26 @@
       if (logoImage.getAttribute('src') !== logoSrc) {
         logoImage.src = logoSrc;
       }
-      logoImage.alt = 'Logo';
+      logoImage.alt = 'QUOTEX';
 
-      var logoTextSpan = headerLogo.querySelector('.original-logo-text');
-      if (!logoTextSpan) {
-        logoTextSpan = document.createElement('span');
-        logoTextSpan.className = 'original-logo-text';
-        logoTextSpan.textContent = 'QUOTEX';
-        headerLogo.appendChild(logoTextSpan);
+      var oldTextSpan = headerLogo.querySelector('.original-logo-text');
+      if (oldTextSpan) {
+        oldTextSpan.parentNode.removeChild(oldTextSpan);
       }
 
       headerLogo.classList.add('has-custom-logo');
 
-      // Hide legacy text nodes or extra elements except custom logo & text
+      // Hide legacy text nodes or extra elements except custom logo image
       Array.prototype.forEach.call(headerLogo.childNodes, function (child) {
-        if (child !== logoImage && child !== logoTextSpan) {
+        if (child !== logoImage) {
           if (child.nodeType === 3) {
             child.nodeValue = '';
-          } else if (child.nodeType === 1 && !child.classList.contains('original-custom-logo') && !child.classList.contains('original-logo-text')) {
+          } else if (child.nodeType === 1 && !child.classList.contains('original-custom-logo')) {
             child.style.display = 'none';
           }
         }
       });
-    }
+    });
 
     var headerSubTexts = document.querySelectorAll('.TJbx1 .WQMTk, .TJbx1 [class*="WQMTk"], .TJbx1 [class*="PHfPO"]');
     headerSubTexts.forEach(function (sub) {
