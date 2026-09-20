@@ -811,3 +811,115 @@ TEXT;
     return send_email($email, $subject, $html, $text, $name);
 }
 
+/**
+ * Send Account Unbanned / Restored Notification Email
+ */
+function send_account_unbanned_email(array $user, string $reason = ''): bool
+{
+    $email = trim((string)($user['email'] ?? ''));
+    if ($email === '') {
+        return false;
+    }
+
+    $name = trim((string)($user['name'] ?? 'Account Holder'));
+    if ($name === '') {
+        $name = 'Account Holder';
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
+
+    $config = mailer_config();
+    $platformName = $config['from_name'];
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
+
+    $baseUrl = app_base_url();
+
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $supportUrl = $baseUrl . '/en/support/';
+    $loginUrl = $baseUrl . '/en/trade/';
+    $year = date('Y');
+    $dateStr = date('d M Y, H:i T');
+
+    $subject = "Account Restored: Your {$platformName} Account Is Active Again";
+    $headerHtml = mailer_header_html($platformName, $baseUrl, '#16a34a');
+
+    $html = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Account Restored - {$platformName}</title>
+</head>
+<body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
+        {$headerHtml}
+
+        <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
+
+        <p style="margin: 0 0 16px 0;">
+            Great news! We are pleased to inform you that your trading account on {$platformName} has been <strong>unblocked / restored</strong>.
+        </p>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px; margin: 0 0 20px 0; color: #166534;">
+            <strong style="display: block; margin-bottom: 4px; font-size: 15px;">✅ Account Access Restored</strong>
+            <span>Your account restrictions have been fully lifted. You can now log in, trade, deposit, and access all platform features.</span>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Account Details:</p>
+        <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #333333;">
+            <li style="margin-bottom: 4px;">Account ID: <strong>{$accountIdFormatted}</strong></li>
+            <li style="margin-bottom: 4px;">Registered Email: <strong>{$email}</strong></li>
+            <li style="margin-bottom: 4px;">Status: <strong style="color: #16a34a;">Active</strong></li>
+            <li style="margin-bottom: 4px;">Effective Date: <strong>{$dateStr}</strong></li>
+        </ul>
+
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{$loginUrl}" style="background-color: #16a34a; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; font-size: 15px;">Log In to Your Account</a>
+        </div>
+
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #444444;">
+            If you have any questions or need further assistance, please contact our support desk at <a href="mailto:{$supportEmail}" style="color: #1a73e8; text-decoration: underline; font-weight: 600;">{$supportEmail}</a>.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+
+        <p style="margin: 0; font-size: 12px; color: #777777;">
+            <a href="{$termsUrl}" style="color: #1a73e8; text-decoration: underline;">Terms of Service</a> &bull;
+            <a href="{$privacyUrl}" style="color: #1a73e8; text-decoration: underline;">Privacy Policy</a> &bull;
+            <a href="{$supportUrl}" style="color: #1a73e8; text-decoration: underline;">Support</a><br>
+            &copy; {$year} {$platformName}. All rights reserved.
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $text = <<<TEXT
+Account Restored - {$platformName}
+========================================
+
+Dear {$name},
+
+We are pleased to inform you that your trading account on {$platformName} has been unblocked / restored.
+
+Account Details:
+- Account ID: {$accountIdFormatted}
+- Registered Email: {$email}
+- Status: Active
+- Effective Date: {$dateStr}
+
+You can now log in and trade at: {$loginUrl}
+
+If you have any questions, please contact support at {$supportEmail}.
+
+----------------------------------------
+© {$year} {$platformName}. All rights reserved.
+TEXT;
+
+    return send_email($email, $subject, $html, $text, $name);
+}
+
+

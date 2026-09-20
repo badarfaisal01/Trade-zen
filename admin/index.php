@@ -68,6 +68,12 @@ if (is_post()) {
                 } catch (Throwable $mailErr) {
                     mailer_log("Account ban email delivery failed for user #{$userId}: " . $mailErr->getMessage());
                 }
+            } elseif ($statusValue === 'active') {
+                try {
+                    send_account_unbanned_email($targetUser);
+                } catch (Throwable $mailErr) {
+                    mailer_log("Account unban email delivery failed for user #{$userId}: " . $mailErr->getMessage());
+                }
             }
 
             flash('success', 'User status updated.');
