@@ -5120,6 +5120,61 @@ hr {
     text-decoration: none !important;
 }
 
+.floating-apk-btn {
+    position: fixed;
+    top: 85px;
+    right: 24px;
+    z-index: 9999;
+    background: linear-gradient(135deg, #1672ec 0%, #0d52b5 100%);
+    border: 1px solid rgba(255, 255, 255, 0.15);
+    border-radius: 30px;
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 15px rgba(22, 114, 236, 0.4);
+    color: #fff !important;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 700;
+    padding: 10px 20px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    white-space: nowrap;
+    text-decoration: none !important;
+    backdrop-filter: blur(10px);
+    transition: all 0.25s cubic-bezier(0.4, 0, 0.2, 1);
+    animation: pulseApkGlow 3s infinite;
+}
+
+.floating-apk-btn:hover {
+    background: linear-gradient(135deg, #227bf7 0%, #1160d4 100%);
+    transform: translateY(-2px) scale(1.03);
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.5), 0 0 22px rgba(22, 114, 236, 0.6);
+    color: #fff !important;
+}
+
+.floating-apk-btn svg {
+    animation: apkDownloadBounce 2s infinite ease-in-out;
+}
+
+@keyframes pulseApkGlow {
+    0%, 100% { box-shadow: 0 6px 20px rgba(0, 0, 0, 0.4), 0 0 12px rgba(22, 114, 236, 0.3); }
+    50% { box-shadow: 0 6px 22px rgba(0, 0, 0, 0.5), 0 0 22px rgba(22, 114, 236, 0.7); }
+}
+
+@keyframes apkDownloadBounce {
+    0%, 100% { transform: translateY(0); }
+    50% { transform: translateY(2px); }
+}
+
+@media(max-width: 768px) {
+    .floating-apk-btn {
+        top: 75px;
+        right: 14px;
+        padding: 8px 14px;
+        font-size: 12px;
+        border-radius: 20px;
+    }
+}
+
 .header__language {
     align-items: center;
     color: #fff;
