@@ -185,7 +185,7 @@ render_flashes();
                 <section class="payment-method-section qx-payment-picker" aria-labelledby="paymentMethodLabel">
                     <div class="qx-step-title"><span>1</span><div><strong id="paymentMethodLabel"><?= $action === 'withdrawal' ? 'Payout method' : 'Payment method' ?></strong><small><?= $action === 'withdrawal' ? 'Choose where you want to receive funds' : 'Select an available option' ?></small></div></div>
                     <label class="qx-region-row qx-region-select"><span><?= icon('globe', 15) ?></span><select aria-label="Payment country" data-payment-country>
-                            <?php foreach (['IN'=>'India','AE'=>'United Arab Emirates','GB'=>'United Kingdom','US'=>'United States','AF'=>'Afghanistan','AL'=>'Albania','DZ'=>'Algeria','AS'=>'American Samoa','AO'=>'Angola'] as $countryCode => $countryName): ?>
+                            <?php foreach (app_all_countries() as $countryCode => $countryName): ?>
                                 <option value="<?= e($countryCode) ?>" <?= strtoupper((string)($user['country'] ?: 'IN')) === $countryCode ? 'selected' : '' ?>><?= e($countryName) ?></option>
                             <?php endforeach; ?>
                         </select><small>Payment region</small></label>
