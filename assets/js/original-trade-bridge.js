@@ -21,32 +21,33 @@
           this.options.tickAmount = undefined;
         }
       }
-      var isMobile = window.innerWidth <= 800;
-      // Target 25 to 35 price ticks per viewport on mobile so user sees 20-30 prices close together
-      var targetCount = isMobile ? 28 : 36;
 
       var range = Math.abs(max - min);
       if (range <= 0) return;
 
-      var rawStep = range / targetCount;
-      var exponent = Math.floor(Math.log10(rawStep));
-      var fraction = rawStep / Math.pow(10, exponent);
+      var step;
 
-      var niceFraction;
-      if (fraction <= 1.4) niceFraction = 1;
-      else if (fraction <= 3.6) niceFraction = 2; // Strongly prefer step multiplier of 2!
-      else if (fraction <= 7.5) niceFraction = 5;
-      else niceFraction = 10;
-
-      var step = niceFraction * Math.pow(10, exponent);
-
-      // Prefer step multiplier of 2 (e.g. 2, 0.2, 20, 0.02) whenever range yields 12 to 45 ticks:
-      if (range > 0) {
-        var candidateStep2 = 2 * Math.pow(10, exponent);
-        var ticksWith2 = range / candidateStep2;
-        if (ticksWith2 >= 12 && ticksWith2 <= 45) {
-          step = candidateStep2;
-        }
+      // Enforce ultra-dense step distance of 2 (or 0.0002, 0.002, 0.02, 0.2, 2, 5) for maximum price density
+      if (range <= 0.01) {
+        step = 0.0002;
+      } else if (range <= 0.05) {
+        step = 0.0005;
+      } else if (range <= 0.2) {
+        step = 0.002;
+      } else if (range <= 1) {
+        step = 0.01;
+      } else if (range <= 5) {
+        step = 0.05;
+      } else if (range <= 25) {
+        step = 0.2;
+      } else if (range <= 100) {
+        step = 1;
+      } else if (range <= 350) {
+        step = 2; // Strict step distance of 2 for BTC/Crypto standard range (~300)!
+      } else if (range <= 800) {
+        step = 5;
+      } else {
+        step = 10;
       }
 
       if (step <= 0 || !isFinite(step)) step = 2;
@@ -56,7 +57,7 @@
       var end = Math.ceil(max / step) * step;
 
       var count = 0;
-      for (var p = start; p <= end + step * 0.0001 && count < 120; p += step) {
+      for (var p = start; p <= end + step * 0.0001 && count < 300; p += step) {
         count++;
         var cleanP = Number(p.toFixed(8));
         ticks.push(cleanP);
@@ -2488,22 +2489,19 @@
     var isMobile = window.innerWidth <= 800;
     if (!isMobile) return;
 
-    var popups = document.querySelectorAll('div[role="dialog"], div[class*="modal"], div[class*="dialog"], div[class*="popover"], div[class*="dropdown"], div[class*="account"], div[class*="cabinet"]');
+    var popups = document.querySelectorAll('div[role="dialog"], div[class*="modal"], div[class*="dialog"], div[class*="popover"], div[class*="dropdown"], div[class*="account"], div[class*="cabinet"], div[class*="drawer"], div[class*="menu"], div[class*="sheet"], div[class*="panel"], div[class*="sidebar"], nav[class*="sidebar"]');
     popups.forEach(function (popup) {
       if (popup.querySelector('.original-mobile-logout-btn')) return;
-      var text = popup.textContent || '';
-      if (text.indexOf('Account') !== -1 || text.indexOf('Live') !== -1 || text.indexOf('Demo') !== -1 || text.indexOf('@') !== -1 || text.indexOf('limit') !== -1) {
-        var btn = document.createElement('button');
-        btn.type = 'button';
-        btn.className = 'original-mobile-logout-btn';
-        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span>Logout / Sign out</span>';
-        btn.addEventListener('click', function (e) {
-          e.preventDefault();
-          e.stopPropagation();
-          logout();
-        });
-        popup.appendChild(btn);
-      }
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = 'original-mobile-logout-btn';
+      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span>Logout / Sign out</span>';
+      btn.addEventListener('click', function (e) {
+        e.preventDefault();
+        e.stopPropagation();
+        logout();
+      });
+      popup.appendChild(btn);
     });
   }
 
