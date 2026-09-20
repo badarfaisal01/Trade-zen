@@ -65,10 +65,30 @@
       return ticks.length >= 2 ? ticks : undefined;
     }
 
+    function overrideYAxisTicks(axis, minVal, maxVal) {
+      if (!axis || axis.isXAxis) return null;
+      var actualMin = minVal !== undefined ? minVal : axis.min;
+      var actualMax = maxVal !== undefined ? maxVal : axis.max;
+      var ticks = dynamicPriceTickPositioner.call(axis, actualMin, actualMax);
+      if (ticks && ticks.length >= 2) {
+        var step = ticks[1] - ticks[0];
+        axis.tickInterval = step;
+        if (axis.options) {
+          axis.options.tickInterval = step;
+          axis.options.tickPixelInterval = 8;
+          axis.options.minorTickInterval = null;
+          axis.options.endOnTick = false;
+          axis.options.startOnTick = false;
+        }
+        return ticks;
+      }
+      return null;
+    }
+
     function tuneYAxisOptions(options) {
       if (!options) return;
       var isMobile = window.innerWidth <= 800;
-      var targetTickPixelInterval = isMobile ? 14 : 18;
+      var targetTickPixelInterval = isMobile ? 12 : 16;
 
       if (options.yAxis) {
         var axes = Array.isArray(options.yAxis) ? options.yAxis : [options.yAxis];
@@ -90,8 +110,8 @@
     }
 
     function applyHighchartsPatch(hc) {
-      if (!hc || hc._tradeScalePatchedV6) return;
-      hc._tradeScalePatchedV6 = true;
+      if (!hc || hc._tradeScalePatchedV7) return;
+      hc._tradeScalePatchedV7 = true;
 
       try {
         var isMobile = window.innerWidth <= 800;
@@ -106,7 +126,7 @@
               endOnTick: false,
               startOnTick: false,
               tickPositioner: dynamicPriceTickPositioner,
-              tickPixelInterval: isMobile ? 14 : 18,
+              tickPixelInterval: isMobile ? 12 : 16,
               minorTickInterval: null,
               labels: {
                 align: 'right',
@@ -184,9 +204,7 @@
             var origGetLinearTickPositions = hc.Axis.prototype.getLinearTickPositions;
             hc.Axis.prototype.getLinearTickPositions = function (tickInterval, min, max) {
               if (!this.isXAxis) {
-                var actualMin = min !== undefined ? min : this.min;
-                var actualMax = max !== undefined ? max : this.max;
-                var customTicks = dynamicPriceTickPositioner.call(this, actualMin, actualMax);
+                var customTicks = overrideYAxisTicks(this, min, max);
                 if (customTicks && customTicks.length >= 2) {
                   return customTicks;
                 }
@@ -200,7 +218,7 @@
             hc.Axis.prototype.getTickPositions = function () {
               if (!this.isXAxis) {
                 this.tickAmount = undefined;
-                var customTicks = dynamicPriceTickPositioner.call(this, this.min, this.max);
+                var customTicks = overrideYAxisTicks(this, this.min, this.max);
                 if (customTicks && customTicks.length >= 2) {
                   return customTicks;
                 }
@@ -221,7 +239,7 @@
                 this.tickAmount = undefined;
                 if (this.options) this.options.tickAmount = undefined;
 
-                var customTicks = dynamicPriceTickPositioner.call(this, this.min, this.max);
+                var customTicks = overrideYAxisTicks(this, this.min, this.max);
                 if (customTicks && customTicks.length >= 2) {
                   this.tickPositions = customTicks;
                   this.paddedTicks = customTicks.slice(0);
@@ -234,6 +252,26 @@
         }
       } catch (e) {}
     }
+
+    setInterval(function () {
+      if (window.Highcharts && window.Highcharts.charts) {
+        window.Highcharts.charts.forEach(function (chart) {
+          if (chart && chart.yAxis) {
+            chart.yAxis.forEach(function (y) {
+              if (y && !y.isXAxis && y.tickPositions && y.tickPositions.length <= 6) {
+                var ticks = overrideYAxisTicks(y, y.min, y.max);
+                if (ticks && ticks.length >= 2) {
+                  y.tickPositions = ticks;
+                  y.paddedTicks = ticks.slice(0);
+                  if (y.redraw) y.redraw();
+                  else if (chart.redraw) chart.redraw(false);
+                }
+              }
+            });
+          }
+        });
+      }
+    }, 300);
 
     if (window.Highcharts) {
       applyHighchartsPatch(window.Highcharts);
