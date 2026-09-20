@@ -2458,12 +2458,36 @@
     sidebarNav.insertBefore(shortcut, more || null);
   }
 
+  function ensureMobileLogoutButton() {
+    var isMobile = window.innerWidth <= 800;
+    if (!isMobile) return;
+
+    var popups = document.querySelectorAll('div[role="dialog"], div[class*="modal"], div[class*="dialog"], div[class*="popover"], div[class*="dropdown"], div[class*="account"], div[class*="cabinet"]');
+    popups.forEach(function (popup) {
+      if (popup.querySelector('.original-mobile-logout-btn')) return;
+      var text = popup.textContent || '';
+      if (text.indexOf('Account') !== -1 || text.indexOf('Live') !== -1 || text.indexOf('Demo') !== -1 || text.indexOf('@') !== -1 || text.indexOf('limit') !== -1) {
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'original-mobile-logout-btn';
+        btn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span>Logout / Sign out</span>';
+        btn.addEventListener('click', function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          logout();
+        });
+        popup.appendChild(btn);
+      }
+    });
+  }
+
   function refreshDom() {
     domRefreshQueued = false;
     document.title = platformName + ' — Trading platform';
     var root = document.getElementById('root');
     rebrandText(root);
     ensureAffiliateShortcut();
+    ensureMobileLogoutButton();
 
     var headerLogo = document.querySelector('.TJbx1 .V8tvg');
     if (headerLogo) {
