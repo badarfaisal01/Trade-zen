@@ -124,13 +124,7 @@ function original_currency_symbol(string $currency): string
 
 function original_country_name(string $code): string
 {
-    $countries = [
-        'IN' => 'India',
-        'AE' => 'United Arab Emirates',
-        'GB' => 'United Kingdom',
-        'US' => 'United States',
-    ];
-    return $countries[strtoupper($code)] ?? 'Other';
+    return app_country_name($code);
 }
 
 function render_original_trade_route(array $user): void

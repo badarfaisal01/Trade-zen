@@ -117,7 +117,7 @@ function render_original_auth_template(string $templatePath, string $error = '',
         $html
     );
 
-    $countries = '<option value="IN" selected>India</option><option value="AE">United Arab Emirates</option><option value="GB">United Kingdom</option><option value="US">United States</option><option value="ZZ">Other</option>';
+    $countries = app_country_options('PK');
     $html = (string)preg_replace('~(<select\s+name="country-code"[^>]*>)[\s\S]*?(</select>)~i', '$1' . $countries . '$2', $html);
     $html = (string)preg_replace('~(<select\s+name="currency"[^>]*>)[\s\S]*?(</select>)~i', '$1<option value="USD" selected>USD · Account currency</option>$2', $html);
 
