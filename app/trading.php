@@ -787,6 +787,43 @@ function review_fund_request(int $adminId, int $requestId, string $decision, str
     });
 
     admin_audit($adminId, 'fund_request_' . $decision, 'fund_request', $requestId, ['note' => substr($adminNote, 0, 200)]);
+
+    try {
+        $stmt = db()->prepare('SELECT * FROM fund_requests WHERE id = ? LIMIT 1');
+        $stmt->execute([$requestId]);
+        $req = $stmt->fetch();
+        if ($req && $req['request_type'] === 'deposit') {
+            $userStmt = db()->prepare('SELECT id, name, email, currency FROM users WHERE id = ? LIMIT 1');
+            $userStmt->execute([(int)$req['user_id']]);
+            $targetUser = $userStmt->fetch();
+
+            $methodName = 'Online Payment';
+            if ($req['payment_method_id']) {
+                $methodStmt = db()->prepare('SELECT name FROM payment_methods WHERE id = ? LIMIT 1');
+                $methodStmt->execute([(int)$req['payment_method_id']]);
+                $methodName = $methodStmt->fetchColumn() ?: 'Online Payment';
+            }
+
+            if ($targetUser) {
+                $depositData = [
+                    'public_id' => $req['public_id'] ?: 'D' . $requestId,
+                    'amount' => (float)$req['amount'],
+                    'currency' => $targetUser['currency'] ?: 'USD',
+                    'method' => $methodName,
+                    'reference' => (string)($req['user_reference'] ?? ''),
+                    'admin_note' => (string)($req['admin_note'] ?? $adminNote),
+                ];
+
+                if ($decision === 'approved') {
+                    send_deposit_successful_email($targetUser, $depositData);
+                } elseif ($decision === 'rejected') {
+                    send_deposit_rejected_email($targetUser, $depositData);
+                }
+            }
+        }
+    } catch (Throwable $mailErr) {
+        mailer_log("Deposit review email dispatch failed for request #{$requestId}: " . $mailErr->getMessage());
+    }
 }
 
 function mark_fund_request_paid(int $adminId, int $requestId, string $providerReference, string $adminNote = ''): void

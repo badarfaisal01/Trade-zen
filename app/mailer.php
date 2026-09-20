@@ -685,6 +685,309 @@ TEXT;
 }
 
 /**
+ * Send Deposit Successful / Approved Notification Email
+ */
+function send_deposit_successful_email(array $user, array $deposit): bool
+{
+    $email = trim((string)($user['email'] ?? ''));
+    if ($email === '') {
+        return false;
+    }
+
+    $name = trim((string)($user['name'] ?? 'Trader'));
+    if ($name === '') {
+        $name = 'Trader';
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
+
+    $config = mailer_config();
+    $platformName = $config['from_name'];
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
+
+    $baseUrl = app_base_url();
+
+    $tradeUrl = $baseUrl . '/en/trade/';
+    $walletUrl = $baseUrl . '/en/wallet/';
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $year = date('Y');
+    $dateStr = date('d M Y, H:i T');
+
+    $orderId = (string)($deposit['public_id'] ?? $deposit['id'] ?? 'D' . time());
+    $currency = strtoupper((string)($deposit['currency'] ?? $user['currency'] ?? 'USD'));
+    $currencySign = $currency === 'INR' ? '₹' : '$';
+    $amount = number_format((float)($deposit['amount'] ?? 0.00), 2, '.', ',');
+    $method = trim((string)($deposit['method'] ?? $deposit['method_name'] ?? 'Online Payment'));
+    $reference = trim((string)($deposit['reference'] ?? $deposit['user_reference'] ?? ''));
+
+    $subject = "Deposit Successful (#{$orderId}) – {$currencySign}{$amount} {$currency} Credited";
+    $headerHtml = mailer_header_html($platformName, $baseUrl, '#16a34a');
+
+    $html = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deposit Successful - {$platformName}</title>
+</head>
+<body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
+        {$headerHtml}
+
+        <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
+
+        <p style="margin: 0 0 16px 0;">
+            Great news! Your deposit of <strong>{$currencySign}{$amount} {$currency}</strong> has been successfully verified and credited to your live trading account.
+        </p>
+
+        <div style="background-color: #f0fdf4; border: 1px solid #bbf7d0; border-radius: 6px; padding: 16px; margin: 0 0 20px 0; color: #166534;">
+            <strong style="display: block; margin-bottom: 4px; font-size: 16px;">✅ Deposit Completed</strong>
+            <span>Your live account balance has been updated. You can now start trading immediately on the platform.</span>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Deposit Summary:</p>
+        <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #333333;">
+            <li style="margin-bottom: 4px;">Order ID: <strong>{$orderId}</strong></li>
+            <li style="margin-bottom: 4px;">Account ID: <strong>{$accountIdFormatted}</strong></li>
+            <li style="margin-bottom: 4px;">Amount Credited: <strong>{$currencySign}{$amount} {$currency}</strong></li>
+            <li style="margin-bottom: 4px;">Payment Method: <strong>{$method}</strong></li>
+HTML;
+
+    if ($reference !== '') {
+        $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Transaction Reference: <strong>{$reference}</strong></li>
+HTML;
+    }
+
+    $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Status: <strong style="color: #16a34a;">Successful / Approved</strong></li>
+            <li style="margin-bottom: 4px;">Date Processed: <strong>{$dateStr}</strong></li>
+        </ul>
+
+        <div style="text-align: center; margin: 28px 0;">
+            <a href="{$tradeUrl}" style="background-color: #16a34a; color: #ffffff; padding: 12px 28px; border-radius: 6px; text-decoration: none; font-weight: 600; display: inline-block; font-size: 15px;">Start Trading Now</a>
+        </div>
+
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #555555;">
+            If you have any questions regarding your account or transactions, feel free to contact our support team at <a href="mailto:{$supportEmail}" style="color: #1a73e8; text-decoration: underline;">{$supportEmail}</a>.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+
+        <p style="margin: 0 0 8px 0; font-size: 12px; color: #777777;">
+            <strong>Risk Warning:</strong> Trading financial instruments carries risk of capital loss. Please trade responsibly.
+        </p>
+
+        <p style="margin: 0; font-size: 12px; color: #777777;">
+            <a href="{$tradeUrl}" style="color: #1a73e8; text-decoration: underline;">Trading Room</a> &bull;
+            <a href="{$walletUrl}" style="color: #1a73e8; text-decoration: underline;">Wallet</a> &bull;
+            <a href="{$termsUrl}" style="color: #1a73e8; text-decoration: underline;">Terms of Service</a> &bull;
+            <a href="{$privacyUrl}" style="color: #1a73e8; text-decoration: underline;">Privacy Policy</a><br>
+            &copy; {$year} {$platformName}. All rights reserved.
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $text = <<<TEXT
+Deposit Successful - {$platformName}
+========================================
+
+Dear {$name},
+
+Your deposit of {$currencySign}{$amount} {$currency} has been verified and successfully credited to your live account.
+
+Deposit Summary:
+- Order ID: {$orderId}
+- Account ID: {$accountIdFormatted}
+- Amount: {$currencySign}{$amount} {$currency}
+- Payment Method: {$method}
+TEXT;
+
+    if ($reference !== '') {
+        $text .= "\n- Transaction Reference: {$reference}";
+    }
+
+    $text .= <<<TEXT
+
+- Status: Successful / Approved
+- Date Processed: {$dateStr}
+
+Start trading now:
+{$tradeUrl}
+
+If you have any questions, please contact our support team at {$supportEmail}.
+
+----------------------------------------
+© {$year} {$platformName}. All rights reserved.
+TEXT;
+
+    return send_email($email, $subject, $html, $text, $name);
+}
+
+/**
+ * Send Deposit Rejected / Declined Notification Email
+ */
+function send_deposit_rejected_email(array $user, array $deposit): bool
+{
+    $email = trim((string)($user['email'] ?? ''));
+    if ($email === '') {
+        return false;
+    }
+
+    $name = trim((string)($user['name'] ?? 'Trader'));
+    if ($name === '') {
+        $name = 'Trader';
+    }
+
+    $userId = (int)($user['id'] ?? 0);
+    $accountIdFormatted = $userId > 0 ? sprintf('#%06d', $userId) : 'Active';
+
+    $config = mailer_config();
+    $platformName = $config['from_name'];
+    $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
+
+    $baseUrl = app_base_url();
+
+    $walletUrl = $baseUrl . '/en/wallet/';
+    $termsUrl = $baseUrl . '/en/terms/';
+    $privacyUrl = $baseUrl . '/en/privacy/';
+    $year = date('Y');
+    $dateStr = date('d M Y, H:i T');
+
+    $orderId = (string)($deposit['public_id'] ?? $deposit['id'] ?? 'D' . time());
+    $currency = strtoupper((string)($deposit['currency'] ?? $user['currency'] ?? 'USD'));
+    $currencySign = $currency === 'INR' ? '₹' : '$';
+    $amount = number_format((float)($deposit['amount'] ?? 0.00), 2, '.', ',');
+    $method = trim((string)($deposit['method'] ?? $deposit['method_name'] ?? 'Online Payment'));
+    $reference = trim((string)($deposit['reference'] ?? $deposit['user_reference'] ?? ''));
+    $adminNote = trim((string)($deposit['admin_note'] ?? ''));
+
+    $subject = "Deposit Update (#{$orderId}) – Payment Verification Unsuccessful";
+    $headerHtml = mailer_header_html($platformName, $baseUrl, '#dc2626');
+
+    $html = <<<HTML
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Deposit Unsuccessful - {$platformName}</title>
+</head>
+<body style="margin: 0; padding: 24px; background-color: #ffffff; font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif; font-size: 15px; line-height: 1.6; color: #222222;">
+    <div style="max-width: 600px; margin: 0 auto; padding: 12px 0;">
+        {$headerHtml}
+
+        <p style="margin: 0 0 16px 0;">Dear <strong>{$name}</strong>,</p>
+
+        <p style="margin: 0 0 16px 0;">
+            We are writing to inform you that your deposit request for <strong>{$currencySign}{$amount} {$currency}</strong> could not be verified and has been <strong>rejected / declined</strong>.
+        </p>
+
+        <div style="background-color: #fef2f2; border: 1px solid #fecaca; border-radius: 6px; padding: 16px; margin: 0 0 20px 0; color: #991b1b;">
+            <strong style="display: block; margin-bottom: 4px; font-size: 16px;">⚠️ Payment Verification Unsuccessful</strong>
+            <span>Our verification team could not match the transaction reference or proof with our receiving bank/wallet statement.</span>
+        </div>
+
+        <p style="margin: 0 0 8px 0; font-weight: 600;">Deposit Summary:</p>
+        <ul style="margin: 0 0 20px 0; padding-left: 20px; color: #333333;">
+            <li style="margin-bottom: 4px;">Order ID: <strong>{$orderId}</strong></li>
+            <li style="margin-bottom: 4px;">Account ID: <strong>{$accountIdFormatted}</strong></li>
+            <li style="margin-bottom: 4px;">Deposit Amount: <strong>{$currencySign}{$amount} {$currency}</strong></li>
+            <li style="margin-bottom: 4px;">Payment Method: <strong>{$method}</strong></li>
+HTML;
+
+    if ($reference !== '') {
+        $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Transaction Reference: <strong>{$reference}</strong></li>
+HTML;
+    }
+
+    $html .= <<<HTML
+            <li style="margin-bottom: 4px;">Status: <strong style="color: #dc2626;">Rejected / Declined</strong></li>
+            <li style="margin-bottom: 4px;">Date Reviewed: <strong>{$dateStr}</strong></li>
+        </ul>
+HTML;
+
+    if ($adminNote !== '') {
+        $html .= <<<HTML
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #444444; background: #f9fafb; padding: 12px; border-left: 4px solid #dc2626; border-radius: 4px;">
+            <strong>Note from Operations:</strong> {$adminNote}
+        </p>
+HTML;
+    }
+
+    $html .= <<<HTML
+        <p style="margin: 0 0 20px 0;">
+            You may submit a new deposit request with valid transaction details or proof from your wallet:<br>
+            <a href="{$walletUrl}" style="color: #1a73e8; text-decoration: underline; font-weight: 600;">{$walletUrl}</a>
+        </p>
+
+        <p style="margin: 0 0 20px 0; font-size: 14px; color: #555555;">
+            <strong>Need Assistance?</strong> If you have already been debited or believe this was an error, please contact our 24/7 support desk at <a href="mailto:{$supportEmail}" style="color: #1a73e8; text-decoration: underline;">{$supportEmail}</a> with your Order ID (<strong>{$orderId}</strong>) and payment receipt.
+        </p>
+
+        <hr style="border: none; border-top: 1px solid #e5e7eb; margin: 24px 0;">
+
+        <p style="margin: 0; font-size: 12px; color: #777777;">
+            <a href="{$walletUrl}" style="color: #1a73e8; text-decoration: underline;">Wallet</a> &bull;
+            <a href="{$termsUrl}" style="color: #1a73e8; text-decoration: underline;">Terms of Service</a> &bull;
+            <a href="{$privacyUrl}" style="color: #1a73e8; text-decoration: underline;">Privacy Policy</a><br>
+            &copy; {$year} {$platformName}. All rights reserved.
+        </p>
+    </div>
+</body>
+</html>
+HTML;
+
+    $text = <<<TEXT
+Deposit Unsuccessful - {$platformName}
+========================================
+
+Dear {$name},
+
+Your deposit request for {$currencySign}{$amount} {$currency} (Order ID: {$orderId}) could not be verified and has been rejected.
+
+Deposit Summary:
+- Order ID: {$orderId}
+- Account ID: {$accountIdFormatted}
+- Amount: {$currencySign}{$amount} {$currency}
+- Payment Method: {$method}
+TEXT;
+
+    if ($reference !== '') {
+        $text .= "\n- Transaction Reference: {$reference}";
+    }
+
+    $text .= <<<TEXT
+
+- Status: Rejected / Declined
+- Date Reviewed: {$dateStr}
+TEXT;
+
+    if ($adminNote !== '') {
+        $text .= "\n- Note from Operations: {$adminNote}";
+    }
+
+    $text .= <<<TEXT
+
+Submit a new deposit or check your wallet:
+{$walletUrl}
+
+If you have already been debited, please contact our support desk at {$supportEmail} with your Order ID ({$orderId}) and payment receipt.
+
+----------------------------------------
+© {$year} {$platformName}. All rights reserved.
+TEXT;
+
+    return send_email($email, $subject, $html, $text, $name);
+}
+
+/**
  * Send Account Banned / Suspended Notification Email
  */
 function send_account_banned_email(array $user, string $reason = ''): bool
