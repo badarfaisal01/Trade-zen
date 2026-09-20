@@ -251,10 +251,7 @@ function auth_request_password_reset(string $email): array
         $insert->execute([(int)$user['id'], $tokenHash, client_ip()]);
     });
 
-    $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
-        $baseUrl = (is_https() ? 'https://' : 'http://') . (string)($_SERVER['HTTP_HOST'] ?? 'localhost');
-    }
+    $baseUrl = app_base_url();
     $resetUrl = $baseUrl . '/en/password-reset/?token=' . rawurlencode($rawToken);
     
     $sent = false;

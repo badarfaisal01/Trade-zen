@@ -332,12 +332,7 @@ function send_welcome_email(array $user): bool
     $config = mailer_config();
     $platformName = $config['from_name'];
 
-    $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
-        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
-        $baseUrl = $scheme . $host;
-    }
+    $baseUrl = app_base_url();
 
     $tradeUrl = $baseUrl . '/en/trade/';
     $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
@@ -469,12 +464,7 @@ function send_password_reset_email(array $user, string $resetUrl): bool
     $config = mailer_config();
     $platformName = $config['from_name'];
     $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
-    $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
-        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
-        $baseUrl = $scheme . $host;
-    }
+    $baseUrl = app_base_url();
     $termsUrl = $baseUrl . '/en/terms/';
     $privacyUrl = $baseUrl . '/en/privacy/';
     $year = date('Y');
@@ -568,12 +558,7 @@ function send_deposit_placed_email(array $user, array $deposit): bool
     $platformName = $config['from_name'];
     $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
 
-    $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
-        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
-        $baseUrl = $scheme . $host;
-    }
+    $baseUrl = app_base_url();
 
     $tradeUrl = $baseUrl . '/en/trade/';
     $walletUrl = $baseUrl . '/en/wallet/';
@@ -721,12 +706,7 @@ function send_account_banned_email(array $user, string $reason = ''): bool
     $platformName = $config['from_name'];
     $supportEmail = (string)(setting('support_email') ?: 'support@qxquotax.online');
 
-    $baseUrl = rtrim((string)app_config('url'), '/');
-    if ($baseUrl === '' || strpos($baseUrl, '55ak.xyz') !== false) {
-        $host = !empty($_SERVER['HTTP_HOST']) ? $_SERVER['HTTP_HOST'] : 'localhost';
-        $scheme = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on') || (!empty($_SERVER['HTTP_X_FORWARDED_PROTO']) && $_SERVER['HTTP_X_FORWARDED_PROTO'] === 'https') ? 'https://' : 'http://';
-        $baseUrl = $scheme . $host;
-    }
+    $baseUrl = app_base_url();
 
     $termsUrl = $baseUrl . '/en/terms/';
     $privacyUrl = $baseUrl . '/en/privacy/';

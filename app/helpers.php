@@ -12,6 +12,43 @@ function e($value): string
     return htmlspecialchars((string)$value, ENT_QUOTES | ENT_SUBSTITUTE, 'UTF-8');
 }
 
+function app_base_url(): string
+{
+    // 1. Check if an explicit APP_URL setting or env variable exists
+    $configuredUrl = trim((string)setting('app_url', env('APP_URL', '')));
+    $configuredUrl = rtrim($configuredUrl, '/');
+    
+    $parsedHost = parse_url($configuredUrl, PHP_URL_HOST);
+    $isGenericHost = ($configuredUrl === '' 
+        || strcasecmp((string)$parsedHost, 'localhost') === 0 
+        || $parsedHost === '127.0.0.1' 
+        || strcasecmp((string)$parsedHost, '55ak.xyz') === 0);
+
+    // 2. If running on a live web request with HTTP_HOST, dynamically use the current request scheme and host
+    if (!empty($_SERVER['HTTP_HOST'])) {
+        $requestHost = strtolower(trim((string)$_SERVER['HTTP_HOST']));
+        $isLocalhostRequest = ($requestHost === 'localhost' || strpos($requestHost, 'localhost:') === 0 || $requestHost === '127.0.0.1' || strpos($requestHost, '127.0.0.1:') === 0);
+        
+        // If configured URL is generic/localhost OR if request is from a live domain, use current request host
+        if ($isGenericHost || !$isLocalhostRequest) {
+            $scheme = is_https() ? 'https://' : 'http://';
+            return $scheme . $requestHost;
+        }
+    }
+
+    // 3. Fallback to configured URL if valid non-generic, or http://localhost as absolute fallback
+    if ($configuredUrl !== '' && !$isGenericHost) {
+        return $configuredUrl;
+    }
+
+    return 'http://localhost';
+}
+
+function app_url(string $path = ''): string
+{
+    return app_base_url() . '/' . ltrim($path, '/');
+}
+
 function url(string $path = ''): string
 {
     return '/' . ltrim($path, '/');
