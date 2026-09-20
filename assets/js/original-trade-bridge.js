@@ -2514,7 +2514,7 @@
         existingBanner.id = 'originalMarketClosedBanner';
         existingBanner.className = 'original-market-closed-banner';
       }
-      var closePriceVal = (curAsset && (curAsset.closed_price !== undefined && curAsset.closed_price !== null)) ? curAsset.closed_price : (curAsset ? curAsset.price : null);
+      var closePriceVal = (curAsset && curAsset.price !== undefined && curAsset.price !== null && Number(curAsset.price) > 0) ? curAsset.price : ((curAsset && curAsset.closed_price !== undefined && curAsset.closed_price !== null) ? curAsset.closed_price : null);
       var dec = (curAsset && typeof curAsset.decimals === 'number') ? curAsset.decimals : 2;
       var priceDisplay = (closePriceVal !== null && closePriceVal !== undefined && Number(closePriceVal) > 0) ? Number(closePriceVal).toFixed(dec) : '';
       var statusMsg = (curAsset && curAsset.status_text) ? curAsset.status_text : 'Market is Closed';

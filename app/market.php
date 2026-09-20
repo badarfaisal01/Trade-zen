@@ -939,6 +939,16 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         }
     }
 
+    foreach ($assets as &$a) {
+        if (($a['symbol'] ?? '') === ($assetPayload['symbol'] ?? '')) {
+            $a['price'] = $assetPayload['price'];
+            if (isset($assetPayload['closed_price'])) {
+                $a['closed_price'] = $assetPayload['closed_price'];
+            }
+        }
+    }
+    unset($a);
+
     return [
         'serverTime' => $nowMs,
         'asset' => $assetPayload,
