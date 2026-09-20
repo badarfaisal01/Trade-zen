@@ -36687,39 +36687,8 @@ function a21_0xf20823(_0xe04cd5, _0x5f5889, _0x3fb1a5, _0x2e5712) {
                     function _0x105c11(_0x32ca92, _0x3d9a75, _0x49d6d1, _0x3ad677) {
                         return _0x2e1d8f(_0x3ad677, _0x3d9a75 - 0x138, _0x49d6d1 - 0x1ef, _0x32ca92 - -0x1b4);
                     }
-                    var _cwKey = _0x105c11(0x262, 0xe50, -0x2ad, -0x24b) + 'h';
-                    var _setZoomKey = _0x105c11(0x12ab, 0x9b8, 0xb6a, 0x6d5) + 'idthAfterZ' + _0x4d5001(0x271a, 0x23b2, 0x2019, 0x12f5);
-                    var _baseWidth = (this._targetCandleWidth !== undefined && this._targetCandleWidth !== null) ? this._targetCandleWidth : this[_cwKey];
-                    var _mult = Math['pow'](0x230b * -0x1 + -0x17a1 * -0x1 + 0x25 * 0x4f + _0x5bd88a, _0x4708fa);
-                    this._targetCandleWidth = _baseWidth * _mult;
-                    this._zoomOriginX = _0x54604e;
-                    this._zoomOriginY = _0x2152ec;
-                    this[_0x105c11(0x1302, 0x17b6, 0x4bd, 0x22df) + 'ta'] += _0x5ca530;
-                    this['currentDel' + _0x4d5001(0x1c0, 0x2cb, 0xcd5, 0x1188)]++;
-                    if (!this._zoomRafActive) {
-                        this._zoomRafActive = true;
-                        var _self = this;
-                        var _animateZoom = function() {
-                            if (!_self._zoomRafActive) return;
-                            var _cur = _self[_cwKey];
-                            var _tgt = _self._targetCandleWidth;
-                            if (_tgt === null || _tgt === undefined) {
-                                _self._zoomRafActive = false;
-                                return;
-                            }
-                            var _diff = _tgt - _cur;
-                            if (Math.abs(_diff) < 0.06) {
-                                _self[_setZoomKey](_self._zoomOriginX, _self._zoomOriginY, _tgt);
-                                _self._targetCandleWidth = null;
-                                _self._zoomRafActive = false;
-                            } else {
-                                var _nextW = _cur + _diff * 0.35;
-                                _self[_setZoomKey](_self._zoomOriginX, _self._zoomOriginY, _nextW);
-                                requestAnimationFrame(_animateZoom);
-                            }
-                        };
-                        requestAnimationFrame(_animateZoom);
-                    }
+                    let _0x38f7b6 = this[_0x105c11(0x262, 0xe50, -0x2ad, -0x24b) + 'h'] * Math['pow'](0x230b * -0x1 + -0x17a1 * -0x1 + 0x25 * 0x4f + _0x5bd88a, _0x4708fa);
+                    this[_0x105c11(0x12ab, 0x9b8, 0xb6a, 0x6d5) + 'idthAfterZ' + _0x4d5001(0x271a, 0x23b2, 0x2019, 0x12f5)](_0x54604e, _0x2152ec, _0x38f7b6) && (this[_0x105c11(0x1302, 0x17b6, 0x4bd, 0x22df) + 'ta'] += _0x5ca530, this['currentDel' + _0x4d5001(0x1c0, 0x2cb, 0xcd5, 0x1188)]++);
                 }[_0x2e1d8f(0x24c6, 0x18af, 0x5d0, 0x145f) + _0x2e1d8f(-0x2ba, 0x2087, -0x44a, 0xc35) + _0x464e2b(0x1237, 0x1fb6, 0x230a, 0x23a1)](_0x44a59e, _0x474b12, _0x4a2be7) {
                     const _0x16f11d = this[_0x1e41dc(0x53, -0x368, 0x47c, 0x101f) + 'h'],
                         _0x4d79c5 = this['shift'],
