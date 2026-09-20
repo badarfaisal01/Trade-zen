@@ -20,7 +20,7 @@
       }
       var len = (this && this.len && this.len > 50) ? this.len : (window.innerHeight || 500);
       var isMobile = window.innerWidth <= 800;
-      var targetCount = isMobile ? 18 : 24;
+      var targetCount = isMobile ? 22 : 28;
 
       var range = Math.abs(max - min);
       if (range <= 0) return;
@@ -30,9 +30,9 @@
       var fraction = rawStep / Math.pow(10, exponent);
 
       var niceFraction;
-      if (fraction <= 1.35) niceFraction = 1;
-      else if (fraction <= 3.6) niceFraction = 2;
-      else if (fraction <= 7.2) niceFraction = 5;
+      if (fraction <= 1.25) niceFraction = 1;
+      else if (fraction <= 2.8) niceFraction = 2;
+      else if (fraction <= 5.5) niceFraction = 5;
       else niceFraction = 10;
 
       var step = niceFraction * Math.pow(10, exponent);
@@ -43,7 +43,7 @@
       var end = Math.ceil(max / step) * step;
 
       var count = 0;
-      for (var p = start; p <= end + step * 0.0001 && count < 60; p += step) {
+      for (var p = start; p <= end + step * 0.0001 && count < 90; p += step) {
         count++;
         var cleanP = Number(p.toFixed(8));
         ticks.push(cleanP);
@@ -54,7 +54,7 @@
     function tuneYAxisOptions(options) {
       if (!options) return;
       var isMobile = window.innerWidth <= 800;
-      var targetTickPixelInterval = isMobile ? 22 : 26;
+      var targetTickPixelInterval = isMobile ? 18 : 22;
 
       if (options.yAxis) {
         var axes = Array.isArray(options.yAxis) ? options.yAxis : [options.yAxis];
@@ -92,7 +92,7 @@
               endOnTick: false,
               startOnTick: false,
               tickPositioner: dynamicPriceTickPositioner,
-              tickPixelInterval: isMobile ? 22 : 26,
+              tickPixelInterval: isMobile ? 18 : 22,
               minorTickInterval: null,
               labels: {
                 align: 'right',
