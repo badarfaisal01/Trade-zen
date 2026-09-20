@@ -256,12 +256,12 @@ $runtimeVer = file_exists($runtimeFile) ? (string)filemtime($runtimeFile) : (str
 <div id="root"></div>
 <script src="/assets/js/original-trade-bridge.js?v=<?= $bridgeVer ?>&t=<?= time() ?>"></script>
 <script src="/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js?v=<?= $runtimeVer ?>&t=<?= time() ?>"></script>
-<script src="/trade-room/react/uikit.944983ce32773e612c15.js"></script>
-<script src="/trade-room/react/vendor.ae7d8f8a004fd2feac4d.js"></script>
-<script src="/trade-room/react/346.3bcb3c98900d5c44aedc.js"></script>
-<script src="/trade-room/react/617.1c3acbb07452931d5651.js"></script>
-<script src="/trade-room/react/708.530efc3bf733316adac2.js"></script>
-<script src="/trade-room/react/app.514f7c2627cb588c0e57.js"></script>
+<script src="/trade-room/react/uikit.944983ce32773e612c15.js?t=<?= time() ?>"></script>
+<script src="/trade-room/react/vendor.ae7d8f8a004fd2feac4d.js?t=<?= time() ?>"></script>
+<script src="/trade-room/react/346.3bcb3c98900d5c44aedc.js?t=<?= time() ?>"></script>
+<script src="/trade-room/react/617.1c3acbb07452931d5651.js?t=<?= time() ?>"></script>
+<script src="/trade-room/react/708.530efc3bf733316adac2.js?t=<?= time() ?>"></script>
+<script src="/trade-room/react/app.514f7c2627cb588c0e57.js?t=<?= time() ?>"></script>
 </body>
 </html><?php
 }
