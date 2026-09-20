@@ -46,7 +46,7 @@ INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_p
 ON DUPLICATE KEY UPDATE display_name = VALUES(display_name), category = VALUES(category), base_price = VALUES(base_price), decimal_places = VALUES(decimal_places), payout_percent = VALUES(payout_percent), volatility = VALUES(volatility), price_source = VALUES(price_source), api_symbol = VALUES(api_symbol), sort_order = VALUES(sort_order), is_active = VALUES(is_active), updated_at = NOW();
 
 INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name, is_public, updated_at) VALUES
-('platform_name', 'TradeZen', 'string', 'general', 1, NOW()),
+('platform_name', 'Quotex', 'string', 'general', 1, NOW()),
 ('platform_tagline', 'Smart live market trading platform', 'string', 'general', 1, NOW()),
 ('platform_domain', 'https://yourdomain.com', 'string', 'general', 1, NOW()),
 ('support_email', 'support@yourdomain.com', 'string', 'general', 1, NOW()),

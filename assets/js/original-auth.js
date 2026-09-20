@@ -29,4 +29,10 @@
   });
 
   document.querySelectorAll('a[href="#"]').forEach(link => link.addEventListener('click', event => event.preventDefault()));
+
+  document.querySelectorAll('.original-demo-notice strong').forEach(el => {
+    if (el.textContent && /tradezen/i.test(el.textContent)) {
+      el.textContent = 'Quotex secure access';
+    }
+  });
 })();
