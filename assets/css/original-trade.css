@@ -72,30 +72,30 @@ body.original-trade-page select {
   font-size: 0 !important;
 }
 
-/* Responsive Y-Axis Price Scale Labels - Right Alignment & Dynamic Spacing */
+/* Dense Responsive Y-Axis Price Scale Labels - 20-30 Price Viewport Display */
 .highcharts-yaxis-labels text {
   text-anchor: end !important;
   text-align: right !important;
   font-weight: 600 !important;
-  font-size: 11px !important;
+  font-size: 10px !important;
   fill: rgba(255, 255, 255, 0.88) !important;
   letter-spacing: -0.2px !important;
 }
 
 .highcharts-yaxis-grid .highcharts-grid-line {
-  stroke: rgba(255, 255, 255, 0.05) !important;
+  stroke: rgba(255, 255, 255, 0.04) !important;
   stroke-width: 1px !important;
 }
 
 @media (max-width: 800px) {
   .highcharts-yaxis-labels {
-    transform: translateX(36px) !important;
+    transform: translateX(38px) !important;
   }
   .highcharts-yaxis-labels text {
     text-anchor: end !important;
     text-align: right !important;
-    font-size: 10px !important;
-    font-weight: 700 !important;
+    font-size: 9px !important;
+    font-weight: 600 !important;
     fill: rgba(255, 255, 255, 0.92) !important;
   }
 }
