@@ -2471,7 +2471,7 @@
   document.addEventListener('click', function (e) {
     var target = e.target;
     if (!target) return;
-    var logoutElem = target.closest('[data-local-logout], a[href*="logout"], a[href="#logout"], button[class*="logout"], .original-header-logout-btn, .original-mobile-logout-btn');
+    var logoutElem = target.closest('[data-local-logout], a[href*="logout"], a[href="#logout"], button[class*="logout"]');
     if (!logoutElem && target.textContent && /^(?:logout|sign\s*out)$/i.test(target.textContent.trim())) {
       logoutElem = target;
     }
@@ -2538,53 +2538,16 @@
     sidebarNav.insertBefore(shortcut, more || null);
   }
 
-  function ensureHeaderLogoutButton() {
-    var header = document.querySelector('.rgx9T, .TJbx1, header, .app__header, div[class*="rgx9T"]');
-    if (!header) return;
-    if (header.querySelector('.original-header-logout-btn')) return;
-
-    var btn = document.createElement('button');
-    btn.type = 'button';
-    btn.className = 'original-header-logout-btn';
-    btn.title = 'Sign out / Logout';
-    btn.setAttribute('aria-label', 'Sign out');
-    btn.innerHTML = '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.3"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span>Logout</span>';
-    btn.addEventListener('click', function (e) {
-      e.preventDefault();
-      e.stopPropagation();
-      logout();
-    });
-    header.appendChild(btn);
-  }
-
-  function ensureMobileLogoutButton() {
-    var isMobile = window.innerWidth <= 800;
-    if (!isMobile) return;
-
-    var popups = document.querySelectorAll('div[role="dialog"], div[class*="modal"], div[class*="dialog"], div[class*="popover"], div[class*="dropdown"], div[class*="account"], div[class*="cabinet"], div[class*="drawer"], div[class*="menu"], div[class*="sheet"], div[class*="panel"], div[class*="sidebar"], nav[class*="sidebar"], .app__sidebar, [class*="listMenu"]');
-    popups.forEach(function (popup) {
-      if (popup.querySelector('.original-mobile-logout-btn')) return;
-      var btn = document.createElement('button');
-      btn.type = 'button';
-      btn.className = 'original-mobile-logout-btn';
-      btn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path><polyline points="16 17 21 12 16 7"></polyline><line x1="21" y1="12" x2="9" y2="12"></line></svg><span>Logout / Sign out</span>';
-      btn.addEventListener('click', function (e) {
-        e.preventDefault();
-        e.stopPropagation();
-        logout();
-      });
-      popup.appendChild(btn);
-    });
-  }
-
   function refreshDom() {
     domRefreshQueued = false;
     document.title = platformName + ' — Trading platform';
     var root = document.getElementById('root');
     rebrandText(root);
     ensureAffiliateShortcut();
-    ensureHeaderLogoutButton();
-    ensureMobileLogoutButton();
+    var injectedLogoutBtns = document.querySelectorAll('.original-header-logout-btn, .original-mobile-logout-btn');
+    injectedLogoutBtns.forEach(function (btn) {
+      btn.remove();
+    });
 
     var headerLogos = document.querySelectorAll('.TJbx1 .V8tvg, header a[class*="V8tvg"], header a[class*="logo"], div[class*="TJbx1"] a');
     headerLogos.forEach(function (headerLogo) {
