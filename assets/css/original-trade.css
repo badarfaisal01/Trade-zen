@@ -27,21 +27,15 @@ body.original-trade-page select {
   display: none !important;
 }
 
-/* Replace logo sprite to display ONLY the hexagon icon with no text. */
+/* Header logo display with Hexagon Badge and QUOTEX text wordmark */
 .TJbx1 .V8tvg {
   display: inline-flex !important;
   width: auto !important;
   min-width: 0 !important;
   height: 38px !important;
   align-items: center !important;
+  gap: 8px !important;
   text-decoration: none !important;
-  font-size: 0 !important;
-  color: transparent !important;
-}
-
-.TJbx1 .V8tvg * {
-  font-size: 0 !important;
-  color: transparent !important;
 }
 
 .TJbx1 .V8tvg svg {
@@ -56,11 +50,25 @@ body.original-trade-page select {
 
 .TJbx1 .V8tvg .original-custom-logo {
   display: block !important;
-  width: auto !important;
-  height: 32px !important;
-  max-height: 32px !important;
-  max-width: 150px !important;
+  width: 26px !important;
+  height: 28px !important;
+  max-height: 28px !important;
+  max-width: 28px !important;
   object-fit: contain !important;
+}
+
+.TJbx1 .V8tvg .original-logo-text {
+  display: inline-block !important;
+  color: #ffffff !important;
+  font-family: 'Inter', 'Roboto', 'Montserrat', -apple-system, sans-serif !important;
+  font-size: 18px !important;
+  font-weight: 900 !important;
+  letter-spacing: 1.5px !important;
+  line-height: 1 !important;
+  text-transform: uppercase !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+  margin-left: 2px !important;
 }
 
 .TJbx1 .WQMTk,

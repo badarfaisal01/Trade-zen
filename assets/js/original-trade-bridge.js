@@ -2494,7 +2494,7 @@
       headerLogo.classList.add('is-local-branded');
       headerLogo.removeAttribute('data-platform-name');
       headerLogo.removeAttribute('data-platform-mark');
-      var logoSrc = customLogoUrl || '/assets/img/quotex-logo-white.svg';
+      var logoSrc = customLogoUrl || '/site/img/quotex_logo-white-mobile.svg';
       var logoImage = headerLogo.querySelector('.original-custom-logo');
       if (!logoImage) {
         logoImage = document.createElement('img');
@@ -2505,14 +2505,23 @@
         logoImage.src = logoSrc;
       }
       logoImage.alt = 'Logo';
+
+      var logoTextSpan = headerLogo.querySelector('.original-logo-text');
+      if (!logoTextSpan) {
+        logoTextSpan = document.createElement('span');
+        logoTextSpan.className = 'original-logo-text';
+        logoTextSpan.textContent = 'QUOTEX';
+        headerLogo.appendChild(logoTextSpan);
+      }
+
       headerLogo.classList.add('has-custom-logo');
 
-      // Ensure ONLY the logo icon is shown and hide ALL text nodes
+      // Hide legacy text nodes or extra elements except custom logo & text
       Array.prototype.forEach.call(headerLogo.childNodes, function (child) {
-        if (child !== logoImage) {
+        if (child !== logoImage && child !== logoTextSpan) {
           if (child.nodeType === 3) {
             child.nodeValue = '';
-          } else if (child.nodeType === 1 && !child.classList.contains('original-custom-logo')) {
+          } else if (child.nodeType === 1 && !child.classList.contains('original-custom-logo') && !child.classList.contains('original-logo-text')) {
             child.style.display = 'none';
           }
         }
