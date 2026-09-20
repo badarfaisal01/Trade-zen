@@ -53,7 +53,7 @@ function render_original_auth_template(string $templatePath, string $error = '',
     $html = (string)preg_replace('~href="/documents/(?:[a-z]{2}/)?[^\"]*"~i', 'href="/en/terms/"', $html);
     $html = (string)preg_replace('~href="/(?:[a-z]{2}/)?sign-up/fast/?"~i', 'href="/en/sign-up/"', $html);
     $html = (string)preg_replace('~href="/en/pwa/?"~i', 'href="/en/"', $html);
-    $html = (string)preg_replace('~href="/(?!en/|assets/|site/|profile/|images/|fonts/|manifest\.webmanifest)[^"]*"~i', 'href="#"', $html);
+    $html = (string)preg_replace('~href="/(?!en/|assets/|site/|profile/|images/|fonts/|manifest\.webmanifest|.*\.apk)[^"]*"~i', 'href="#"', $html);
     $html = (string)preg_replace('~(<a\b[^>]*\bhref)="#"~i', '$1="/en/"', $html);
     $html = (string)preg_replace_callback('~<link\b[^>]*\brel="apple-touch-icon"[^>]*>~i', static function (array $match): string {
         return (string)preg_replace('~\bhref="[^"]*"~i', 'href="' . e(site_logo_url()) . '"', $match[0]);

@@ -40,6 +40,8 @@ RewriteRule ^en/withdrawal\.html$ /en/withdrawal/ [R=302,L,NE]
     Require all denied
 </FilesMatch>
 
+AddType application/vnd.android.package-archive .apk
+
 <IfModule mod_headers.c>
     Header always set X-Content-Type-Options "nosniff"
     Header always set X-Frame-Options "DENY"
