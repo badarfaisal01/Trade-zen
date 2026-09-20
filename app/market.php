@@ -223,21 +223,23 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         }
 
                         $bodySize = abs($sClose - $sOpen);
-                        $wickSpread = max($minStep, min($bodySize * 0.15, $open * $volatility * 0.02));
                         $n1 = abs(market_noise($seed + 77, (int)($subOpenTime / 1000)));
                         $n2 = abs(market_noise($seed + 88, (int)($subOpenTime / 1000)));
-
-                        $sHigh = max($sOpen, $sClose) + ($wickSpread * (0.2 + 0.8 * $n1));
-                        $sLow  = max($minStep, min($sOpen, $sClose) - ($wickSpread * (0.2 + 0.8 * $n2)));
+                        $minWick1 = $minStep * (1 + (int)floor($n1 * 3.0));
+                        $minWick2 = $minStep * (1 + (int)floor($n2 * 3.0));
+                        $wickUpper = max($minWick1, min($bodySize * 0.65, $open * $volatility * 0.10 * (0.3 + 0.7 * $n1)));
+                        $wickLower = max($minWick2, min($bodySize * 0.65, $open * $volatility * 0.10 * (0.3 + 0.7 * $n2)));
 
                         $sOpenR = round($sOpen, $decimals);
-                        $sHighR = round(max($sHigh, $sOpen, $sClose), $decimals);
-                        $sLowR = round(min($sLow, $sOpen, $sClose), $decimals);
                         $sCloseR = round($sClose, $decimals);
+                        $sHighR = round(max($sOpen, $sClose) + $wickUpper, $decimals);
+                        $sLowR  = round(max($minStep, min($sOpen, $sClose) - $wickLower), $decimals);
 
-                        if ($sHighR <= $sLowR) {
-                            $sHighR = round(max($sOpenR, $sCloseR) + $minStep, $decimals);
-                            $sLowR = round(max($minStep, min($sOpenR, $sCloseR) - $minStep), $decimals);
+                        if ($sHighR <= max($sOpenR, $sCloseR)) {
+                            $sHighR = round(max($sOpenR, $sCloseR) + $minStep * 2, $decimals);
+                        }
+                        if ($sLowR >= min($sOpenR, $sCloseR)) {
+                            $sLowR = round(max($minStep, min($sOpenR, $sCloseR) - $minStep * 2), $decimals);
                         }
 
                         $subDurationMs = max(100, $subCloseTime - $subOpenTime);
@@ -446,18 +448,24 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $close = round($noiseDir >= 0 ? $open + ($minStep * 2) : max($minStep, $open - ($minStep * 2)), $decimals);
         }
 
-        // Short, neat wicks (upper & lower lines much shorter, bold rectangular candle bodies)
+        // Elegant, natural candle wicks: distinct upper and lower shadows, crisp and realistic
         $bodyHeight = abs($close - $open);
-        $wickRange = max($minStep, min($bodyHeight * 0.20, $open * $vol * 0.03));
         $noiseUpper = abs(market_noise($seed + 99, (int)($time / 1000)));
         $noiseLower = abs(market_noise($seed + 101, (int)($time / 1000)));
 
-        $high = round(max($open, $close) + ($wickRange * (0.2 + 0.8 * $noiseUpper)), $decimals);
-        $low  = round(max($minStep, min($open, $close) - ($wickRange * (0.2 + 0.8 * $noiseLower))), $decimals);
+        $minWickUpper = $minStep * (1 + (int)floor($noiseUpper * 3.0));
+        $wickUpper = max($minWickUpper, min($bodyHeight * 0.70, $open * $vol * 0.12 * (0.3 + 0.7 * $noiseUpper)));
+        $minWickLower = $minStep * (1 + (int)floor($noiseLower * 3.0));
+        $wickLower = max($minWickLower, min($bodyHeight * 0.70, $open * $vol * 0.12 * (0.3 + 0.7 * $noiseLower)));
 
-        if ($high <= $low) {
-            $high = round(max($open, $close) + $minStep, $decimals);
-            $low  = round(max($minStep, min($open, $close) - $minStep), $decimals);
+        $high = round(max($open, $close) + $wickUpper, $decimals);
+        $low  = round(max($minStep, min($open, $close) - $wickLower), $decimals);
+
+        if ($high <= max($open, $close)) {
+            $high = round(max($open, $close) + $minStep * 2, $decimals);
+        }
+        if ($low >= min($open, $close)) {
+            $low = round(max($minStep, min($open, $close) - $minStep * 2), $decimals);
         }
 
         $p1 = $close >= $open ? $low : $high;

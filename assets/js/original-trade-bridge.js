@@ -735,8 +735,11 @@
       var cOpen = runningPrice;
       var jitter = (Math.random() - 0.5) * step * 4;
       var cClose = isLast ? currentLivePrice : Number((cOpen + jitter).toFixed(dec));
-      var cHigh = Number((Math.max(cOpen, cClose) + Math.random() * step * 2).toFixed(dec));
-      var cLow = Number((Math.min(cOpen, cClose) - Math.random() * step * 2).toFixed(dec));
+      var bodySize = Math.abs(cClose - cOpen);
+      var wickUp = Math.max(step * (1 + Math.floor(Math.random() * 3)), bodySize * (0.25 + Math.random() * 0.35));
+      var wickLow = Math.max(step * (1 + Math.floor(Math.random() * 3)), bodySize * (0.25 + Math.random() * 0.35));
+      var cHigh = Number((Math.max(cOpen, cClose) + wickUp).toFixed(dec));
+      var cLow = Number((Math.max(step, Math.min(cOpen, cClose) - wickLow)).toFixed(dec));
       var p1 = cClose >= cOpen ? cLow : cHigh;
       var p2 = cClose >= cOpen ? cHigh : cLow;
       candles.push({
