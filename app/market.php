@@ -886,6 +886,10 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
 {
     $asset = market_asset($symbol, false);
     if (!$asset) {
+        $activeAssets = market_assets(true);
+        $asset = !empty($activeAssets) ? $activeAssets[0] : null;
+    }
+    if (!$asset) {
         throw new InvalidArgumentException('Selected market is unavailable.');
     }
 

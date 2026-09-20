@@ -85,7 +85,7 @@ function run_auto_migrations(): void
     }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(40) NOT NULL, applied_at DATETIME NOT NULL, PRIMARY KEY (version)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    $targetVersion = '4.7.0';
+    $targetVersion = '4.8.0';
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
     $check->execute([$targetVersion]);
     if ((int)$check->fetchColumn() > 0) {
@@ -108,6 +108,13 @@ function run_auto_migrations(): void
         $baseCheck = $pdo->query("SELECT COUNT(*) FROM schema_migrations WHERE version IN ('4.1.0','4.1.2','4.2.0','4.3.0','4.3.1','4.4.0')");
         $baseMigrationComplete = (int)$baseCheck->fetchColumn() > 0;
 
+    // Ensure market_assets has price_source and api_symbol columns and supports binance
+    migration_add_column($pdo, 'market_assets', 'price_source', "ENUM('internal','manual','api','binance') NOT NULL DEFAULT 'binance' AFTER `market_seed`");
+    migration_add_column($pdo, 'market_assets', 'api_symbol', 'VARCHAR(60) NULL AFTER `price_source`');
+    try {
+        $pdo->exec("ALTER TABLE market_assets MODIFY price_source ENUM('internal','manual','api','binance') NOT NULL DEFAULT 'binance'");
+    } catch (Throwable $e) {}
+
     migration_add_column($pdo, 'users', 'force_password_change', 'TINYINT(1) NOT NULL DEFAULT 0 AFTER `country`');
     migration_add_column($pdo, 'users', 'email_verified_at', 'DATETIME NULL AFTER `force_password_change`');
     migration_add_column($pdo, 'users', 'onboarding_completed_at', 'DATETIME NULL AFTER `email_verified_at`');
@@ -126,7 +133,7 @@ function run_auto_migrations(): void
     // ALTER statements on an installation that already completed 4.1.0; patch
     // releases only need the safe login/profile repair above.
     if (!$baseMigrationComplete) {
-    migration_add_column($pdo, 'market_assets', 'price_source', "ENUM('internal','manual','api') NOT NULL DEFAULT 'internal' AFTER `market_seed`");
+    migration_add_column($pdo, 'market_assets', 'price_source', "ENUM('internal','manual','api','binance') NOT NULL DEFAULT 'binance' AFTER `market_seed`");
     migration_add_column($pdo, 'market_assets', 'api_symbol', 'VARCHAR(60) NULL AFTER `price_source`');
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS payment_methods (
