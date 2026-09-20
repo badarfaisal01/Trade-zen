@@ -22,7 +22,8 @@
         }
       }
       var isMobile = window.innerWidth <= 800;
-      var targetCount = isMobile ? 35 : 45;
+      // Target 25 to 35 price ticks per viewport on mobile so user sees 20-30 prices close together
+      var targetCount = isMobile ? 28 : 36;
 
       var range = Math.abs(max - min);
       if (range <= 0) return;
@@ -32,20 +33,20 @@
       var fraction = rawStep / Math.pow(10, exponent);
 
       var niceFraction;
-      if (fraction <= 1.25) niceFraction = 1;
-      else if (fraction <= 3.2) niceFraction = 2; // Strongly prefer step multiplier of 2!
-      else if (fraction <= 6.5) niceFraction = 5;
+      if (fraction <= 1.4) niceFraction = 1;
+      else if (fraction <= 3.6) niceFraction = 2; // Strongly prefer step multiplier of 2!
+      else if (fraction <= 7.5) niceFraction = 5;
       else niceFraction = 10;
 
       var step = niceFraction * Math.pow(10, exponent);
 
-      // Force step distance of 2 when price range is moderate (e.g. 1 to 160 points):
-      if (range > 1 && range <= 160) {
-        step = 2;
-      } else if (range <= 1 && range > 0) {
-        if (range <= 0.1) step = 0.002;
-        else if (range <= 0.5) step = 0.01;
-        else step = 0.02;
+      // Prefer step multiplier of 2 (e.g. 2, 0.2, 20, 0.02) whenever range yields 12 to 45 ticks:
+      if (range > 0) {
+        var candidateStep2 = 2 * Math.pow(10, exponent);
+        var ticksWith2 = range / candidateStep2;
+        if (ticksWith2 >= 12 && ticksWith2 <= 45) {
+          step = candidateStep2;
+        }
       }
 
       if (step <= 0 || !isFinite(step)) step = 2;
@@ -88,8 +89,8 @@
     }
 
     function applyHighchartsPatch(hc) {
-      if (!hc || hc._tradeScalePatchedV5) return;
-      hc._tradeScalePatchedV5 = true;
+      if (!hc || hc._tradeScalePatchedV6) return;
+      hc._tradeScalePatchedV6 = true;
 
       try {
         var isMobile = window.innerWidth <= 800;
@@ -217,6 +218,14 @@
                 this.options.tickPositioner = dynamicPriceTickPositioner;
                 this.tickPositioner = dynamicPriceTickPositioner;
                 this.tickAmount = undefined;
+                if (this.options) this.options.tickAmount = undefined;
+
+                var customTicks = dynamicPriceTickPositioner.call(this, this.min, this.max);
+                if (customTicks && customTicks.length >= 2) {
+                  this.tickPositions = customTicks;
+                  this.paddedTicks = customTicks.slice(0);
+                  return;
+                }
               }
               return origSetTickPositions.apply(this, arguments);
             };
