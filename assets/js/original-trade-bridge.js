@@ -9,7 +9,7 @@
 (function () {
   'use strict';
 
-  // Patch Highcharts Y-axis price scale for close dynamic tick density (20-30 price numbers per viewport)
+  // Patch Highcharts Y-axis price scale for 15-20 price numbers per mobile viewport
   (function configureHighchartsYAxis() {
     function dynamicPriceTickPositioner(min, max) {
       if (min === undefined || max === undefined || min === max || isNaN(min) || isNaN(max)) {
@@ -20,7 +20,7 @@
       }
       var len = (this && this.len && this.len > 50) ? this.len : (window.innerHeight || 500);
       var isMobile = window.innerWidth <= 800;
-      var targetCount = isMobile ? 32 : 38;
+      var targetCount = isMobile ? 18 : 24;
 
       var range = Math.abs(max - min);
       if (range <= 0) return;
@@ -30,8 +30,8 @@
       var fraction = rawStep / Math.pow(10, exponent);
 
       var niceFraction;
-      if (fraction <= 1.4) niceFraction = 1;
-      else if (fraction <= 3.8) niceFraction = 2;
+      if (fraction <= 1.35) niceFraction = 1;
+      else if (fraction <= 3.6) niceFraction = 2;
       else if (fraction <= 7.2) niceFraction = 5;
       else niceFraction = 10;
 
@@ -43,7 +43,7 @@
       var end = Math.ceil(max / step) * step;
 
       var count = 0;
-      for (var p = start; p <= end + step * 0.0001 && count < 80; p += step) {
+      for (var p = start; p <= end + step * 0.0001 && count < 60; p += step) {
         count++;
         var cleanP = Number(p.toFixed(8));
         ticks.push(cleanP);
@@ -54,7 +54,7 @@
     function tuneYAxisOptions(options) {
       if (!options) return;
       var isMobile = window.innerWidth <= 800;
-      var targetTickPixelInterval = isMobile ? 18 : 24;
+      var targetTickPixelInterval = isMobile ? 22 : 26;
 
       if (options.yAxis) {
         var axes = Array.isArray(options.yAxis) ? options.yAxis : [options.yAxis];
@@ -76,11 +76,12 @@
     }
 
     function applyHighchartsPatch(hc) {
-      if (!hc || hc._tradeScalePatchedV3) return;
-      hc._tradeScalePatchedV3 = true;
+      if (!hc || hc._tradeScalePatchedV4) return;
+      hc._tradeScalePatchedV4 = true;
 
       try {
         var isMobile = window.innerWidth <= 800;
+
         if (hc.setOptions) {
           hc.setOptions({
             chart: {
@@ -91,7 +92,7 @@
               endOnTick: false,
               startOnTick: false,
               tickPositioner: dynamicPriceTickPositioner,
-              tickPixelInterval: isMobile ? 18 : 24,
+              tickPixelInterval: isMobile ? 22 : 26,
               minorTickInterval: null,
               labels: {
                 align: 'right',
@@ -103,12 +104,62 @@
           });
         }
 
+        if (hc.Chart && hc.Chart.prototype) {
+          if (hc.Chart.prototype.hideOverlappingLabels) {
+            var origHideOverlapping = hc.Chart.prototype.hideOverlappingLabels;
+            hc.Chart.prototype.hideOverlappingLabels = function (labels) {
+              if (Array.isArray(labels)) {
+                labels = labels.filter(function (lbl) {
+                  if (lbl && lbl.element && lbl.element.parentNode) {
+                    var cls = String(lbl.element.parentNode.getAttribute('class') || '');
+                    if (cls.indexOf('highcharts-yaxis-labels') !== -1) {
+                      if (lbl.element.style) {
+                        lbl.element.style.opacity = '1';
+                        lbl.element.style.visibility = 'visible';
+                      }
+                      return false;
+                    }
+                  }
+                  return true;
+                });
+              }
+              return origHideOverlapping.apply(this, [labels]);
+            };
+          }
+
+          if (hc.Chart.prototype.init) {
+            var origInit = hc.Chart.prototype.init;
+            hc.Chart.prototype.init = function (userOptions, callback) {
+              if (userOptions && userOptions.chart) {
+                userOptions.chart.alignTicks = false;
+              }
+              tuneYAxisOptions(userOptions);
+              var chart = origInit.apply(this, arguments);
+              if (chart) {
+                chart.alignTicks = false;
+                if (chart.yAxis) {
+                  chart.yAxis.forEach(function (y) {
+                    if (y) {
+                      y.options.alignTicks = false;
+                      y.options.endOnTick = false;
+                      y.options.startOnTick = false;
+                      y.options.tickPositioner = dynamicPriceTickPositioner;
+                      y.tickAmount = undefined;
+                    }
+                  });
+                }
+              }
+              return chart;
+            };
+          }
+        }
+
         if (hc.Axis && hc.Axis.prototype) {
           if (hc.Axis.prototype.adjustTickAmount) {
             var origAdjustTickAmount = hc.Axis.prototype.adjustTickAmount;
             hc.Axis.prototype.adjustTickAmount = function () {
               if (!this.isXAxis) {
-                return; // Prevent Highcharts from truncating Y-axis price ticks down to 3-5 ticks
+                return;
               }
               return origAdjustTickAmount.apply(this, arguments);
             };

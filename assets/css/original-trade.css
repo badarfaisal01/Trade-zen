@@ -72,32 +72,36 @@ body.original-trade-page select {
   font-size: 0 !important;
 }
 
-/* Dense Responsive Y-Axis Price Scale Labels - 2-2 Difference & Shrunk Box Size */
+/* Responsive Y-Axis Price Scale Labels - 15-20 Price Viewport Display */
 .highcharts-yaxis-labels text {
   text-anchor: end !important;
   text-align: right !important;
   font-weight: 600 !important;
-  font-size: 9.5px !important;
-  fill: rgba(255, 255, 255, 0.88) !important;
-  letter-spacing: -0.25px !important;
+  font-size: 10px !important;
+  fill: rgba(255, 255, 255, 0.90) !important;
+  letter-spacing: -0.2px !important;
+  opacity: 1 !important;
+  visibility: visible !important;
 }
 
 .highcharts-yaxis-grid .highcharts-grid-line {
-  stroke: rgba(255, 255, 255, 0.035) !important;
+  stroke: rgba(255, 255, 255, 0.04) !important;
   stroke-width: 1px !important;
 }
 
 @media (max-width: 800px) {
   .highcharts-yaxis-labels {
-    transform: translateX(40px) !important;
+    transform: translateX(42px) !important;
   }
   .highcharts-yaxis-labels text {
     text-anchor: end !important;
     text-align: right !important;
-    font-size: 8.5px !important;
+    font-size: 9.5px !important;
     font-weight: 600 !important;
     fill: rgba(255, 255, 255, 0.94) !important;
-    letter-spacing: -0.3px !important;
+    letter-spacing: -0.2px !important;
+    opacity: 1 !important;
+    visibility: visible !important;
   }
 }
 
