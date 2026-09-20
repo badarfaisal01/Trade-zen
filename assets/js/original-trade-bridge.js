@@ -2191,14 +2191,18 @@
       headerLogo.classList.add('is-local-branded');
       headerLogo.setAttribute('data-platform-name', platformName);
       headerLogo.setAttribute('data-platform-mark', platformName.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '55');
-      if (customLogoUrl && !headerLogo.querySelector('.original-custom-logo')) {
-        var logoImage = document.createElement('img');
+      var logoSrc = customLogoUrl || '/assets/img/quotex-logo-white.svg';
+      var logoImage = headerLogo.querySelector('.original-custom-logo');
+      if (!logoImage) {
+        logoImage = document.createElement('img');
         logoImage.className = 'original-custom-logo';
-        logoImage.src = customLogoUrl;
-        logoImage.alt = '';
         headerLogo.prepend(logoImage);
-        headerLogo.classList.add('has-custom-logo');
       }
+      if (logoImage.getAttribute('src') !== logoSrc) {
+        logoImage.src = logoSrc;
+      }
+      logoImage.alt = platformName;
+      headerLogo.classList.add('has-custom-logo');
     }
 
     document.querySelectorAll('a[href]').forEach(function (anchor) {

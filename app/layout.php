@@ -151,7 +151,7 @@ function payment_method_mark(array $method, string $class = 'method-logo'): stri
 function site_logo_url(): string
 {
     $filename = trim((string)setting('logo_filename', ''));
-    return $filename !== '' ? '/en/site-logo/?v=' . rawurlencode($filename) : asset_url('img/logo.svg');
+    return $filename !== '' ? '/en/site-logo/?v=' . rawurlencode($filename) : asset_url('img/quotex-logo-white.svg');
 }
 
 function brand_logo(bool $compact = false): string
