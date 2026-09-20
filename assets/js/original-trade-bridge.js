@@ -272,16 +272,54 @@
     var clean = String(sym || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     clean = clean.replace(/OTC$/, '');
     var map = {
+      // Crypto
       'BTCUSD': 'btcusdt',
       'BTCUSDT': 'btcusdt',
       'ETHUSD': 'ethusdt',
       'ETHUSDT': 'ethusdt',
-            'XAUUSD': 'paxgusdt',
+      'SOLUSD': 'solusdt',
+      'SOLUSDT': 'solusdt',
+      'BNBUSD': 'bnbusdt',
+      'BNBUSDT': 'bnbusdt',
+      'XRPUSD': 'xrpusdt',
+      'XRPUSDT': 'xrpusdt',
+      'DOGEUSD': 'dogeusdt',
+      'DOGEUSDT': 'dogeusdt',
+      'ADAUSD': 'adausdt',
+      'ADAUSDT': 'adausdt',
+      'AVAXUSD': 'avaxusdt',
+      'AVAXUSDT': 'avaxusdt',
+      'DOTUSD': 'dotusdt',
+      'DOTUSDT': 'dotusdt',
+      'LINKUSD': 'linkusdt',
+      'LINKUSDT': 'linkusdt',
+      'POLUSD': 'polusdt',
+      'POLUSDT': 'polusdt',
+      'MATICUSD': 'polusdt',
+      'LTCUSD': 'ltcusdt',
+      'LTCUSDT': 'ltcusdt',
+      'NEARUSD': 'nearusdt',
+      'NEARUSDT': 'nearusdt',
+      'SHIBUSD': 'shibusdt',
+      'SHIBUSDT': 'shibusdt',
+      'PEPEUSD': 'pepeusdt',
+      'PEPEUSDT': 'pepeusdt',
+      'TRXUSD': 'trxusdt',
+      'TRXUSDT': 'trxusdt',
+      'SUIUSD': 'suiusdt',
+      'SUIUSDT': 'suiusdt',
+      'APTUSD': 'aptusdt',
+      'APTUSDT': 'aptusdt',
+
+      // Commodities
+      'XAUUSD': 'paxgusdt',
       'GOLDUSD': 'paxgusdt',
       'XAUTUSD': 'xautusdt',
       'XAUTUSDT': 'xautusdt',
       'GASUSD': 'gasusdt',
       'GASUSDT': 'gasusdt',
+
+      // Stocks
       'TSLAUSD': 'tslabusdt',
       'TSLA': 'tslabusdt',
       'TSLABUSDT': 'tslabusdt',
@@ -291,17 +329,11 @@
       'NVDAUSD': 'nvdabusdt',
       'NVDA': 'nvdabusdt',
       'NVDABUSDT': 'nvdabusdt',
-      'GOLDUSD': 'paxgusdt',
+
+      // Currencies
       'EURUSD': 'eurusdt',
       'GBPUSD': 'gbpusdt',
-      'SOLUSD': 'solusdt',
-      'SOLUSDT': 'solusdt',
-      'BNBUSD': 'bnbusdt',
-      'BNBUSDT': 'bnbusdt',
-      'XRPUSD': 'xrpusdt',
-      'XRPUSDT': 'xrpusdt',
-      'DOGEUSD': 'dogeusdt',
-      'DOGEUSDT': 'dogeusdt'
+      'AUDUSD': 'audusdt'
     };
     return map[clean] || '';
   }
