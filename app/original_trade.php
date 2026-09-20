@@ -153,7 +153,7 @@ function render_original_trade_page(array $user): void
     $defaultDuration = in_array(60, $durations, true) ? 60 : (int)$durations[0];
     $version = rawurlencode((string)app_config('version'));
     $accountType = trade_account_type();
-    $platformName = trim((string)setting('platform_name', app_config('name'))) ?: '55AK Trade';
+    $platformName = 'Quotex';
     $customLogoFilename = trim((string)setting('logo_filename', ''));
     $liveBalance = (float)$user['demo_balance'];
     $demoBalance = (float)$user['demo_trade_balance'];

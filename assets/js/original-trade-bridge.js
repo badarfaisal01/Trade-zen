@@ -552,7 +552,7 @@
   var authRedirectScheduled = false;
   var authRedirectTimer = null;
   var authenticatedNavigationPromise = null;
-  var platformName = meta('trade-platform-name', '55AK Trade') || '55AK Trade';
+  var platformName = meta('trade-platform-name', 'Quotex') || 'Quotex';
   var customLogoUrl = meta('trade-custom-logo-url', '');
   var shouldShowOnboarding = meta('trade-show-onboarding', '0') === '1';
 
@@ -2442,8 +2442,8 @@
     var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
     var node;
     while ((node = walker.nextNode())) {
-      if (/quotex|qxbroker/i.test(node.nodeValue || '')) {
-        node.nodeValue = node.nodeValue.replace(/quotex|qxbroker/gi, platformName);
+      if (/tradezen|55ak trade/i.test(node.nodeValue || '')) {
+        node.nodeValue = node.nodeValue.replace(/tradezen|55ak trade/gi, 'Quotex');
       }
       if (/\.undefined\b/.test(node.nodeValue || '')) {
         node.nodeValue = node.nodeValue.replace(/\.undefined\b/g, '.000');
