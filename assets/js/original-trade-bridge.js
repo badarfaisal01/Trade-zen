@@ -20,7 +20,7 @@
       }
       var len = (this && this.len && this.len > 50) ? this.len : (window.innerHeight || 500);
       var isMobile = window.innerWidth <= 800;
-      var targetCount = isMobile ? 22 : 28;
+      var targetCount = isMobile ? 32 : 38;
 
       var range = Math.abs(max - min);
       if (range <= 0) return;
@@ -30,11 +30,9 @@
       var fraction = rawStep / Math.pow(10, exponent);
 
       var niceFraction;
-      if (fraction <= 1.25) niceFraction = 1;
-      else if (fraction <= 1.8) niceFraction = 1.5;
-      else if (fraction <= 2.3) niceFraction = 2;
-      else if (fraction <= 3.75) niceFraction = 2.5;
-      else if (fraction <= 7.5) niceFraction = 5;
+      if (fraction <= 1.4) niceFraction = 1;
+      else if (fraction <= 3.8) niceFraction = 2;
+      else if (fraction <= 7.2) niceFraction = 5;
       else niceFraction = 10;
 
       var step = niceFraction * Math.pow(10, exponent);
@@ -45,7 +43,7 @@
       var end = Math.ceil(max / step) * step;
 
       var count = 0;
-      for (var p = start; p <= end + step * 0.0001 && count < 60; p += step) {
+      for (var p = start; p <= end + step * 0.0001 && count < 80; p += step) {
         count++;
         var cleanP = Number(p.toFixed(8));
         ticks.push(cleanP);
