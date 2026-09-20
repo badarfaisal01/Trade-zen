@@ -928,14 +928,26 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $assetPayload = market_asset_payload($asset, $nowMs);
-    if (!empty($candles)) {
+    if (!$status['isOpen']) {
+        $officialClosedP = (float)$status['closedPrice'];
+        $assetPayload['price'] = $officialClosedP;
+        $assetPayload['closed_price'] = $officialClosedP;
+
+        if (!empty($candles)) {
+            $lastIdx = count($candles) - 1;
+            $candles[$lastIdx]['close'] = $officialClosedP;
+            $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $officialClosedP);
+            $candles[$lastIdx]['low'] = min((float)$candles[$lastIdx]['low'], $officialClosedP);
+            if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
+                $tCount = count($candles[$lastIdx]['ticks']);
+                $candles[$lastIdx]['ticks'][$tCount - 1][1] = $officialClosedP;
+            }
+        }
+    } else if (!empty($candles)) {
         $lastCandle = end($candles);
         if (isset($lastCandle['close']) && is_numeric($lastCandle['close'])) {
             $lastClose = (float)$lastCandle['close'];
             $assetPayload['price'] = $lastClose;
-            if (!$status['isOpen']) {
-                $assetPayload['closed_price'] = $lastClose;
-            }
         }
     }
 

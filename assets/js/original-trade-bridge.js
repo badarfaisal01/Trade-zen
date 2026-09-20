@@ -263,9 +263,28 @@
   var lastStateSignature = '';
   var lastHistoryBroadcastAt = 0;
 
-  var initialServerTime = number(meta('trade-server-time', '0'), 0);
-  if (initialServerTime > 0) {
-    serverTimeOffset = initialServerTime - Date.now();
+  function findAsset(symbol) {
+    if (!symbol) return null;
+    var clean = plainSymbol(symbol).toUpperCase();
+    if (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol).toUpperCase() === clean) {
+      return marketSnapshot.asset;
+    }
+    if (marketSnapshot && Array.isArray(marketSnapshot.assets)) {
+      for (var i = 0; i < marketSnapshot.assets.length; i++) {
+        if (plainSymbol(marketSnapshot.assets[i].symbol).toUpperCase() === clean) {
+          return marketSnapshot.assets[i];
+        }
+      }
+    }
+    return null;
+  }
+
+  function isAssetActive(asset) {
+    if (!asset) return true;
+    if (asset.is_open === false || asset.is_active === 0 || asset.active === false || asset.is_active === false) {
+      return false;
+    }
+    return true;
   }
 
   function getBinanceStreamSymbol(sym) {
@@ -1255,8 +1274,8 @@
       });
     });
 
-    // Seamless connection: ensure the last history point touches current live price ONLY if this is the live current chart (i.e. reaches present time)
-    var isLiveStream = (nowSec - previousStamp) <= (safePeriod * 2);
+    // Seamless connection: ensure the last history point touches current live price ONLY if this is an OPEN market
+    var isLiveStream = (!isClosed) && ((nowSec - previousStamp) <= (safePeriod * 2));
     if (isLiveStream && history.length > 0 && currentLivePrice > 0) {
       var lastHistPrice = history[history.length - 1][1];
       var scaleRatio = lastHistPrice > 0 ? (currentLivePrice / lastHistPrice) : 1;
@@ -1268,6 +1287,13 @@
           history.push([finalStamp, currentLivePrice, ++count]);
           previousStamp = finalStamp;
         }
+      }
+    }
+
+    if (isClosed && history.length > 0 && currentAssetObj) {
+      var officialClosedP = number((currentAssetObj.closed_price !== undefined && currentAssetObj.closed_price !== null) ? currentAssetObj.closed_price : currentAssetObj.price, 0);
+      if (officialClosedP > 0) {
+        history[history.length - 1][1] = officialClosedP;
       }
     }
 
