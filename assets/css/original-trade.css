@@ -78,7 +78,7 @@ body.original-trade-page select {
   text-align: right !important;
   font-weight: 600 !important;
   font-size: 11px !important;
-  fill: rgba(255, 255, 255, 0.82) !important;
+  fill: rgba(255, 255, 255, 0.88) !important;
   letter-spacing: -0.2px !important;
 }
 
@@ -89,14 +89,14 @@ body.original-trade-page select {
 
 @media (max-width: 800px) {
   .highcharts-yaxis-labels {
-    transform: translateX(20px) !important;
+    transform: translateX(36px) !important;
   }
   .highcharts-yaxis-labels text {
     text-anchor: end !important;
     text-align: right !important;
     font-size: 10px !important;
     font-weight: 700 !important;
-    fill: rgba(255, 255, 255, 0.88) !important;
+    fill: rgba(255, 255, 255, 0.92) !important;
   }
 }
 
