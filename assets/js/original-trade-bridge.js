@@ -9,6 +9,87 @@
 (function () {
   'use strict';
 
+  // Patch Highcharts Y-axis price scale for close dynamic tick density and right label positioning
+  (function configureHighchartsYAxis() {
+    function tuneYAxisOptions(options) {
+      if (!options) return;
+      var isMobile = window.innerWidth <= 800;
+      var targetTickPixelInterval = isMobile ? 28 : 34;
+
+      if (options.yAxis) {
+        var axes = Array.isArray(options.yAxis) ? options.yAxis : [options.yAxis];
+        axes.forEach(function (y) {
+          if (!y) return;
+          y.tickPixelInterval = targetTickPixelInterval;
+          y.minorTickInterval = 'auto';
+          if (!y.labels) y.labels = {};
+          y.labels.align = 'right';
+          y.labels.x = isMobile ? 14 : 6;
+          y.labels.reserveSpace = true;
+        });
+      }
+    }
+
+    function applyHighchartsPatch(hc) {
+      if (!hc || hc._tradeScalePatched) return;
+      hc._tradeScalePatched = true;
+
+      try {
+        var isMobile = window.innerWidth <= 800;
+        if (hc.setOptions) {
+          hc.setOptions({
+            yAxis: {
+              tickPixelInterval: isMobile ? 28 : 34,
+              minorTickInterval: 'auto',
+              labels: {
+                align: 'right',
+                x: isMobile ? 14 : 6,
+                reserveSpace: true
+              }
+            }
+          });
+        }
+
+        if (hc.Chart && hc.Chart.prototype && hc.Chart.prototype.init) {
+          var origInit = hc.Chart.prototype.init;
+          hc.Chart.prototype.init = function (userOptions, callback) {
+            tuneYAxisOptions(userOptions);
+            var chart = origInit.apply(this, arguments);
+            if (chart && chart.yAxis) {
+              chart.yAxis.forEach(function (y) {
+                if (y && y.options) {
+                  y.options.tickPixelInterval = isMobile ? 28 : 34;
+                }
+              });
+            }
+            return chart;
+          };
+        }
+      } catch (e) {}
+    }
+
+    if (window.Highcharts) {
+      applyHighchartsPatch(window.Highcharts);
+    }
+    
+    var _hcStore = window.Highcharts;
+    try {
+      Object.defineProperty(window, 'Highcharts', {
+        configurable: true,
+        enumerable: true,
+        get: function () {
+          return _hcStore;
+        },
+        set: function (val) {
+          _hcStore = val;
+          if (val) {
+            applyHighchartsPatch(val);
+          }
+        }
+      });
+    } catch (e) {}
+  })();
+
   var nativeFetch = window.fetch.bind(window);
   var NativeWebSocket = window.WebSocket;
   var encoder = window.TextEncoder ? new TextEncoder() : null;
