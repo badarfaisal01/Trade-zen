@@ -27,20 +27,21 @@ body.original-trade-page select {
   display: none !important;
 }
 
-/* Replace the sprite logo without editing the supplied compiled bundles. */
+/* Replace logo sprite to display ONLY the hexagon icon with no text. */
 .TJbx1 .V8tvg {
   display: inline-flex !important;
-  width: auto;
-  min-width: 140px;
-  height: 38px;
-  align-items: center;
-  text-decoration: none;
+  width: auto !important;
+  min-width: 0 !important;
+  height: 38px !important;
+  align-items: center !important;
+  text-decoration: none !important;
   font-size: 0 !important;
   color: transparent !important;
 }
 
 .TJbx1 .V8tvg * {
   font-size: 0 !important;
+  color: transparent !important;
 }
 
 .TJbx1 .V8tvg svg {
@@ -58,18 +59,22 @@ body.original-trade-page select {
   width: auto !important;
   height: 32px !important;
   max-height: 32px !important;
-  max-width: 160px !important;
+  max-width: 38px !important;
   object-fit: contain !important;
 }
 
 .TJbx1 .WQMTk,
 .TJbx1 .WQMTk::after,
-.TJbx1 .WQMTk::before {
+.TJbx1 .WQMTk::before,
+.TJbx1 [class*="WQMTk"],
+.TJbx1 [class*="PHfPO"] {
   display: none !important;
   content: "" !important;
   width: 0 !important;
   height: 0 !important;
   font-size: 0 !important;
+  opacity: 0 !important;
+  visibility: hidden !important;
 }
 
 /* Responsive Y-Axis Price Scale Labels - 15-20 Price Viewport Display */

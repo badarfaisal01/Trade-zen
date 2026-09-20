@@ -2442,8 +2442,8 @@
     var headerLogo = document.querySelector('.TJbx1 .V8tvg');
     if (headerLogo) {
       headerLogo.classList.add('is-local-branded');
-      headerLogo.setAttribute('data-platform-name', platformName);
-      headerLogo.setAttribute('data-platform-mark', platformName.replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase() || '55');
+      headerLogo.removeAttribute('data-platform-name');
+      headerLogo.removeAttribute('data-platform-mark');
       var logoSrc = customLogoUrl || '/assets/img/quotex-logo-white.svg';
       var logoImage = headerLogo.querySelector('.original-custom-logo');
       if (!logoImage) {
@@ -2454,10 +2454,10 @@
       if (logoImage.getAttribute('src') !== logoSrc) {
         logoImage.src = logoSrc;
       }
-      logoImage.alt = platformName;
+      logoImage.alt = 'Logo';
       headerLogo.classList.add('has-custom-logo');
 
-      // Ensure ONLY the logo image is shown inside headerLogo and hide extra text elements
+      // Ensure ONLY the logo icon is shown and hide ALL text nodes
       Array.prototype.forEach.call(headerLogo.childNodes, function (child) {
         if (child !== logoImage) {
           if (child.nodeType === 3) {
@@ -2469,10 +2469,11 @@
       });
     }
 
-    var headerSubText = document.querySelector('.TJbx1 .WQMTk');
-    if (headerSubText) {
-      headerSubText.style.display = 'none';
-    }
+    var headerSubTexts = document.querySelectorAll('.TJbx1 .WQMTk, .TJbx1 [class*="WQMTk"], .TJbx1 [class*="PHfPO"]');
+    headerSubTexts.forEach(function (sub) {
+      sub.style.display = 'none';
+      sub.textContent = '';
+    });
 
     document.querySelectorAll('a[href]').forEach(function (anchor) {
       var raw = anchor.getAttribute('href');
