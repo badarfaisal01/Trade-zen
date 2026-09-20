@@ -2196,13 +2196,29 @@
       if (!logoImage) {
         logoImage = document.createElement('img');
         logoImage.className = 'original-custom-logo';
-        headerLogo.prepend(logoImage);
+        headerLogo.appendChild(logoImage);
       }
       if (logoImage.getAttribute('src') !== logoSrc) {
         logoImage.src = logoSrc;
       }
       logoImage.alt = platformName;
       headerLogo.classList.add('has-custom-logo');
+
+      // Ensure ONLY the logo image is shown inside headerLogo and hide extra text elements
+      Array.prototype.forEach.call(headerLogo.childNodes, function (child) {
+        if (child !== logoImage) {
+          if (child.nodeType === 3) {
+            child.nodeValue = '';
+          } else if (child.nodeType === 1 && !child.classList.contains('original-custom-logo')) {
+            child.style.display = 'none';
+          }
+        }
+      });
+    }
+
+    var headerSubText = document.querySelector('.TJbx1 .WQMTk');
+    if (headerSubText) {
+      headerSubText.style.display = 'none';
     }
 
     document.querySelectorAll('a[href]').forEach(function (anchor) {

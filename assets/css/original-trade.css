@@ -35,6 +35,12 @@ body.original-trade-page select {
   height: 38px;
   align-items: center;
   text-decoration: none;
+  font-size: 0 !important;
+  color: transparent !important;
+}
+
+.TJbx1 .V8tvg * {
+  font-size: 0 !important;
 }
 
 .TJbx1 .V8tvg svg {
@@ -56,13 +62,14 @@ body.original-trade-page select {
   object-fit: contain !important;
 }
 
-.TJbx1 .WQMTk {
+.TJbx1 .WQMTk,
+.TJbx1 .WQMTk::after,
+.TJbx1 .WQMTk::before {
+  display: none !important;
+  content: "" !important;
+  width: 0 !important;
+  height: 0 !important;
   font-size: 0 !important;
-}
-
-.TJbx1 .WQMTk::after {
-  content: "Web Trading Platform";
-  font-size: 11px;
 }
 
 .original-demo-ribbon {
