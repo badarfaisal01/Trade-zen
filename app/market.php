@@ -77,14 +77,14 @@ function market_noise(int $seed, int $bucket): float
     return ($value / 4294967295.0) * 2.0 - 1.0;
 }
 
-function market_price_at(array $asset, int $timestampMs): float
+function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = false): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $source = $asset['price_source'] ?? 'internal';
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
-    if ($isLive && ($source === 'api' || $source === 'binance')) {
+    if (!$useFormulaOnly && $isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
@@ -332,10 +332,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         $lastIdx = count($candles) - 1;
                         $candles[$lastIdx]['lastTickTime'] = $endMs;
                         $candles[$lastIdx]['complete'] = false;
-                        $livePrice = market_price_at($asset, $endMs);
-                        $candles[$lastIdx]['close'] = $livePrice;
-                        $candles[$lastIdx]['high'] = max($candles[$lastIdx]['high'], $livePrice);
-                        $candles[$lastIdx]['low'] = min($candles[$lastIdx]['low'], $livePrice);
+                        $livePrice = (float)$candles[$lastIdx]['close'];
                         if (!empty($candles[$lastIdx]['ticks'])) {
                             $candles[$lastIdx]['ticks'][] = [$endMs, $livePrice];
                         }
@@ -424,6 +421,13 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $vol = max(0.0005, (float)($asset['volatility'] ?? 0.002));
     $candles = [];
 
+    $targetPrice = (float)($asset['target_price'] ?? $asset['closed_price'] ?? $asset['price'] ?? 0.0);
+    if ($targetPrice <= 0) {
+        $targetPrice = market_price_at($asset, $endMs);
+    }
+    $endPriceCalc = market_price_at($asset, $endMs, true);
+    $priceOffset = $targetPrice - $endPriceCalc;
+
     for ($i = 0; $i < $count; $i++) {
         $time = $startMs + ($i * $intervalMs);
         $candleEndMs = min($time + $intervalMs - 1, $endMs);
@@ -432,9 +436,9 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
 
         $minStep = pow(10, -$decimals);
-        // Continuous open from previous close
-        $open = ($i === 0) ? market_price_at($asset, $time) : $candles[$i - 1]['close'];
-        $close = market_price_at($asset, $candleEndMs);
+        // Continuous open from previous close, shifted seamlessly to land on targetPrice at $endMs
+        $open = ($i === 0) ? round(market_price_at($asset, $time, true) + $priceOffset, $decimals) : $candles[$i - 1]['close'];
+        $close = ($i === $count - 1) ? $targetPrice : round(market_price_at($asset, $candleEndMs, true) + $priceOffset, $decimals);
 
         // Ensure visible candle body with directional movement
         if (abs($close - $open) < $minStep) {
@@ -483,13 +487,21 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
 function market_reference_price(array $asset): float
 {
+    if (isset($asset['target_price']) && is_numeric($asset['target_price']) && (float)$asset['target_price'] > 0) {
+        return (float)$asset['target_price'];
+    }
+    if (isset($asset['closed_price']) && is_numeric($asset['closed_price']) && (float)$asset['closed_price'] > 0) {
+        return (float)$asset['closed_price'];
+    }
+    if (isset($asset['price']) && is_numeric($asset['price']) && (float)$asset['price'] > 0) {
+        return (float)$asset['price'];
+    }
+    if (isset($asset['source_price']) && is_numeric($asset['source_price']) && (float)$asset['source_price'] > 0) {
+        return (float)$asset['source_price'];
+    }
+
     $source = $asset['price_source'] ?? 'internal';
     if ($source === 'api' || $source === 'binance') {
-        $sourcePrice = isset($asset['source_price']) ? (float)$asset['source_price'] : 0.0;
-        if ($sourcePrice > 0) {
-            return $sourcePrice;
-        }
-
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
@@ -505,6 +517,7 @@ function market_reference_price(array $asset): float
 
     return max(0.00000001, (float)($asset['base_price'] ?? 100.0));
 }
+
 
 function market_json_path_value(array $payload, string $path)
 {
@@ -886,19 +899,37 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $targetEndMs = $status['isOpen'] ? ($endMs !== null && $endMs > 0 ? $endMs : $nowMs) : $status['closedAt'];
+    $targetPrice = $status['isOpen'] ? market_price_at($asset, $nowMs) : (float)$status['closedPrice'];
+    $assetWithTarget = array_merge($asset, [
+        'closed_price' => $status['closedPrice'],
+        'target_price' => $targetPrice,
+        'price' => $targetPrice,
+    ]);
 
     $candles = [];
     if ($includeCandles) {
         try {
-            $candles = market_candles($asset, $intervalSeconds, $count, $targetEndMs);
+            $candles = market_candles($assetWithTarget, $intervalSeconds, $count, $targetEndMs);
         } catch (Throwable $e) {
             error_log('Failed to generate candles for ' . $symbol . ': ' . $e->getMessage());
         }
     }
 
+    $assetPayload = market_asset_payload($asset, $nowMs);
+    if (!empty($candles)) {
+        $lastCandle = end($candles);
+        if (isset($lastCandle['close']) && is_numeric($lastCandle['close'])) {
+            $lastClose = (float)$lastCandle['close'];
+            $assetPayload['price'] = $lastClose;
+            if (!$status['isOpen']) {
+                $assetPayload['closed_price'] = $lastClose;
+            }
+        }
+    }
+
     return [
         'serverTime' => $nowMs,
-        'asset' => market_asset_payload($asset, $nowMs),
+        'asset' => $assetPayload,
         'assets' => $assets,
         'candles' => $candles,
         'engine' => 'market-engine-v1',

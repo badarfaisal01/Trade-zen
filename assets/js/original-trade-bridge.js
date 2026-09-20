@@ -343,6 +343,7 @@
     activeSocketSymbol = socketSymbol(activeSymbol);
   }
 
+  var snapshotCache = {};
   var embeddedSnapshot = parseInitialSnapshot();
   if (embeddedSnapshot) {
     marketSnapshot = embeddedSnapshot;
@@ -350,6 +351,7 @@
     if (embAsset.symbol) {
       activeSymbol = plainSymbol(embAsset.symbol);
       activeSocketSymbol = socketSymbol(activeSymbol);
+      snapshotCache[activeSymbol + '_' + activePeriod] = embeddedSnapshot;
     }
     if (number(embAsset.price, 0) > 0) {
       currentLivePrice = number(embAsset.price, 0);
@@ -1054,6 +1056,10 @@
       '&history=' + (sendHistory ? '1' : '0');
 
     return jsonRequest(endpoint).then(function (snapshot) {
+      if (snapshot && snapshot.asset && Array.isArray(snapshot.candles) && snapshot.candles.length) {
+        var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
+        snapshotCache[cacheKey] = snapshot;
+      }
       marketSnapshot = snapshot;
       if (symbolAtStart !== activeSymbol) return snapshot;
       var asset = snapshot.asset || {};
@@ -1143,6 +1149,26 @@
     });
   }
 
+  var prewarmTimer = null;
+  function prewarmSnapshots() {
+    if (prewarmTimer) return;
+    prewarmTimer = window.setTimeout(function () {
+      var topSymbols = ['BTCUSD', 'SOLUSD', 'ETHUSD', 'BNBUSD', 'EURUSD', 'GBPUSD', 'AAPLUSD', 'US30', 'XAUUSD'];
+      topSymbols.forEach(function (sym, idx) {
+        var s = plainSymbol(sym);
+        if (s !== activeSymbol && !snapshotCache[s + '_' + activePeriod]) {
+          window.setTimeout(function () {
+            jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(s) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=' + encodeURIComponent(String(chartHistoryCount)) + '&history=1').then(function (snap) {
+              if (snap && snap.asset && Array.isArray(snap.candles) && snap.candles.length) {
+                snapshotCache[plainSymbol(snap.asset.symbol) + '_' + activePeriod] = snap;
+              }
+            }).catch(function () {});
+          }, idx * 250);
+        }
+      });
+    }, 800);
+  }
+
   function startPolling() {
     if (!clockTimer) {
       clockTimer = window.setInterval(emitClockTick, 250);
@@ -1156,6 +1182,7 @@
     if (!stateTimer) {
       stateTimer = window.setInterval(function () { refreshState(false); }, 1800);
     }
+    prewarmSnapshots();
   }
 
   function nearestDuration(requestedSeconds) {
@@ -1568,6 +1595,14 @@
           currentLivePrice = number(nextAsset.price, 0);
           tickPriceOffset = 0;
           tickMomentum = 0;
+        }
+
+        var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
+        if (cachedSnap) {
+          marketSnapshot = cachedSnap;
+          var cAsset = cachedSnap.asset || {};
+          if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
+          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
