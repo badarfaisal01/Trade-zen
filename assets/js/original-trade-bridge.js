@@ -2511,7 +2511,7 @@
       headerLogo.classList.add('is-local-branded');
       headerLogo.removeAttribute('data-platform-name');
       headerLogo.removeAttribute('data-platform-mark');
-      var logoSrc = customLogoUrl || '/site/img/quotex_logo-white-mobile.svg';
+      var logoSrc = customLogoUrl || '/site/img/quotex_logo-white.svg';
       var logoImage = headerLogo.querySelector('.original-custom-logo');
       if (!logoImage) {
         logoImage = document.createElement('img');
