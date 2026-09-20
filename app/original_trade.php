@@ -241,17 +241,21 @@ function render_original_trade_page(array $user): void
     <link rel="stylesheet" href="/trade-room/react/uikit.3cf3eedf78f32f7d0d9d.css">
     <link rel="stylesheet" href="/trade-room/react/app.1e382d4238188d8c0401.css">
     <link rel="stylesheet" href="/profile/css/custom.css">
-    <link rel="stylesheet" href="/assets/css/original-trade.css?v=<?= $version ?>">
+<?php
+$cssFile = dirname(__DIR__) . '/assets/css/original-trade.css';
+$cssVer = file_exists($cssFile) ? (string)filemtime($cssFile) : (string)time();
+$bridgeFile = dirname(__DIR__) . '/assets/js/original-trade-bridge.js';
+$bridgeVer = file_exists($bridgeFile) ? (string)filemtime($bridgeFile) : (string)time();
+$runtimeFile = dirname(__DIR__) . '/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js';
+$runtimeVer = file_exists($runtimeFile) ? (string)filemtime($runtimeFile) : (string)time();
+?>
+    <link rel="stylesheet" href="/assets/css/original-trade.css?v=<?= $cssVer ?>&t=<?= time() ?>">
 </head>
 <body class="loading original-trade-page">
 <noscript>You need to enable JavaScript to use 55AK Trade.</noscript>
 <div id="root"></div>
-<?php
-$bridgeFile = dirname(__DIR__) . '/assets/js/original-trade-bridge.js';
-$bridgeVer = file_exists($bridgeFile) ? (string)filemtime($bridgeFile) : $version;
-?>
 <script src="/assets/js/original-trade-bridge.js?v=<?= $bridgeVer ?>&t=<?= time() ?>"></script>
-<script src="/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js"></script>
+<script src="/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js?v=<?= $runtimeVer ?>&t=<?= time() ?>"></script>
 <script src="/trade-room/react/uikit.944983ce32773e612c15.js"></script>
 <script src="/trade-room/react/vendor.ae7d8f8a004fd2feac4d.js"></script>
 <script src="/trade-room/react/346.3bcb3c98900d5c44aedc.js"></script>
