@@ -1404,11 +1404,14 @@
 
     return jsonRequest(endpoint).then(function (snapshot) {
       if (snapshot && snapshot.asset && Array.isArray(snapshot.candles) && snapshot.candles.length) {
+        snapshot.interval = periodAtStart;
         var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
-        snapshotCache[cacheKey] = snapshot;
+        if (snapshot.candles.length >= Math.min(600, countToFetch * 0.75)) {
+          snapshotCache[cacheKey] = snapshot;
+        }
       }
       marketSnapshot = snapshot;
-      if (symbolAtStart !== activeSymbol) return snapshot;
+      if (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod) return snapshot;
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
@@ -1427,6 +1430,17 @@
         }
         lastHistoryBroadcastAt = Date.now();
       }
+
+      // If candles count is below 90% of requested 800, schedule 1 retry load to fetch full 800 candles
+      if (apiCandles.length < (countToFetch * 0.9) && !snapshot._hasRetried) {
+        snapshot._hasRetried = true;
+        window.setTimeout(function () {
+          if (activeSymbol === symbolAtStart && activePeriod === periodAtStart) {
+            refreshMarket(true, socket, chartHistoryCount);
+          }
+        }, 250);
+      }
+
       return snapshot;
     }).catch(function (error) {
       showNotice(error.message, true);
@@ -1945,11 +1959,13 @@
         }
 
         var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
-        if (cachedSnap) {
+        if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length >= Math.min(600, chartHistoryCount * 0.75)) {
           marketSnapshot = cachedSnap;
           var cAsset = cachedSnap.asset || {};
           if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+        } else {
+          marketSnapshot = null;
         }
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
@@ -1975,7 +1991,10 @@
       }
 
       var currentSnapSymbol = marketSnapshot && marketSnapshot.asset ? plainSymbol(marketSnapshot.asset.symbol) : '';
-      if (!marketSnapshot || currentSnapSymbol !== activeSymbol) {
+      var currentSnapPeriod = marketSnapshot ? number(marketSnapshot.interval || marketSnapshot.period, 60) : 0;
+      var isSnapValid = marketSnapshot && currentSnapSymbol === activeSymbol && currentSnapPeriod === activePeriod && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length >= Math.min(600, chartHistoryCount * 0.75);
+
+      if (!isSnapValid) {
         refreshMarket(true, socket, chartHistoryCount);
       } else {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
