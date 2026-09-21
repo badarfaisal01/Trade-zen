@@ -475,11 +475,11 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     }
 
     // Map interval seconds to Binance interval string
-    if ($intervalSeconds <= 60) {
+    if ($intervalSeconds <= 120) {
         $binanceInterval = '1m';
     } elseif ($intervalSeconds <= 180) {
         $binanceInterval = '3m';
-    } elseif ($intervalSeconds <= 300) {
+    } elseif ($intervalSeconds <= 600) {
         $binanceInterval = '5m';
     } elseif ($intervalSeconds <= 900) {
         $binanceInterval = '15m';
@@ -487,6 +487,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $binanceInterval = '30m';
     } elseif ($intervalSeconds <= 3600) {
         $binanceInterval = '1h';
+    } elseif ($intervalSeconds <= 14400) {
+        $binanceInterval = '4h';
     } else {
         $binanceInterval = '1d';
     }
@@ -496,11 +498,21 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $cacheKey = "{$apiSymbol}_{$binanceInterval}_{$endBucket}";
     $now = microtime(true);
 
-    $neededCount = min(3000, $count);
+    $baseSec = 60;
+    if ($binanceInterval === '3m') $baseSec = 180;
+    else if ($binanceInterval === '5m') $baseSec = 300;
+    else if ($binanceInterval === '15m') $baseSec = 900;
+    else if ($binanceInterval === '30m') $baseSec = 1800;
+    else if ($binanceInterval === '1h') $baseSec = 3600;
+    else if ($binanceInterval === '4h') $baseSec = 14400;
+    else if ($binanceInterval === '1d') $baseSec = 86400;
+
+    $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
+    $neededCount = min(10000, max(10, $count * $klinesPerCandle));
 
     // 1. In-memory cache (< 15s) - return if cached count satisfies fetchable count
     if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $neededCount) {
-        return array_slice($memoryKlines[$cacheKey], -$count);
+        return array_slice($memoryKlines[$cacheKey], -$neededCount);
     }
 
     $cacheDir = dirname(__DIR__) . '/storage/cache/market';
@@ -521,14 +533,14 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
                 if (($now - $mtime) < 15.0 && count($decoded) >= $neededCount) {
                     $memoryKlines[$cacheKey] = $decoded;
                     $memoryKlineTime[$cacheKey] = $mtime;
-                    return array_slice($decoded, -$count);
+                    return array_slice($decoded, -$neededCount);
                 }
             }
         }
     }
 
-    // Fetch in batches (max 2 batches to avoid blocking PHP)
-    $neededBatches = max(1, min(2, (int)ceil(min(2000, max(800, $count)) / 1000)));
+    // Fetch in batches (max 5 batches to cover up to 5000 klines)
+    $neededBatches = max(1, min(5, (int)ceil($neededCount / 1000)));
     $allKlines = [];
     $endTime = $endTimeMs !== null ? $endTimeMs : null;
 

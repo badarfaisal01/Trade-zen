@@ -161,202 +161,146 @@ function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = 
 
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null): array
 {
-    $intervalSeconds = max(1, min(300, $intervalSeconds));
+    $intervalSeconds = max(1, min(86400, $intervalSeconds));
     $count = max(10, min(3000, $count));
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
     $apiSymbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+    $intervalMs = max(1000, $intervalSeconds * 1000);
+    $minStep = pow(10, -$decimals);
+    $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
+    $seed = (int)($asset['market_seed'] ?? 100);
 
     // Fetch real Binance klines if asset is configured for Binance / API
     if (($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
         try {
-            $intervalMs = max(1000, $intervalSeconds * 1000);
-            $subCount = max(1, (int)floor(60000 / $intervalMs));
             // Request enough klines from Binance to cover the requested candle count (up to 10000 max).
             $neededBinanceKlines = max(10, min(10000, $count));
             $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
 
             if (!empty($binanceKlines)) {
-                $candles = [];
-                $minStep = pow(10, -$decimals);
-                $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
-                $seed = (int)($asset['market_seed'] ?? 100);
-
-                // Pre-process raw klines to add natural trend motion across flat/stale price stretches
-                $processedKlines = [];
-                $prevKlineClose = null;
+                $candlesMap = [];
 
                 foreach ($binanceKlines as $k) {
                     $openTime = (int)$k['openTime'];
-                    $closeTime = (int)$k['closeTime'];
                     $open = (float)$k['open'];
                     $high = (float)$k['high'];
                     $low = (float)$k['low'];
                     $close = (float)$k['close'];
 
-                    $isFlat = ($high <= $low || ($high === $low && $high === $open) || abs($close - $open) < $minStep);
-                    if ($isFlat) {
-                        $sec = $openTime / 1000.0;
-                        $kWave = sin(($sec + $seed) / 240.0) * 0.55 + sin(($sec + $seed * 3) / 75.0) * 0.35 + sin(($sec + $seed * 7) / 25.0) * 0.10;
-                        $kSpread = max($minStep * 4.0, $open * $volatility * 0.35);
-                        $kDelta = $kSpread * $kWave;
+                    $bucketMs = (int)(floor($openTime / $intervalMs) * $intervalMs);
 
-                        $open = $prevKlineClose !== null ? $prevKlineClose : $open;
-                        $close = max($minStep * 10.0, $open + $kDelta);
-                        $bodyDelta = abs($close - $open);
-                        $wickDelta = max($minStep, min($bodyDelta * 0.18, $open * $volatility * 0.03));
-
-                        $high = max($open, $close) + $wickDelta;
-                        $low = max($minStep, min($open, $close) - $wickDelta);
+                    if (!isset($candlesMap[$bucketMs])) {
+                        $candlesMap[$bucketMs] = [
+                            'time' => $bucketMs,
+                            'open' => $open,
+                            'high' => $high,
+                            'low' => $low,
+                            'close' => $close,
+                        ];
+                    } else {
+                        $candlesMap[$bucketMs]['high'] = max($candlesMap[$bucketMs]['high'], $high);
+                        $candlesMap[$bucketMs]['low'] = min($candlesMap[$bucketMs]['low'], $low);
+                        $candlesMap[$bucketMs]['close'] = $close;
                     }
-
-                    $prevKlineClose = $close;
-                    $processedKlines[] = [
-                        'openTime' => $openTime,
-                        'closeTime' => $closeTime,
-                        'open' => $open,
-                        'high' => $high,
-                        'low' => $low,
-                        'close' => $close,
-                    ];
                 }
 
-                foreach ($processedKlines as $k) {
-                    $openTime = (int)$k['openTime'];
-                    $closeTime = (int)$k['closeTime'];
-                    $open = (float)$k['open'];
-                    $high = (float)$k['high'];
-                    $low = (float)$k['low'];
-                    $close = (float)$k['close'];
+                ksort($candlesMap);
+                $grouped = array_values($candlesMap);
 
-                    $klineDurationMs = max(1000, $closeTime - $openTime);
-                    $subUnits = max(1, (int)round($klineDurationMs / $intervalMs));
+                $candles = [];
+                if (!empty($grouped)) {
+                    $prevClose = (float)$grouped[0]['open'];
+                    $firstBucket = (int)$grouped[0]['time'];
+                    $lastGroupedBucket = (int)$grouped[count($grouped) - 1]['time'];
 
-                    for ($subIdx = 0; $subIdx < $subUnits; $subIdx++) {
-                        $subOpenTime = $openTime + ($subIdx * $intervalMs);
-                        $subCloseTime = min($closeTime, $subOpenTime + $intervalMs - 1);
-                        $f1 = $subIdx / $subUnits;
-                        $f2 = ($subIdx + 1) / $subUnits;
-
-                        $sOpen = ($subIdx === 0 && !empty($candles)) ? $candles[count($candles) - 1]['close'] : $open + ($close - $open) * $f1;
-                        $sClose = $open + ($close - $open) * $f2;
-
-                        if (abs($sClose - $sOpen) < $minStep) {
-                            $dir = market_noise($seed + 33, (int)($subOpenTime / 1000));
-                            $sClose = $dir >= 0 ? $sOpen + ($minStep * 2) : max($minStep, $sOpen - ($minStep * 2));
+                    $gIndex = 0;
+                    for ($t = $firstBucket; $t <= $lastGroupedBucket; $t += $intervalMs) {
+                        if ($gIndex < count($grouped) && (int)$grouped[$gIndex]['time'] === $t) {
+                            $cOpen = (float)$grouped[$gIndex]['open'];
+                            $cHigh = (float)$grouped[$gIndex]['high'];
+                            $cLow = (float)$grouped[$gIndex]['low'];
+                            $cClose = (float)$grouped[$gIndex]['close'];
+                            $gIndex++;
+                        } else {
+                            $cOpen = $prevClose;
+                            $cHigh = $prevClose;
+                            $cLow = $prevClose;
+                            $cClose = $prevClose;
                         }
 
-                        $bodySize = abs($sClose - $sOpen);
-                        $n1 = abs(market_noise($seed + 77, (int)($subOpenTime / 1000)));
-                        $n2 = abs(market_noise($seed + 88, (int)($subOpenTime / 1000)));
-                        $minWick1 = $minStep * (1 + (int)floor($n1 * 3.0));
-                        $minWick2 = $minStep * (1 + (int)floor($n2 * 3.0));
-                        $wickUpper = max($minWick1, min($bodySize * 0.65, $open * $volatility * 0.10 * (0.3 + 0.7 * $n1)));
-                        $wickLower = max($minWick2, min($bodySize * 0.65, $open * $volatility * 0.10 * (0.3 + 0.7 * $n2)));
-
-                        $sOpenR = round($sOpen, $decimals);
-                        $sCloseR = round($sClose, $decimals);
-                        $sHighR = round(max($sOpen, $sClose) + $wickUpper, $decimals);
-                        $sLowR  = round(max($minStep, min($sOpen, $sClose) - $wickLower), $decimals);
-
-                        if ($sHighR <= max($sOpenR, $sCloseR)) {
-                            $sHighR = round(max($sOpenR, $sCloseR) + $minStep * 2, $decimals);
-                        }
-                        if ($sLowR >= min($sOpenR, $sCloseR)) {
-                            $sLowR = round(max($minStep, min($sOpenR, $sCloseR) - $minStep * 2), $decimals);
+                        if ($cHigh <= $cLow) {
+                            $cHigh = round($cHigh + $minStep, $decimals);
+                            $cLow = round(max($minStep, $cLow - $minStep), $decimals);
                         }
 
-                        $subDurationMs = max(100, $subCloseTime - $subOpenTime);
-                        $p1 = $sCloseR >= $sOpenR ? $sLowR : $sHighR;
-                        $p2 = $sCloseR >= $sOpenR ? $sHighR : $sLowR;
-                        $p1 = max($sLowR, min($sHighR, $p1));
-                        $p2 = max($sLowR, min($sHighR, $p2));
+                        $cOpenR = round($cOpen, $decimals);
+                        $cHighR = round(max($cHigh, $cOpen, $cClose), $decimals);
+                        $cLowR = round(min($cLow, $cOpen, $cClose), $decimals);
+                        $cCloseR = round($cClose, $decimals);
+
+                        $cEnd = min($t + $intervalMs - 1, $endMs);
+                        $isComplete = ($t + $intervalMs) <= $endMs;
+
+                        $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
+                        $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
 
                         $ticks = [
-                            [$subOpenTime, $sOpenR],
-                            [$subOpenTime + (int)round($subDurationMs * 0.33), $p1],
-                            [$subOpenTime + (int)round($subDurationMs * 0.67), $p2],
-                            [$subCloseTime, $sCloseR],
+                            [$t, $cOpenR],
+                            [$t + (int)round($intervalMs * 0.33), $p1],
+                            [$t + (int)round($intervalMs * 0.67), $p2],
+                            [$cEnd, $cCloseR],
                         ];
 
                         $candles[] = [
-                            'time' => $subOpenTime,
-                            'open' => $sOpenR,
-                            'high' => $sHighR,
-                            'low' => $sLowR,
-                            'close' => $sCloseR,
-                            'lastTickTime' => min($subCloseTime, $endMs),
-                            'complete' => $subCloseTime <= $endMs,
+                            'time' => $t,
+                            'open' => $cOpenR,
+                            'high' => $cHighR,
+                            'low' => $cLowR,
+                            'close' => $cCloseR,
+                            'lastTickTime' => $cEnd,
+                            'complete' => $isComplete,
                             'ticks' => $ticks,
                         ];
-                    }
-                }
 
-                // Ensure candles reach up to $endMs (current live time)
-                if (!empty($candles)) {
+                        $prevClose = $cCloseR;
+                    }
+
+                    // Update live price for current forming candle if close to current time
                     $lastIdx = count($candles) - 1;
                     $lastCandleTime = (int)$candles[$lastIdx]['time'];
-                    $prevClose = (float)$candles[$lastIdx]['close'];
-
-                    // If historical candles have a huge time gap from current time, shift them forward
-                    if (($endMs - $lastCandleTime) > ($count * $intervalMs * 2)) {
-                        $shiftMs = $endMs - $lastCandleTime - $intervalMs;
-                        foreach ($candles as &$c) {
-                            $c['time'] += $shiftMs;
-                            $c['lastTickTime'] += $shiftMs;
-                            if (!empty($c['ticks']) && is_array($c['ticks'])) {
-                                foreach ($c['ticks'] as &$tk) {
-                                    $tk[0] += $shiftMs;
-                                }
-                                unset($tk);
-                            }
-                        }
-                        unset($c);
-                        $lastCandleTime = (int)$candles[$lastIdx]['time'];
-                    }
-
                     if (($lastCandleTime + $intervalMs) <= $endMs) {
                         $currTime = $lastCandleTime + $intervalMs;
-                        $fillCount = 0;
-                        $maxFill = min(500, $count);
-                        while ($currTime <= $endMs && $fillCount < $maxFill) {
-                            $fillCount++;
-                            $cEnd = min($currTime + $intervalMs - 1, $endMs);
-                            $isCurrent = ($currTime + $intervalMs) > $endMs;
-                            $cClose = $isCurrent ? market_price_at($asset, $endMs) : $prevClose;
-                            $cOpen = $prevClose;
-                            $cHigh = max($cOpen, $cClose);
-                            $cLow = min($cOpen, $cClose);
-                            if ($cHigh <= $cLow) {
-                                $cHigh = round($cHigh + $minStep, $decimals);
-                                $cLow = round(max($minStep, $cLow - $minStep), $decimals);
-                            }
-                            $subDur = max(100, $cEnd - $currTime);
-                            $p1 = $cClose >= $cOpen ? $cLow : $cHigh;
-                            $p2 = $cClose >= $cOpen ? $cHigh : $cLow;
-                            $ticks = [
-                                [$currTime, $cOpen],
-                                [$currTime + (int)round($subDur * 0.33), $p1],
-                                [$currTime + (int)round($subDur * 0.67), $p2],
-                                [$cEnd, $cClose],
-                            ];
-                            $candles[] = [
-                                'time' => $currTime,
-                                'open' => $cOpen,
-                                'high' => $cHigh,
-                                'low' => $cLow,
-                                'close' => $cClose,
-                                'lastTickTime' => $cEnd,
-                                'complete' => !$isCurrent,
-                                'ticks' => $ticks,
-                            ];
-                            $prevClose = $cClose;
-                            $currTime += $intervalMs;
+                        $cEnd = min($currTime + $intervalMs - 1, $endMs);
+                        $livePrice = market_price_at($asset, $endMs);
+                        $cOpen = $prevClose;
+                        $cHigh = max($cOpen, $livePrice);
+                        $cLow = min($cOpen, $livePrice);
+                        if ($cHigh <= $cLow) {
+                            $cHigh = round($cHigh + $minStep, $decimals);
+                            $cLow = round(max($minStep, $cLow - $minStep), $decimals);
                         }
+                        $subDur = max(100, $cEnd - $currTime);
+                        $p1 = $livePrice >= $cOpen ? $cLow : $cHigh;
+                        $p2 = $livePrice >= $cOpen ? $cHigh : $cLow;
+                        $ticks = [
+                            [$currTime, $cOpen],
+                            [$currTime + (int)round($subDur * 0.33), $p1],
+                            [$currTime + (int)round($subDur * 0.67), $p2],
+                            [$endMs, $livePrice],
+                        ];
+                        $candles[] = [
+                            'time' => $currTime,
+                            'open' => $cOpen,
+                            'high' => $cHigh,
+                            'low' => $cLow,
+                            'close' => $livePrice,
+                            'lastTickTime' => $endMs,
+                            'complete' => false,
+                            'ticks' => $ticks,
+                        ];
                     } else {
-                        // Current forming candle: ensure last tick reaches $endMs
-                        $lastIdx = count($candles) - 1;
                         $candles[$lastIdx]['lastTickTime'] = $endMs;
                         $candles[$lastIdx]['complete'] = false;
                         $livePrice = (float)$candles[$lastIdx]['close'];
@@ -366,7 +310,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     }
                 }
 
-                // If count requested exceeds returned sub-candles, prepend synthetic sub-candles
                 if (count($candles) > $count) {
                     $candles = array_slice($candles, -$count);
                 }

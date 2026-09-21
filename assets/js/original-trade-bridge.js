@@ -1007,7 +1007,7 @@
   }
 
   function extractPeriod(payload, fallback) {
-    if (!payload) return Math.max(1, Math.min(300, number(fallback, 60)));
+    if (!payload) return Math.max(1, Math.min(86400, number(fallback, 60)));
     var settings = payload.settings || {};
     // PRIORITY: Look specifically for candle timeframe properties.
     // NEVER fallback to timePeriod (which is trade expiration duration, e.g. 5, 10, 30, 60)!
@@ -1016,7 +1016,7 @@
     if (!val && typeof payload === 'number' && payload > 0) {
       val = payload;
     }
-    return Math.max(1, Math.min(300, number(val, fallback)));
+    return Math.max(1, Math.min(86400, number(val, fallback)));
   }
 
   function extractSymbol(payload, fallback) {
@@ -1059,7 +1059,7 @@
     var dec = number(selected.decimals, 5);
     var step = Math.pow(10, -dec);
     var candles = [];
-    var interval = Math.max(1, Math.min(300, number(activePeriod, 60)));
+    var interval = Math.max(1, Math.min(86400, number(activePeriod, 60)));
     var intervalMs = interval * 1000;
     var currBucket = Math.floor(nowMs / intervalMs) * intervalMs;
     var startBucket = currBucket - (chartHistoryCount * intervalMs);
@@ -1290,7 +1290,7 @@
     var history = [];
     var count = 0;
     var candles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
-    var safePeriod = Math.max(1, Math.min(300, number(period, 60)));
+    var safePeriod = Math.max(1, Math.min(86400, number(period, 60)));
     var nowSec = (Date.now() + serverTimeOffset) / 1000;
     var currentAssetObj = snapshot && snapshot.asset ? snapshot.asset : findAsset(requestedSymbol);
     var isClosed = !isAssetActive(currentAssetObj);
@@ -1395,7 +1395,7 @@
     }
     marketRequestRunning = true;
     var symbolAtStart = activeSymbol;
-    var periodAtStart = Math.max(1, Math.min(300, number(activePeriod, 60)));
+    var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
     var countToFetch = Math.max(60, Math.min(10000, number(customCount, chartHistoryCount)));
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
