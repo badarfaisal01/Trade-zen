@@ -680,6 +680,50 @@
     activeSocketSymbol = socketSymbol(activeSymbol);
   }
 
+  function formatPeriodName(periodSec) {
+    var p = Number(periodSec);
+    if (p >= 86400) return Math.floor(p / 86400) + 'D';
+    if (p >= 3600) return Math.floor(p / 3600) + 'H';
+    if (p >= 60) return Math.floor(p / 60) + 'M';
+    return p + 'S';
+  }
+
+  function showChartLoader(periodText) {
+    try {
+      var container = document.querySelector('.chart-container') ||
+                        document.querySelector('#graph') ||
+                        document.querySelector('.section-main') ||
+                        document.querySelector('#root') ||
+                        document.body;
+      var loader = document.getElementById('trade-chart-loading-overlay');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'trade-chart-loading-overlay';
+        loader.className = 'trade-chart-loading-overlay';
+        loader.innerHTML = '<div class="trade-chart-spinner"></div>' +
+                           '<div id="trade-chart-loading-text" class="trade-chart-loading-text">Loading Chart Data...</div>';
+        if (getComputedStyle(container).position === 'static') {
+          container.style.position = 'relative';
+        }
+        container.appendChild(loader);
+      }
+      var textEl = document.getElementById('trade-chart-loading-text');
+      if (textEl && periodText) {
+        textEl.innerText = 'Loading ' + periodText + ' Chart Data...';
+      }
+      loader.classList.add('active');
+    } catch (e) {}
+  }
+
+  function hideChartLoader() {
+    try {
+      var loader = document.getElementById('trade-chart-loading-overlay');
+      if (loader) {
+        loader.classList.remove('active');
+      }
+    } catch (e) {}
+  }
+
   var snapshotCache = {};
   var embeddedSnapshot = parseInitialSnapshot();
   if (embeddedSnapshot) {
@@ -1402,6 +1446,13 @@
       '&count=' + encodeURIComponent(String(countToFetch)) +
       '&history=' + (sendHistory ? '1' : '0');
 
+    if (sendHistory) {
+      var cacheKeyCheck = plainSymbol(symbolAtStart) + '_' + periodAtStart;
+      if (!snapshotCache[cacheKeyCheck] || !marketSnapshot || number(marketSnapshot.interval || marketSnapshot.period, 0) !== periodAtStart) {
+        showChartLoader(formatPeriodName(periodAtStart));
+      }
+    }
+
     return jsonRequest(endpoint).then(function (snapshot) {
       if (snapshot && snapshot.asset && Array.isArray(snapshot.candles) && snapshot.candles.length) {
         snapshot.interval = periodAtStart;
@@ -1411,7 +1462,10 @@
         }
       }
       marketSnapshot = snapshot;
-      if (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod) return snapshot;
+      if (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod) {
+        hideChartLoader();
+        return snapshot;
+      }
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
@@ -1429,6 +1483,9 @@
           broadcastBinary('history/list/v2', hPayload);
         }
         lastHistoryBroadcastAt = Date.now();
+        hideChartLoader();
+      } else {
+        hideChartLoader();
       }
 
       // If candles count is below 90% of requested 800, schedule 1 retry load to fetch full 800 candles
@@ -1443,12 +1500,14 @@
 
       return snapshot;
     }).catch(function (error) {
+      hideChartLoader();
       showNotice(error.message, true);
       return marketSnapshot;
     }).then(function (snapshot) {
       marketRequestRunning = false;
       return snapshot;
     }, function (error) {
+      hideChartLoader();
       marketRequestRunning = false;
       throw error;
     });
@@ -1964,8 +2023,10 @@
           var cAsset = cachedSnap.asset || {};
           if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+          hideChartLoader();
         } else {
           marketSnapshot = null;
+          showChartLoader(formatPeriodName(activePeriod));
         }
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
@@ -1995,8 +2056,10 @@
       var isSnapValid = marketSnapshot && currentSnapSymbol === activeSymbol && currentSnapPeriod === activePeriod && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length >= Math.min(600, chartHistoryCount * 0.75);
 
       if (!isSnapValid) {
+        showChartLoader(formatPeriodName(activePeriod));
         refreshMarket(true, socket, chartHistoryCount);
       } else {
+        hideChartLoader();
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
