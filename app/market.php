@@ -206,174 +206,72 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     }
                 }
 
-                ksort($candlesMap);
-                $grouped = array_values($candlesMap);
+                $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
+                $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
+
+                // Determine initial previous close from lowest available bucket or market price
+                $prevClose = null;
+                if (!empty($candlesMap)) {
+                    $minBucket = min(array_keys($candlesMap));
+                    $prevClose = (float)$candlesMap[$minBucket]['open'];
+                }
+                if ($prevClose === null || $prevClose <= 0) {
+                    $prevClose = market_price_at($asset, $targetStartBucket, true);
+                }
 
                 $candles = [];
-                if (!empty($grouped)) {
-                    $prevClose = (float)$grouped[0]['open'];
-                    $firstBucket = (int)$grouped[0]['time'];
-                    $lastGroupedBucket = (int)$grouped[count($grouped) - 1]['time'];
-
-                    $gIndex = 0;
-                    for ($t = $firstBucket; $t <= $lastGroupedBucket; $t += $intervalMs) {
-                        if ($gIndex < count($grouped) && (int)$grouped[$gIndex]['time'] === $t) {
-                            $cOpen = (float)$grouped[$gIndex]['open'];
-                            $cHigh = (float)$grouped[$gIndex]['high'];
-                            $cLow = (float)$grouped[$gIndex]['low'];
-                            $cClose = (float)$grouped[$gIndex]['close'];
-                            $gIndex++;
-                        } else {
-                            $cOpen = $prevClose;
-                            $cHigh = $prevClose;
-                            $cLow = $prevClose;
-                            $cClose = $prevClose;
-                        }
-
-                        if ($cHigh <= $cLow) {
-                            $cHigh = round($cHigh + $minStep, $decimals);
-                            $cLow = round(max($minStep, $cLow - $minStep), $decimals);
-                        }
-
-                        $cOpenR = round($cOpen, $decimals);
-                        $cHighR = round(max($cHigh, $cOpen, $cClose), $decimals);
-                        $cLowR = round(min($cLow, $cOpen, $cClose), $decimals);
-                        $cCloseR = round($cClose, $decimals);
-
-                        $cEnd = min($t + $intervalMs - 1, $endMs);
-                        $isComplete = ($t + $intervalMs) <= $endMs;
-
-                        $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
-                        $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
-
-                        $ticks = [
-                            [$t, $cOpenR],
-                            [$t + (int)round($intervalMs * 0.33), $p1],
-                            [$t + (int)round($intervalMs * 0.67), $p2],
-                            [$cEnd, $cCloseR],
-                        ];
-
-                        $candles[] = [
-                            'time' => $t,
-                            'open' => $cOpenR,
-                            'high' => $cHighR,
-                            'low' => $cLowR,
-                            'close' => $cCloseR,
-                            'lastTickTime' => $cEnd,
-                            'complete' => $isComplete,
-                            'ticks' => $ticks,
-                        ];
-
-                        $prevClose = $cCloseR;
-                    }
-
-                    // Update live price for current forming candle if close to current time
-                    $lastIdx = count($candles) - 1;
-                    $lastCandleTime = (int)$candles[$lastIdx]['time'];
-                    if (($lastCandleTime + $intervalMs) <= $endMs) {
-                        $currTime = $lastCandleTime + $intervalMs;
-                        $cEnd = min($currTime + $intervalMs - 1, $endMs);
-                        $livePrice = market_price_at($asset, $endMs);
-                        $cOpen = $prevClose;
-                        $cHigh = max($cOpen, $livePrice);
-                        $cLow = min($cOpen, $livePrice);
-                        if ($cHigh <= $cLow) {
-                            $cHigh = round($cHigh + $minStep, $decimals);
-                            $cLow = round(max($minStep, $cLow - $minStep), $decimals);
-                        }
-                        $subDur = max(100, $cEnd - $currTime);
-                        $p1 = $livePrice >= $cOpen ? $cLow : $cHigh;
-                        $p2 = $livePrice >= $cOpen ? $cHigh : $cLow;
-                        $ticks = [
-                            [$currTime, $cOpen],
-                            [$currTime + (int)round($subDur * 0.33), $p1],
-                            [$currTime + (int)round($subDur * 0.67), $p2],
-                            [$endMs, $livePrice],
-                        ];
-                        $candles[] = [
-                            'time' => $currTime,
-                            'open' => $cOpen,
-                            'high' => $cHigh,
-                            'low' => $cLow,
-                            'close' => $livePrice,
-                            'lastTickTime' => $endMs,
-                            'complete' => false,
-                            'ticks' => $ticks,
-                        ];
+                for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs) {
+                    if (isset($candlesMap[$t])) {
+                        $cOpen = (float)$candlesMap[$t]['open'];
+                        $cHigh = (float)$candlesMap[$t]['high'];
+                        $cLow = (float)$candlesMap[$t]['low'];
+                        $cClose = (float)$candlesMap[$t]['close'];
                     } else {
-                        $candles[$lastIdx]['lastTickTime'] = $endMs;
-                        $candles[$lastIdx]['complete'] = false;
-                        $livePrice = (float)$candles[$lastIdx]['close'];
-                        if (!empty($candles[$lastIdx]['ticks'])) {
-                            $candles[$lastIdx]['ticks'][] = [$endMs, $livePrice];
-                        }
-                    }
-                }
-
-                if (count($candles) > $count) {
-                    $candles = array_slice($candles, -$count);
-                }
-
-                $extraCount = max(0, min(10000, $count - count($candles)));
-                if ($extraCount > 0 && !empty($candles)) {
-                    $firstTime = (int)$candles[0]['time'];
-                    $firstOpen = (float)$candles[0]['open'];
-                    $historicalCandles = [];
-                    $anchorPrice = $firstOpen;
-
-                    for ($i = 1; $i <= $extraCount; $i++) {
-                        $tMs = $firstTime - ($i * $intervalMs);
-                        $candleEnd = $tMs + $intervalMs - 1;
-
-                        $noiseVal = market_noise($seed, (int)($tMs / 1000));
-                        $changeRatio = $noiseVal * $volatility * 0.25;
-
-                        $hClose = $anchorPrice;
-                        $hOpen = max($minStep * 10.0, $hClose / (1.0 + $changeRatio));
-                        $spreadVal = max($minStep * 3.0, max($hOpen, $hClose) * $volatility * 0.15);
-
-                        $hHigh = max($hOpen, $hClose) + abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 1, (int)($tMs / 1000))));
-                        $hLow = max($minStep, min($hOpen, $hClose) - abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 2, (int)($tMs / 1000)))));
-
-                        $hOpenR = round($hOpen, $decimals);
-                        $hHighR = round(max($hHigh, $hOpen, $hClose), $decimals);
-                        $hLowR = round(min($hLow, $hOpen, $hClose), $decimals);
-                        $hCloseR = round($hClose, $decimals);
-
-                        if ($hHighR <= $hLowR) {
-                            $spreadVal = max($minStep * 3.0, $hOpenR * $volatility * 0.2);
-                            $hHighR = round(max($hOpenR, $hCloseR) + abs($spreadVal * (0.6 + 0.4 * $noiseVal)) + $minStep, $decimals);
-                            $hLowR = round(max($minStep, min($hOpenR, $hCloseR) - abs($spreadVal * (0.6 + 0.4 * (1.0 - $noiseVal))) - $minStep), $decimals);
-                            if ($hOpenR === $hCloseR) {
-                                $hCloseR = $noiseVal >= 0 ? round($hOpenR + $minStep, $decimals) : round(max($minStep, $hOpenR - $minStep), $decimals);
-                            }
-                        }
-
-                        $p1 = $hCloseR >= $hOpenR ? $hLowR : $hHighR;
-                        $p2 = $hCloseR >= $hOpenR ? $hHighR : $hLowR;
-                        $p1 = max($hLowR, min($hHighR, $p1));
-                        $p2 = max($hLowR, min($hHighR, $p2));
-
-                        $historicalCandles[] = [
-                            'time' => $tMs,
-                            'open' => $hOpenR,
-                            'high' => $hHighR,
-                            'low' => $hLowR,
-                            'close' => $hCloseR,
-                            'lastTickTime' => $candleEnd,
-                            'complete' => true,
-                            'ticks' => [
-                                [$tMs, $hOpenR],
-                                [$tMs + (int)round($intervalMs * 0.33), $p1],
-                                [$tMs + (int)round($intervalMs * 0.67), $p2],
-                                [$candleEnd, $hCloseR],
-                            ],
-                        ];
-
-                        $anchorPrice = $hOpen;
+                        // Bucket missing (low volume gap or extended history): generate realistic micro-trend
+                        $noiseVal = market_noise($seed, (int)($t / 1000));
+                        $changeRatio = $noiseVal * $volatility * 0.15;
+                        $cOpen = $prevClose;
+                        $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $changeRatio)), $decimals);
+                        $spreadVal = max($minStep * 3.0, max($cOpen, $cClose) * $volatility * 0.10);
+                        $cHigh = round(max($cOpen, $cClose) + abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 1, (int)($t / 1000)))), $decimals);
+                        $cLow = round(max($minStep, min($cOpen, $cClose) - abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 2, (int)($t / 1000))))), $decimals);
                     }
 
-                    $candles = array_merge(array_reverse($historicalCandles), $candles);
+                    if ($cHigh <= $cLow) {
+                        $cHigh = round(max($cOpen, $cClose) + $minStep * 2, $decimals);
+                        $cLow = round(max($minStep, min($cOpen, $cClose) - $minStep * 2), $decimals);
+                    }
+
+                    $cOpenR = round($cOpen, $decimals);
+                    $cHighR = round(max($cHigh, $cOpen, $cClose), $decimals);
+                    $cLowR = round(min($cLow, $cOpen, $cClose), $decimals);
+                    $cCloseR = round($cClose, $decimals);
+
+                    $cEnd = min($t + $intervalMs - 1, $endMs);
+                    $isComplete = ($t + $intervalMs) <= $endMs;
+
+                    $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
+                    $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
+
+                    $ticks = [
+                        [$t, $cOpenR],
+                        [$t + (int)round($intervalMs * 0.33), $p1],
+                        [$t + (int)round($intervalMs * 0.67), $p2],
+                        [$cEnd, $cCloseR],
+                    ];
+
+                    $candles[] = [
+                        'time' => $t,
+                        'open' => $cOpenR,
+                        'high' => $cHighR,
+                        'low' => $cLowR,
+                        'close' => $cCloseR,
+                        'lastTickTime' => $cEnd,
+                        'complete' => $isComplete,
+                        'ticks' => $ticks,
+                    ];
+
+                    $prevClose = $cCloseR;
                 }
 
                 return $candles;

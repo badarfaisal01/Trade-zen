@@ -365,7 +365,7 @@ function fetch_binance_price(string $symbol): float
         return 5885.00;
     }
 
-    if (!function_exists('curl_init')) {
+    if (!empty($allPrices) || !function_exists('curl_init')) {
         return 0.0;
     }
 
