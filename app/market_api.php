@@ -51,6 +51,7 @@ function normalize_twelvedata_symbol(string $symbol): string
 
 function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
 {
+    static $memoryCache = [];
     $apiKey = $apiKey ?? (string)env('TWELVEDATA_API_KEY', '');
     if (empty($apiKey)) {
         throw new RuntimeException('Twelve Data API key not configured. Add TWELVEDATA_API_KEY to .env');
@@ -61,6 +62,19 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     }
 
     $normalizedSymbol = normalize_twelvedata_symbol($symbol);
+    $cacheKey = strtoupper($normalizedSymbol);
+    $now = microtime(true);
+    if (isset($memoryCache[$cacheKey]) && ($now - $memoryCache[$cacheKey]['time']) < 5) {
+        return $memoryCache[$cacheKey]['price'];
+    }
+    $cacheFile = dirname(__DIR__) . '/storage/cache/market/twelvedata_quotes.json';
+    if (is_file($cacheFile)) {
+        $diskCache = json_decode((string)@file_get_contents($cacheFile), true);
+        if (is_array($diskCache) && isset($diskCache[$cacheKey]['price'], $diskCache[$cacheKey]['time']) && ($now - (float)$diskCache[$cacheKey]['time']) < 5) {
+            $memoryCache[$cacheKey] = $diskCache[$cacheKey];
+            return (float)$diskCache[$cacheKey]['price'];
+        }
+    }
 
     // Twelve Data API endpoint
     $url = "https://api.twelvedata.com/quote?symbol=" . urlencode($normalizedSymbol) . "&apikey=" . urlencode($apiKey);
@@ -68,7 +82,8 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     $ch = curl_init();
     curl_setopt($ch, CURLOPT_URL, $url);
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 10);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 5);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
 
@@ -99,7 +114,163 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
         throw new RuntimeException('Twelve Data API: No price data for symbol ' . $symbol);
     }
 
+    $price = (float)$price;
+    $memoryCache[$cacheKey] = ['price' => $price, 'time' => $now];
+    $diskCache = isset($diskCache) && is_array($diskCache) ? $diskCache : [];
+    $diskCache[$cacheKey] = $memoryCache[$cacheKey];
+    if (!is_dir(dirname($cacheFile))) @mkdir(dirname($cacheFile), 0750, true);
+    @file_put_contents($cacheFile, json_encode($diskCache), LOCK_EX);
+    return $price;
+}
+
+function twelvedata_interval(int $intervalSeconds): string
+{
+    if ($intervalSeconds <= 60) return '1min';
+    if ($intervalSeconds <= 300) return '5min';
+    if ($intervalSeconds <= 900) return '15min';
+    if ($intervalSeconds <= 1800) return '30min';
+    if ($intervalSeconds <= 3600) return '1h';
+    if ($intervalSeconds <= 14400) return '4h';
+    if ($intervalSeconds <= 86400) return '1day';
+    return '1week';
+}
+
+function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int $count = 5000, ?int $endTimeMs = null, ?string $apiKey = null): array
+{
+    $apiKey = $apiKey ?? (string)env('TWELVEDATA_API_KEY', '');
+    if ($apiKey === '') throw new RuntimeException('Twelve Data API key not configured. Add TWELVEDATA_API_KEY to .env');
+    if (!function_exists('curl_init')) throw new RuntimeException('PHP cURL is required for market API feeds.');
+
+    $count = max(10, min(5000, $count));
+    $params = [
+        'symbol' => normalize_twelvedata_symbol($symbol),
+        'interval' => twelvedata_interval($intervalSeconds),
+        'outputsize' => $count,
+        'order' => 'ASC',
+        'apikey' => $apiKey,
+    ];
+    if ($endTimeMs !== null && $endTimeMs > 0) {
+        $params['end_date'] = gmdate('Y-m-d H:i:s', (int)floor($endTimeMs / 1000));
+    }
+
+    $ch = curl_init('https://api.twelvedata.com/time_series?' . http_build_query($params));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+
+    if ($curlError) throw new RuntimeException('Twelve Data API error: ' . $curlError);
+    if ($httpCode !== 200) throw new RuntimeException('Twelve Data API returned HTTP ' . $httpCode);
+    $data = json_decode((string)$response, true);
+    if (!is_array($data) || isset($data['status']) && $data['status'] === 'error') {
+        throw new RuntimeException('Twelve Data API error: ' . ($data['message'] ?? 'Invalid time series response'));
+    }
+
+    $candles = [];
+    foreach ($data['values'] ?? [] as $value) {
+        if (!isset($value['datetime'], $value['open'], $value['high'], $value['low'], $value['close'])) continue;
+        $timestamp = strtotime((string)$value['datetime'] . ' UTC');
+        if ($timestamp === false) continue;
+        $candles[] = [
+            'openTime' => $timestamp * 1000,
+            'open' => (float)$value['open'],
+            'high' => (float)$value['high'],
+            'low' => (float)$value['low'],
+            'close' => (float)$value['close'],
+            'closeTime' => ($timestamp + max(1, $intervalSeconds)) * 1000 - 1,
+        ];
+    }
+    if (!$candles) throw new RuntimeException('Twelve Data returned no usable candle data for ' . $symbol);
+    return $candles;
+}
+
+function finnhub_forex_symbol(string $symbol): string
+{
+    $normalized = normalize_market_api_symbol($symbol);
+    if (strlen($normalized) !== 6) throw new InvalidArgumentException('Unsupported forex symbol: ' . $symbol);
+    return 'OANDA:' . substr($normalized, 0, 3) . '_' . substr($normalized, 3);
+}
+
+function finnhub_request(string $path, array $params, ?string $apiKey = null): array
+{
+    $apiKey = $apiKey ?? trim((string)env('FINNHUB_API_KEY', ''));
+    if ($apiKey === '') throw new RuntimeException('Finnhub API key not configured. Add FINNHUB_API_KEY to .env');
+    if (!function_exists('curl_init')) throw new RuntimeException('PHP cURL is required for market API feeds.');
+    $params['token'] = $apiKey;
+    $ch = curl_init('https://finnhub.io/api/v1/' . ltrim($path, '/') . '?' . http_build_query($params));
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
+    $response = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    $curlError = curl_error($ch);
+    curl_close($ch);
+    if ($curlError) throw new RuntimeException('Finnhub API error: ' . $curlError);
+    if ($httpCode !== 200) throw new RuntimeException('Finnhub API returned HTTP ' . $httpCode);
+    $data = json_decode((string)$response, true);
+    if (!is_array($data)) throw new RuntimeException('Finnhub API returned invalid JSON');
+    if (($data['s'] ?? '') === 'no_data' || isset($data['error'])) {
+        throw new RuntimeException('Finnhub API error: ' . ($data['error'] ?? 'No market data'));
+    }
+    return $data;
+}
+
+function finnhub_resolution(int $intervalSeconds): string
+{
+    if ($intervalSeconds <= 60) return '1';
+    if ($intervalSeconds <= 300) return '5';
+    if ($intervalSeconds <= 900) return '15';
+    if ($intervalSeconds <= 1800) return '30';
+    if ($intervalSeconds <= 3600) return '60';
+    if ($intervalSeconds <= 86400) return 'D';
+    if ($intervalSeconds <= 604800) return 'W';
+    return 'M';
+}
+
+function fetch_finnhub_price(string $symbol, ?string $apiKey = null): float
+{
+    $data = finnhub_request('quote', ['symbol' => finnhub_forex_symbol($symbol)], $apiKey);
+    $price = $data['c'] ?? null;
+    if (!is_numeric($price) || (float)$price <= 0) throw new RuntimeException('Finnhub returned no current price for ' . $symbol);
     return (float)$price;
+}
+
+function fetch_finnhub_candles(string $symbol, int $intervalSeconds = 60, int $count = 5000, ?int $endTimeMs = null, ?string $apiKey = null): array
+{
+    $resolution = finnhub_resolution($intervalSeconds);
+    $to = $endTimeMs !== null && $endTimeMs > 0 ? (int)floor($endTimeMs / 1000) : time();
+    $step = $resolution === 'D' ? 86400 : ($resolution === 'W' ? 604800 : ($resolution === 'M' ? 2592000 : (int)$resolution * 60));
+    $from = $to - (max(10, min(5000, $count)) * $step);
+    $data = finnhub_request('forex/candle', [
+        'symbol' => finnhub_forex_symbol($symbol),
+        'resolution' => $resolution,
+        'from' => $from,
+        'to' => $to,
+    ], $apiKey);
+    if (($data['s'] ?? '') !== 'ok') throw new RuntimeException('Finnhub returned no candles for ' . $symbol);
+    $candles = [];
+    $length = count($data['t'] ?? []);
+    for ($i = 0; $i < $length; $i++) {
+        if (!isset($data['o'][$i], $data['h'][$i], $data['l'][$i], $data['c'][$i])) continue;
+        $openTime = (int)$data['t'][$i] * 1000;
+        $candles[] = [
+            'openTime' => $openTime,
+            'open' => (float)$data['o'][$i],
+            'high' => (float)$data['h'][$i],
+            'low' => (float)$data['l'][$i],
+            'close' => (float)$data['c'][$i],
+            'closeTime' => $openTime + ($step * 1000) - 1,
+        ];
+    }
+    if (!$candles) throw new RuntimeException('Finnhub returned no usable candles for ' . $symbol);
+    return $candles;
 }
 
 /**
@@ -641,7 +812,24 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    // 1. First try Binance API (free, reliable, real-time for Crypto, Metals/PAXG, Forex/USDT)
+    $forexSymbols = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDCAD', 'USDCHF', 'EURGBP', 'USDJPY', 'JPYUSD'];
+    $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'twelvedata'));
+    if (in_array($normalized, $forexSymbols, true) && $currencyProvider === 'binance') {
+        try {
+            $binancePrice = fetch_binance_price($normalized);
+            if ($binancePrice > 0) return $binancePrice;
+        } catch (Throwable $e) {}
+        return 0.0;
+    }
+    if (in_array($normalized, $forexSymbols, true) && !empty(env('TWELVEDATA_API_KEY'))) {
+        try {
+            $forexPrice = fetch_twelvedata_price($normalized);
+            if ($forexPrice > 0) return $forexPrice;
+        } catch (Throwable $e) {}
+    }
+    if (in_array($normalized, $forexSymbols, true)) return 0.0;
+
+    // Binance is suitable for crypto and supported exchange-backed instruments.
     try {
         $bPrice = fetch_binance_price($normalized);
         if ($bPrice > 0) {

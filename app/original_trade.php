@@ -172,7 +172,8 @@ function render_original_trade_page(array $user): void
     $bootstrapAssetsEncoded = rtrim(strtr(base64_encode($bootstrapAssetsJson), '+/', '-_'), '=');
     $defaultSymbol = (string)($bootstrapAssets[0]['symbol'] ?? 'BTCUSD');
     try {
-        $initialSnapshot = market_snapshot($defaultSymbol, 5, 800, true);
+        // Keep the first HTML response fast; the browser loads more history after the room is ready.
+        $initialSnapshot = market_snapshot($defaultSymbol, 60, 120, true);
         $initialSnapshotJson = (string)json_encode($initialSnapshot, JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
         $initialSnapshotEncoded = rtrim(strtr(base64_encode($initialSnapshotJson), '+/', '-_'), '=');
     } catch (Throwable $e) {

@@ -185,6 +185,22 @@ function settle_open_trades(int $userId): int
                     $isWin = ($trade['direction'] === 'up' && $wentUp) || ($trade['direction'] === 'down' && !$wentUp);
                     $status = $isWin ? 'won' : 'lost';
                 }
+            } else {
+                // Align recorded close price with forced outcome for seamless visual consistency across all markets
+                $decimals = max(0, min(8, (int)($trade['decimal_places'] ?? 2)));
+                if ($status === 'won') {
+                    if ($trade['direction'] === 'up' && $closePrice <= $entryPrice) {
+                        $closePrice = round($entryPrice + ($tick * 2), $decimals);
+                    } elseif ($trade['direction'] === 'down' && $closePrice >= $entryPrice) {
+                        $closePrice = round(max($tick, $entryPrice - ($tick * 2)), $decimals);
+                    }
+                } elseif ($status === 'lost') {
+                    if ($trade['direction'] === 'up' && $closePrice >= $entryPrice) {
+                        $closePrice = round(max($tick, $entryPrice - ($tick * 2)), $decimals);
+                    } elseif ($trade['direction'] === 'down' && $closePrice <= $entryPrice) {
+                        $closePrice = round($entryPrice + ($tick * 2), $decimals);
+                    }
+                }
             }
 
             $accountType = ($trade['account_type'] ?? 'live') === 'demo' ? 'demo' : 'live';

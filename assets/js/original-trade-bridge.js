@@ -12,7 +12,7 @@
   // Patch Highcharts Y-axis price scale to force step distance of 2 and close label spacing
   (function configureHighchartsYAxis() {
     function dynamicPriceTickPositioner(min, max) {
-      if (min === undefined || max === undefined || min === max || isNaN(min) || isNaN(max)) {
+      if (min === undefined || max === undefined || isNaN(min) || isNaN(max)) {
         return;
       }
       if (this) {
@@ -23,7 +23,11 @@
       }
 
       var range = Math.abs(max - min);
-      if (range <= 0) return;
+      if (range <= 0) {
+        range = Math.max(Math.abs(min) * 0.00001, 0.00001);
+        min -= range;
+        max += range;
+      }
 
       var step;
 
@@ -88,6 +92,18 @@
     function tuneYAxisOptions(options) {
       if (!options) return;
       var isMobile = window.innerWidth <= 800;
+      if (options.chart) {
+        options.chart.spacingRight = isMobile ? 34 : 54;
+      }
+      if (options.xAxis) {
+        var xAxes = Array.isArray(options.xAxis) ? options.xAxis : [options.xAxis];
+        xAxes.forEach(function (x) {
+          if (!x) return;
+          x.ordinal = true;
+          x.maxPadding = 0;
+          x.endOnTick = false;
+        });
+      }
       var targetTickPixelInterval = isMobile ? 12 : 16;
 
       if (options.yAxis) {
@@ -95,14 +111,21 @@
         axes.forEach(function (y) {
           if (!y) return;
           y.alignTicks = false;
+          y.opposite = true;
           y.endOnTick = false;
           y.startOnTick = false;
           y.tickPositioner = dynamicPriceTickPositioner;
           y.tickPixelInterval = targetTickPixelInterval;
           y.minorTickInterval = null;
           if (!y.labels) y.labels = {};
+          y.labels.enabled = true;
           y.labels.align = 'right';
-          y.labels.x = isMobile ? 38 : 10;
+          y.labels.x = 0;
+          y.labels.style = Object.assign({}, y.labels.style || {}, {
+            color: '#d7deef',
+            fontSize: isMobile ? '10px' : '11px',
+            textOutline: 'none'
+          });
           y.labels.reserveSpace = true;
           y.labels.step = 1;
         });
@@ -119,18 +142,31 @@
         if (hc.setOptions) {
           hc.setOptions({
             chart: {
-              alignTicks: false
+              alignTicks: false,
+              spacingRight: isMobile ? 34 : 54
+            },
+            xAxis: {
+              ordinal: true,
+              maxPadding: 0,
+              endOnTick: false
             },
             yAxis: {
               alignTicks: false,
+              opposite: true,
               endOnTick: false,
               startOnTick: false,
               tickPositioner: dynamicPriceTickPositioner,
               tickPixelInterval: isMobile ? 12 : 16,
               minorTickInterval: null,
               labels: {
+                enabled: true,
                 align: 'right',
-                x: isMobile ? 38 : 10,
+                x: 0,
+                style: {
+                  color: '#d7deef',
+                  fontSize: isMobile ? '10px' : '11px',
+                  textOutline: 'none'
+                },
                 reserveSpace: true,
                 step: 1
               }
@@ -175,9 +211,12 @@
                   chart.yAxis.forEach(function (y) {
                     if (y) {
                       y.options.alignTicks = false;
+                      y.options.opposite = true;
                       y.options.endOnTick = false;
                       y.options.startOnTick = false;
                       y.options.tickPositioner = dynamicPriceTickPositioner;
+                      y.options.labels = y.options.labels || {};
+                      y.options.labels.enabled = true;
                       y.tickPositioner = dynamicPriceTickPositioner;
                       y.tickAmount = undefined;
                     }
@@ -268,10 +307,46 @@
                 }
               }
             });
+            renderMainPriceScale(chart);
           }
         });
       }
     }, 300);
+
+    function renderMainPriceScale(chart) {
+      if (!chart || !chart.container || !chart.yAxis || chart.plotWidth < 500 || chart.chartHeight < 300) return;
+      var axis = chart.yAxis.find(function (item) { return item && !item.isXAxis && item.visible !== false; });
+      if (!axis || !Array.isArray(axis.tickPositions) || axis.tickPositions.length < 2 || typeof axis.toPixels !== 'function') return;
+
+      var scale = chart.container.querySelector('.trade-price-scale');
+      if (!scale) {
+        scale = document.createElement('div');
+        scale.className = 'trade-price-scale';
+        scale.style.position = 'absolute';
+        scale.style.pointerEvents = 'none';
+        scale.style.zIndex = '8';
+        chart.container.style.position = 'relative';
+        chart.container.appendChild(scale);
+      }
+      scale.innerHTML = '';
+
+      var range = Math.abs(Number(axis.max) - Number(axis.min));
+      var decimals = range < 10 ? 5 : 2;
+      axis.tickPositions.forEach(function (tick) {
+        var y = axis.toPixels(tick, false);
+        if (!isFinite(y) || y < chart.plotTop - 4 || y > chart.plotTop + chart.plotHeight + 4) return;
+        var label = document.createElement('span');
+        label.textContent = Number(tick).toFixed(decimals);
+        label.style.position = 'absolute';
+        label.style.left = (chart.plotLeft + chart.plotWidth + 8) + 'px';
+        label.style.top = (y - 8) + 'px';
+        label.style.color = '#d7deef';
+        label.style.font = '11px Arial, sans-serif';
+        label.style.whiteSpace = 'nowrap';
+        label.style.textShadow = '0 1px 2px #141824';
+        scale.appendChild(label);
+      });
+    }
 
     if (window.Highcharts) {
       applyHighchartsPatch(window.Highcharts);
@@ -306,7 +381,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '800'), 800))));
+  var chartHistoryCount = Math.max(60, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '240'), 240))));
   var marketPollIntervalMs = Math.max(1000, Math.min(5000, Math.floor(number(meta('trade-quote-poll-ms', '1500'), 1500))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
@@ -352,9 +427,14 @@
     return true;
   }
 
+  function isCurrencyAsset(asset) {
+    return !!asset && String(asset.category || '').trim().toLowerCase() === 'currencies';
+  }
+
   function getBinanceStreamSymbol(sym) {
     var clean = String(sym || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     clean = clean.replace(/OTC$/, '');
+    if (isCurrencyAsset(findAsset(clean))) return '';
     var map = {
       // Crypto
       'BTCUSD': 'btcusdt',
@@ -414,10 +494,6 @@
       'NVDA': 'nvdabusdt',
       'NVDABUSDT': 'nvdabusdt',
 
-      // Currencies
-      'EURUSD': 'eurusdt',
-      'GBPUSD': 'gbpusdt',
-      'AUDUSD': 'audusdt'
     };
     return map[clean] || '';
   }
@@ -564,22 +640,10 @@
     var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var minStep = Math.pow(10, -decimals);
 
-    // Dynamic micro-movement: subtle random walk with momentum
-    var randomPulse = (Math.random() - 0.495) * minStep * 1.8;
-    tickMomentum = (tickMomentum * 0.80) + randomPulse;
-    tickPriceOffset += tickMomentum;
-
-    var maxDrift = minStep * 10;
-    if (tickPriceOffset > maxDrift) {
-      tickPriceOffset = maxDrift;
-      tickMomentum = -Math.abs(tickMomentum) * 0.5;
-    } else if (tickPriceOffset < -maxDrift) {
-      tickPriceOffset = -maxDrift;
-      tickMomentum = Math.abs(tickMomentum) * 0.5;
-    }
-
-    var tickPrice = Number((currentLivePrice + tickPriceOffset).toFixed(decimals));
-    emitTick(tickPrice, activeSocketSymbol);
+    // Only emit the latest provider price. Never invent a market tick.
+    tickPriceOffset = 0;
+    tickMomentum = 0;
+    emitTick(Number(currentLivePrice.toFixed(decimals)), activeSocketSymbol);
   }
   var domRefreshQueued = false;
   var accountSwitchTarget = '';
@@ -1057,48 +1121,8 @@
     }
 
     var dec = number(selected.decimals, 5);
-    var step = Math.pow(10, -dec);
-    var candles = [];
-    var interval = Math.max(1, Math.min(86400, number(activePeriod, 60)));
-    var intervalMs = interval * 1000;
-    var currBucket = Math.floor(nowMs / intervalMs) * intervalMs;
-    var startBucket = currBucket - (chartHistoryCount * intervalMs);
-    var runningPrice = basePrice;
-
-    for (var t = startBucket; t <= currBucket; t += intervalMs) {
-      var isLast = t === currBucket;
-      var cEnd = isLast ? nowMs : (t + intervalMs - 1);
-      var subDur = Math.max(100, cEnd - t);
-      var cOpen = runningPrice;
-      var jitter = (Math.random() - 0.5) * step * 4;
-      var cClose = isLast ? currentLivePrice : Number((cOpen + jitter).toFixed(dec));
-      var bodySize = Math.abs(cClose - cOpen);
-      var wickUp = Math.max(step * (1 + Math.floor(Math.random() * 3)), bodySize * (0.25 + Math.random() * 0.35));
-      var wickLow = Math.max(step * (1 + Math.floor(Math.random() * 3)), bodySize * (0.25 + Math.random() * 0.35));
-      var cHigh = Number((Math.max(cOpen, cClose) + wickUp).toFixed(dec));
-      var cLow = Number((Math.max(step, Math.min(cOpen, cClose) - wickLow)).toFixed(dec));
-      var p1 = cClose >= cOpen ? cLow : cHigh;
-      var p2 = cClose >= cOpen ? cHigh : cLow;
-      candles.push({
-        time: t,
-        open: cOpen,
-        high: cHigh,
-        low: cLow,
-        close: cClose,
-        lastTickTime: cEnd,
-        complete: !isLast,
-        ticks: [
-          [t, cOpen],
-          [t + Math.round(subDur * 0.33), p1],
-          [t + Math.round(subDur * 0.67), p2],
-          [cEnd, cClose]
-        ]
-      });
-      runningPrice = cClose;
-    }
-
     var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [selected];
-    return {serverTime: nowMs, asset: selected, assets: assets, candles: candles, engine: 'server-bootstrap'};
+    return {serverTime: nowMs, asset: selected, assets: assets, candles: [], engine: 'server-bootstrap-unavailable'};
   }
 
   function bootstrapTradeState() {
@@ -1301,10 +1325,29 @@
       maxHistorySec = Math.min(maxHistorySec, number(currentAssetObj.closed_at, 0) / 1000);
     }
     var previousStamp = -Infinity;
+    var previousPrice = NaN;
     var totalCandles = candles.length;
 
     candles.forEach(function (candle, cIndex) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
+
+      // Fill provider intervals with no trades so the chart remains visually continuous.
+      var candleStart = number(candle.time, 0) / 1000;
+      if (isFinite(previousStamp) && isFinite(previousPrice) && isFinite(candleStart)) {
+        var nextStamp = previousStamp + 0.001;
+        while (nextStamp + (safePeriod * 0.5) < candleStart) {
+          var syntheticEnd = Math.min(candleStart, nextStamp + safePeriod);
+          var syntheticOffsets = [0, (syntheticEnd - nextStamp) * 0.33, (syntheticEnd - nextStamp) * 0.67, syntheticEnd - nextStamp];
+          syntheticOffsets.forEach(function (offset) {
+            var syntheticStamp = Number((nextStamp + offset).toFixed(3));
+            if (syntheticStamp > previousStamp) {
+              previousStamp = syntheticStamp;
+              history.push([previousStamp, previousPrice, ++count]);
+            }
+          });
+          nextStamp += safePeriod;
+        }
+      }
 
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
@@ -1314,6 +1357,7 @@
           if (!isFinite(stamp) || !isFinite(price)) return;
           if (stamp <= previousStamp) stamp = previousStamp + 0.001;
           previousStamp = Number(stamp.toFixed(3));
+          previousPrice = price;
           history.push([previousStamp, price, ++count]);
         });
         return;
@@ -1335,7 +1379,8 @@
         var stamp = Math.min(maxHistorySec, start + offsets[index]);
         if (stamp <= previousStamp) stamp = previousStamp + 0.001;
         previousStamp = Number(stamp.toFixed(3));
-        history.push([previousStamp, number(price, 0), ++count]);
+        previousPrice = number(price, 0);
+        history.push([previousStamp, previousPrice, ++count]);
       });
     });
 

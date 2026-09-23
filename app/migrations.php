@@ -85,6 +85,9 @@ function run_auto_migrations(): void
     }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(40) NOT NULL, applied_at DATETIME NOT NULL, PRIMARY KEY (version)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
+    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
+    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
+    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
     $targetVersion = '4.8.0';
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
     $check->execute([$targetVersion]);

