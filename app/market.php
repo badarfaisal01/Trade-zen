@@ -173,9 +173,12 @@ function determine_trade_outcome(array $trade, ?array $control = null): ?string
     return null;
 }
 
-function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null): float
+function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false): float
 {
     static $tradesCache = [];
+    if ($fresh) {
+        $tradesCache = [];
+    }
 
     if ($userId === null) {
         $userId = (int)($_SESSION['user_id'] ?? 0);
@@ -239,7 +242,8 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $tick = pow(10, -$decimals);
     $basePrice = (float)($asset['base_price'] ?? 1.0);
-    $maxDelta = max($tick * 5.0, $basePrice * 0.0008);
+    $maxDelta = max($tick * 6.0, $basePrice * 0.0012);
+    $entryPrice = (float)$trade['entry_price'];
 
     if ($trade['direction'] === 'up') {
         $directionMultiplier = ($outcome === 'lost') ? -1.0 : 1.0;
@@ -251,9 +255,13 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     $smoothDrift = $maxDelta * $curve * $directionMultiplier;
 
     $sec = $timestampMs / 1000.0;
-    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.12);
+    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.10);
 
-    return $smoothDrift + $microFluctuation;
+    // Calculate natural price without bias at $timestampMs
+    $naturalPriceAtTime = market_price_at($asset, $timestampMs, true);
+
+    // Return offset so that naturalPriceAtTime + bias = entryPrice + smoothDrift + microFluctuation
+    return ($entryPrice - $naturalPriceAtTime) + $smoothDrift + $microFluctuation;
 }
 
 function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = false): float
@@ -1038,10 +1046,23 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
             }
         }
     } else if (!empty($candles)) {
-        $lastCandle = end($candles);
-        if (isset($lastCandle['close']) && is_numeric($lastCandle['close'])) {
-            $lastClose = (float)$lastCandle['close'];
-            $assetPayload['price'] = $lastClose;
+        $bias = get_active_trade_price_bias($asset, $nowMs);
+        if ($bias != 0.0) {
+            $lastIdx = count($candles) - 1;
+            $candles[$lastIdx]['close'] = $targetPrice;
+            $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $targetPrice);
+            $candles[$lastIdx]['low'] = min((float)$candles[$lastIdx]['low'], $targetPrice);
+            if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
+                $tCount = count($candles[$lastIdx]['ticks']);
+                $candles[$lastIdx]['ticks'][$tCount - 1][1] = $targetPrice;
+            }
+            $assetPayload['price'] = $targetPrice;
+        } else {
+            $lastCandle = end($candles);
+            if (isset($lastCandle['close']) && is_numeric($lastCandle['close'])) {
+                $lastClose = (float)$lastCandle['close'];
+                $assetPayload['price'] = $lastClose;
+            }
         }
     }
 

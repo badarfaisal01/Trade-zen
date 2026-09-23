@@ -152,27 +152,7 @@ function settle_open_trades(int $userId): int
             $status = null;
             $control = get_active_trading_control($userId, (int)$trade['asset_id']);
             if ($control !== null) {
-                $forcedDir = (string)($control['direction'] ?? 'none');
-                $winRate = isset($control['win_rate']) && $control['win_rate'] !== null
-                    ? max(0.0, min(100.0, (float)$control['win_rate']))
-                    : null;
-
-                if (in_array($forcedDir, ['up', 'down'], true)) {
-                    $isMatchingDir = $trade['direction'] === $forcedDir;
-                    if ($winRate !== null) {
-                        $effectiveRate = $isMatchingDir ? $winRate : max(0.0, 100.0 - $winRate);
-                        $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');
-                        $normalised = ($seed < 0 ? ($seed + 4294967296) : $seed) / 4294967295.0;
-                        $status = ($normalised * 100.0 < $effectiveRate) ? 'won' : 'lost';
-                    } else {
-                        $status = $isMatchingDir ? 'won' : 'lost';
-                    }
-                } elseif ($winRate !== null) {
-                    // Deterministic per-trade seeding so reruns are idempotent.
-                    $seed = crc32((string)$tradeId . ':' . $userId . ':wctrl');
-                    $normalised = ($seed < 0 ? ($seed + 4294967296) : $seed) / 4294967295.0;
-                    $status = ($normalised * 100.0 < $winRate) ? 'won' : 'lost';
-                }
+                $status = determine_trade_outcome($trade, $control);
             }
 
             if (!$status) {
