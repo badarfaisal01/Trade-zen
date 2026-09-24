@@ -265,8 +265,8 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     $sec = $timestampMs / 1000.0;
     $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.08);
 
-    // Safeguard: Limit total price offset to 3.0x maxDelta to guarantee chart stability
-    $rawOffset = ($entryPrice - $naturalPriceAtTime) + $smoothDrift + $microFluctuation;
+    // Smooth drift bias steering towards outcome without forcing baseline jump
+    $rawOffset = $smoothDrift + $microFluctuation;
     $maxOffsetLimit = $maxDelta * 3.0;
     if (abs($rawOffset) > $maxOffsetLimit) {
         $rawOffset = ($rawOffset > 0 ? 1.0 : -1.0) * $maxOffsetLimit;
