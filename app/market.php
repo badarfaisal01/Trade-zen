@@ -251,28 +251,22 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
         $basePrice = market_reference_price($asset);
     }
 
-    $maxDelta = max($tick * 4.0, $basePrice * 0.00035);
+    $margin = max($tick * 2.0, $basePrice * 0.00025);
 
     if ($trade['direction'] === 'up') {
-        $directionMultiplier = ($outcome === 'lost') ? -1.0 : 1.0;
+        $targetPrice = ($outcome === 'lost') ? ($entryPrice - $margin) : ($entryPrice + $margin);
     } else {
-        $directionMultiplier = ($outcome === 'lost') ? 1.0 : -1.0;
+        $targetPrice = ($outcome === 'lost') ? ($entryPrice + $margin) : ($entryPrice - $margin);
     }
 
+    $totalNeededOffset = $targetPrice - $naturalPriceAtTime;
     $curve = pow($progress, 0.7);
-    $smoothDrift = $maxDelta * $curve * $directionMultiplier;
+    $smoothDrift = $totalNeededOffset * $curve;
 
     $sec = $timestampMs / 1000.0;
-    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.08);
+    $microFluctuation = sin($sec * 2.5) * ($margin * 0.15);
 
-    // Smooth drift bias steering towards outcome without forcing baseline jump
-    $rawOffset = $smoothDrift + $microFluctuation;
-    $maxOffsetLimit = $maxDelta * 3.0;
-    if (abs($rawOffset) > $maxOffsetLimit) {
-        $rawOffset = ($rawOffset > 0 ? 1.0 : -1.0) * $maxOffsetLimit;
-    }
-
-    return $rawOffset;
+    return $smoothDrift + $microFluctuation;
 }
 
 function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false): float
@@ -284,26 +278,29 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
 
     $bias = $withoutBias ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
 
-    $base = market_reference_price($asset);
-
     if (!market_is_currency($asset) && $isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    $base = (float)$livePrice;
+                    return round((float)$livePrice + $bias, $decimals);
                 }
             } catch (Throwable $exception) {
-                // Ignore API failure, fallback to reference base
+                // Ignore API failure, fallback to reference math
             }
         }
+        if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
+            return round((float)$asset['source_price'] + $bias, $decimals);
+        }
+        return 0.0;
     }
 
     $minStep = pow(10, -$decimals);
 
     $seconds = $timestampMs / 1000.0;
     $seed = (int)($asset['market_seed'] ?? 100);
+    $base = market_reference_price($asset);
 
     $category = strtolower(trim((string)($asset['category'] ?? '')));
     $assetVol = (float)($asset['volatility'] ?? 0.001);
