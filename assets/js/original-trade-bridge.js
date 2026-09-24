@@ -419,6 +419,18 @@
     return null;
   }
 
+  function hasOpenTradeForActiveSymbol() {
+    if (!tradeState || !Array.isArray(tradeState.trades)) return false;
+    var target = plainSymbol(activeSymbol);
+    for (var i = 0; i < tradeState.trades.length; i++) {
+      var t = tradeState.trades[i];
+      if (t && t.status === 'open' && plainSymbol(t.symbol) === target) {
+        return true;
+      }
+    }
+    return false;
+  }
+
   function isAssetActive(asset) {
     if (!asset) return true;
     if (asset.is_open === false || asset.is_active === 0 || asset.active === false || asset.is_active === false) {
@@ -551,7 +563,17 @@
                 }
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
-              currentLivePrice = Number(rawPrice.toFixed(decimals));
+
+              if (hasOpenTradeForActiveSymbol() && expectedBase > 0) {
+                var srcPrice = number(currAssetObj.source_price, 0);
+                var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05)
+                  ? (expectedBase - srcPrice)
+                  : (expectedBase - rawPrice);
+                currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
+              } else {
+                currentLivePrice = Number(rawPrice.toFixed(decimals));
+              }
+
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
             }
@@ -629,13 +651,15 @@
       return;
     }
     var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
-    if (expectedBase > 0) {
+    if (expectedBase > 0 && !hasOpenTradeForActiveSymbol()) {
       var ratio = currentLivePrice / expectedBase;
       if (ratio < 0.1 || ratio > 10.0) {
         currentLivePrice = expectedBase;
         tickPriceOffset = 0;
         tickMomentum = 0;
       }
+    } else if (expectedBase > 0 && hasOpenTradeForActiveSymbol()) {
+      currentLivePrice = expectedBase;
     }
     var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var minStep = Math.pow(10, -decimals);

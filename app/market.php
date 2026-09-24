@@ -241,9 +241,17 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
 
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $tick = pow(10, -$decimals);
-    $basePrice = (float)($asset['base_price'] ?? 1.0);
-    $maxDelta = max($tick * 6.0, $basePrice * 0.0012);
     $entryPrice = (float)$trade['entry_price'];
+
+    // Calculate natural price without bias at $timestampMs
+    $naturalPriceAtTime = market_price_at($asset, $timestampMs, true);
+
+    $basePrice = $naturalPriceAtTime > 0 ? $naturalPriceAtTime : (float)($asset['base_price'] ?? 1.0);
+    if ($basePrice <= 0) {
+        $basePrice = market_reference_price($asset);
+    }
+
+    $maxDelta = max($tick * 4.0, $basePrice * 0.00035);
 
     if ($trade['direction'] === 'up') {
         $directionMultiplier = ($outcome === 'lost') ? -1.0 : 1.0;
@@ -255,26 +263,29 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     $smoothDrift = $maxDelta * $curve * $directionMultiplier;
 
     $sec = $timestampMs / 1000.0;
-    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.10);
+    $microFluctuation = sin($sec * 2.5) * ($maxDelta * 0.08);
 
-    // Calculate natural price without bias at $timestampMs
-    $naturalPriceAtTime = market_price_at($asset, $timestampMs, true);
+    // Safeguard: Limit total price offset to 3.0x maxDelta to guarantee chart stability
+    $rawOffset = ($entryPrice - $naturalPriceAtTime) + $smoothDrift + $microFluctuation;
+    $maxOffsetLimit = $maxDelta * 3.0;
+    if (abs($rawOffset) > $maxOffsetLimit) {
+        $rawOffset = ($rawOffset > 0 ? 1.0 : -1.0) * $maxOffsetLimit;
+    }
 
-    // Return offset so that naturalPriceAtTime + bias = entryPrice + smoothDrift + microFluctuation
-    return ($entryPrice - $naturalPriceAtTime) + $smoothDrift + $microFluctuation;
+    return $rawOffset;
 }
 
-function market_price_at(array $asset, int $timestampMs, bool $useFormulaOnly = false): float
+function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $source = $asset['price_source'] ?? 'internal';
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
-    $bias = $useFormulaOnly ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
+    $bias = $withoutBias ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
 
-    if (!market_is_currency($asset) && !$useFormulaOnly && $isLive && ($source === 'api' || $source === 'binance')) {
-        $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+    if (!market_is_currency($asset) && $isLive && ($source === 'api' || $source === 'binance')) {
+        $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
@@ -331,7 +342,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
-    $apiSymbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+    $apiSymbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
     $intervalMs = max(1000, $intervalSeconds * 1000);
     $minStep = pow(10, -$decimals);
     $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
@@ -1048,6 +1059,39 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     } else if (!empty($candles)) {
         $bias = get_active_trade_price_bias($asset, $nowMs);
         if ($bias != 0.0) {
+            $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+            $minStep = pow(10, -$decimals);
+
+            // Apply active trade control bias smoothly across open trade candles
+            foreach ($candles as &$c) {
+                $cTime = (int)($c['time'] ?? 0);
+                $cEnd = (int)($c['lastTickTime'] ?? ($cTime + ($intervalSeconds * 1000) - 1));
+                $bStart = get_active_trade_price_bias($asset, $cTime);
+                $bEnd = get_active_trade_price_bias($asset, $cEnd);
+
+                if ($bStart != 0.0 || $bEnd != 0.0) {
+                    $cOpen = round((float)$c['open'] + $bStart, $decimals);
+                    $cClose = round((float)$c['close'] + $bEnd, $decimals);
+                    $cHigh = round(max((float)$c['high'] + max($bStart, $bEnd), $cOpen, $cClose), $decimals);
+                    $cLow = round(max($minStep, min((float)$c['low'] + min($bStart, $bEnd), $cOpen, $cClose)), $decimals);
+
+                    $c['open'] = $cOpen;
+                    $c['close'] = $cClose;
+                    $c['high'] = $cHigh;
+                    $c['low'] = $cLow;
+
+                    if (!empty($c['ticks']) && is_array($c['ticks'])) {
+                        foreach ($c['ticks'] as &$tk) {
+                            $tMs = (int)$tk[0];
+                            $tB = get_active_trade_price_bias($asset, $tMs);
+                            $tk[1] = round((float)$tk[1] + $tB, $decimals);
+                        }
+                        unset($tk);
+                    }
+                }
+            }
+            unset($c);
+
             $lastIdx = count($candles) - 1;
             $candles[$lastIdx]['close'] = $targetPrice;
             $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $targetPrice);

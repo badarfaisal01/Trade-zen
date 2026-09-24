@@ -332,7 +332,7 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
 
         $now = time();
         $entryNowMs = (int)floor(microtime(true) * 1000);
-        $entryPrice = market_price_at($asset, $entryNowMs);
+        $entryPrice = market_price_at($asset, $entryNowMs, true);
         $expiresAt = date('Y-m-d H:i:s', $expiresAtTimestamp);
         $after = ($beforeCents - $amountCents) / 100;
         $publicId = public_id('T');
