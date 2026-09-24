@@ -352,12 +352,6 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
             $entryPrice = market_price_at($assetWithTarget, $entryNowMs, true);
         }
 
-        try {
-            $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
-            $cachePrice = round($entryPrice, $decimals);
-            db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,"live",NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()')
-                ->execute([(int)$asset['id'], $cachePrice]);
-        } catch (Throwable $ignored) {}
         $expiresAt = date('Y-m-d H:i:s', $expiresAtTimestamp);
         $after = ($beforeCents - $amountCents) / 100;
         $publicId = public_id('T');

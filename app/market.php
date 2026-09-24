@@ -284,29 +284,26 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
 
     $bias = $withoutBias ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
 
+    $base = market_reference_price($asset);
+
     if (!market_is_currency($asset) && $isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    return round((float)$livePrice + $bias, $decimals);
+                    $base = (float)$livePrice;
                 }
             } catch (Throwable $exception) {
-                // Ignore API failure, fallback to reference math
+                // Ignore API failure, fallback to reference base
             }
         }
-        if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
-            return round((float)$asset['source_price'] + $bias, $decimals);
-        }
-        return 0.0;
     }
 
     $minStep = pow(10, -$decimals);
 
     $seconds = $timestampMs / 1000.0;
     $seed = (int)($asset['market_seed'] ?? 100);
-    $base = market_reference_price($asset);
 
     $category = strtolower(trim((string)($asset['category'] ?? '')));
     $assetVol = (float)($asset['volatility'] ?? 0.001);
