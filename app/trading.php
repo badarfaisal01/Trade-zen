@@ -285,7 +285,7 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
     }
     $balanceColumn = trade_balance_column($accountType);
 
-    return db_transaction(function (PDO $pdo) use ($userId, $asset, $direction, $amount, $durationSeconds, $expiresAtTimestamp, $accountType, $balanceColumn, $clientRequestId): array {
+    return db_transaction(function (PDO $pdo) use ($userId, $asset, $direction, $amount, $durationSeconds, $expiresAtTimestamp, $accountType, $balanceColumn, $clientRequestId, $clientEntryPrice): array {
         $userStmt = $pdo->prepare('SELECT id, status, demo_balance, demo_trade_balance, currency FROM users WHERE id = ? FOR UPDATE');
         $userStmt->execute([$userId]);
         $user = $userStmt->fetch();
