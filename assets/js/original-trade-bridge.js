@@ -1744,7 +1744,9 @@
       duration: duration,
       targetCloseTime: targetCloseTime,
       account: user.accountType,
-      requestId: clientRequestId
+      requestId: clientRequestId,
+      entryPrice: currentLivePrice,
+      price: currentLivePrice
     };
 
     var currentAssetObj = findAsset(data.symbol || activeSymbol);

@@ -226,7 +226,7 @@ function settle_open_trades(int $userId): int
     return $settled;
 }
 
-function place_trade(int $userId, string $symbol, string $direction, float $amount, int $durationSeconds, ?string $requestedAccountType = null, string $clientRequestId = '', ?int $targetCloseTime = null): array
+function place_trade(int $userId, string $symbol, string $direction, float $amount, int $durationSeconds, ?string $requestedAccountType = null, string $clientRequestId = '', ?int $targetCloseTime = null, ?float $clientEntryPrice = null): array
 {
     $direction = strtolower(trim($direction));
     if (!in_array($direction, ['up', 'down'], true)) {
@@ -333,12 +333,31 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
         $now = time();
         $entryNowMs = (int)floor(microtime(true) * 1000);
         $liveTargetPrice = market_price_at($asset, $entryNowMs, true);
-        $assetWithTarget = array_merge($asset, [
-            'target_price' => $liveTargetPrice,
-            'closed_price' => $liveTargetPrice,
-            'price' => $liveTargetPrice,
-        ]);
-        $entryPrice = market_price_at($assetWithTarget, $entryNowMs, true);
+
+        $entryPrice = 0.0;
+        if ($clientEntryPrice !== null && $clientEntryPrice > 0) {
+            $ref = $liveTargetPrice > 0 ? $liveTargetPrice : (float)($asset['base_price'] ?? 0);
+            if ($ref > 0 && abs($clientEntryPrice - $ref) / $ref < 0.05) {
+                $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+                $entryPrice = round($clientEntryPrice, $decimals);
+            }
+        }
+
+        if ($entryPrice <= 0.0) {
+            $assetWithTarget = array_merge($asset, [
+                'target_price' => $liveTargetPrice,
+                'closed_price' => $liveTargetPrice,
+                'price' => $liveTargetPrice,
+            ]);
+            $entryPrice = market_price_at($assetWithTarget, $entryNowMs, true);
+        }
+
+        try {
+            $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+            $cachePrice = round($entryPrice, $decimals);
+            db()->prepare('INSERT INTO market_price_cache (asset_id,price,source,fetched_at) VALUES (?,?,"live",NOW()) ON DUPLICATE KEY UPDATE price=VALUES(price),source=VALUES(source),fetched_at=NOW()')
+                ->execute([(int)$asset['id'], $cachePrice]);
+        } catch (Throwable $ignored) {}
         $expiresAt = date('Y-m-d H:i:s', $expiresAtTimestamp);
         $after = ($beforeCents - $amountCents) / 100;
         $publicId = public_id('T');

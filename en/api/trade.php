@@ -20,6 +20,9 @@ try {
     $targetCloseTime = isset($data['targetCloseTime']) && is_numeric($data['targetCloseTime']) && (int)$data['targetCloseTime'] > 0
         ? (int)$data['targetCloseTime']
         : null;
+    $clientEntryPrice = isset($data['entryPrice']) && is_numeric($data['entryPrice']) && (float)$data['entryPrice'] > 0
+        ? (float)$data['entryPrice']
+        : (isset($data['price']) && is_numeric($data['price']) && (float)$data['price'] > 0 ? (float)$data['price'] : null);
     $trade = place_trade(
         (int)$user['id'],
         (string)($data['symbol'] ?? ''),
@@ -28,7 +31,8 @@ try {
         (int)($data['duration'] ?? 0),
         $requestedAccount,
         (string)($data['requestId'] ?? ''),
-        $targetCloseTime
+        $targetCloseTime,
+        $clientEntryPrice
     );
     json_response(['ok' => true, 'message' => 'Trade opened.', 'data' => $trade], 201);
 } catch (InvalidArgumentException $exception) {
