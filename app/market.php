@@ -307,16 +307,33 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $seconds = $timestampMs / 1000.0;
     $seed = (int)($asset['market_seed'] ?? 100);
     $base = market_reference_price($asset);
-    $volatility = max(0.0005, (float)($asset['volatility'] ?? 0.002));
+
+    $category = strtolower(trim((string)($asset['category'] ?? '')));
+    $assetVol = (float)($asset['volatility'] ?? 0.001);
+
+    if ($category === 'currencies' || market_is_currency($asset)) {
+        // Currency / Forex base volatility: 0.00005 to 0.00035 (0.5 to 3.5 pips per minute)
+        $volatility = max(0.00005, min(0.00035, $assetVol > 0 && $assetVol < 0.001 ? $assetVol : 0.00012));
+    } elseif ($category === 'crypto') {
+        $volatility = max(0.0002, min(0.003, $assetVol > 0 ? $assetVol : 0.0008));
+    } elseif ($category === 'stocks' || $category === 'indices') {
+        $volatility = max(0.00008, min(0.0008, $assetVol > 0 ? $assetVol : 0.00025));
+    } else {
+        $volatility = max(0.00008, min(0.001, $assetVol > 0 ? $assetVol : 0.0003));
+    }
+
     $phase = ($seed % 997) / 17.0;
 
-    // Multi-period wave cycles for natural up and down market trends
-    $macro = sin(($seconds + $phase * 10.0) / 600.0) * 0.50;
-    $mid   = sin(($seconds + $phase * 31.0) / 180.0) * 0.30;
-    $micro = sin(($seconds + $phase * 73.0) / 60.0)  * 0.20;
+    // Harmonic multi-frequency wave cycles (micro oscillation, swing wave, trend cycle, macro context)
+    $wMicro = sin(($seconds + $phase * 73.0) / 4.5) * 0.16;
+    $wSwing = sin(($seconds + $phase * 31.0) / 18.0) * 0.32;
+    $wTrend = sin(($seconds + $phase * 17.0) / 65.0) * 0.38;
+    $wMacro = sin(($seconds + $phase * 7.0) / 220.0) * 0.24;
 
-    // Smooth continuous spline drift
-    $bucketSize = 10;
+    $waveTotal = $wMicro + $wSwing + $wTrend + $wMacro;
+
+    // Smooth continuous spline noise
+    $bucketSize = 6;
     $bucket = (int)floor($seconds / $bucketSize);
     $fraction = fmod($seconds, (float)$bucketSize) / $bucketSize;
     if ($fraction < 0) {
@@ -327,9 +344,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $noiseB = market_noise($seed, $bucket + 1);
     $noise = $noiseA + (($noiseB - $noiseA) * $smooth);
 
-    $fastNoise = market_noise($seed + 13, (int)floor($seconds / 2.0));
-
-    $ratio = (($macro + $mid + $micro) * $volatility * 3.2) + ($noise * $volatility * 1.6) + ($fastNoise * $volatility * 0.3);
+    $ratio = ($waveTotal + ($noise * 0.40)) * $volatility * 2.2;
     $price = max($base * 0.1, $base * (1.0 + $ratio));
 
     return round($price + $bias, $decimals);
@@ -505,7 +520,17 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $currentBucketMs = (int)(floor($endMs / $intervalMs) * $intervalMs);
     $startMs = $currentBucketMs - (($count - 1) * $intervalMs);
     $seed = (int)($asset['market_seed'] ?? 100);
-    $vol = max(0.0005, (float)($asset['volatility'] ?? 0.002));
+
+    $category = strtolower(trim((string)($asset['category'] ?? '')));
+    $assetVol = (float)($asset['volatility'] ?? 0.001);
+    if ($category === 'currencies' || market_is_currency($asset)) {
+        $vol = max(0.00005, min(0.00035, $assetVol > 0 && $assetVol < 0.001 ? $assetVol : 0.00012));
+    } elseif ($category === 'crypto') {
+        $vol = max(0.0002, min(0.003, $assetVol > 0 ? $assetVol : 0.0008));
+    } else {
+        $vol = max(0.00005, min(0.001, $assetVol > 0 ? $assetVol : 0.00025));
+    }
+
     $candles = [];
 
     $targetPrice = (float)($asset['target_price'] ?? $asset['closed_price'] ?? $asset['price'] ?? 0.0);
@@ -530,7 +555,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         // Ensure visible candle body with directional movement
         if (abs($close - $open) < $minStep) {
             $noiseDir = market_noise($seed + 55, (int)($time / 1000));
-            $close = round($noiseDir >= 0 ? $open + ($minStep * 2) : max($minStep, $open - ($minStep * 2)), $decimals);
+            $close = round($noiseDir >= 0 ? $open + $minStep : max($minStep, $open - $minStep), $decimals);
         }
 
         // Elegant, natural candle wicks: distinct upper and lower shadows, crisp and realistic
@@ -538,19 +563,17 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         $noiseUpper = abs(market_noise($seed + 99, (int)($time / 1000)));
         $noiseLower = abs(market_noise($seed + 101, (int)($time / 1000)));
 
-        $minWickUpper = $minStep * (1 + (int)floor($noiseUpper * 3.0));
-        $wickUpper = max($minWickUpper, min($bodyHeight * 0.70, $open * $vol * 0.12 * (0.3 + 0.7 * $noiseUpper)));
-        $minWickLower = $minStep * (1 + (int)floor($noiseLower * 3.0));
-        $wickLower = max($minWickLower, min($bodyHeight * 0.70, $open * $vol * 0.12 * (0.3 + 0.7 * $noiseLower)));
+        $wickUpper = max(0.0, min($bodyHeight * 0.55, $bodyHeight * 0.22 * $noiseUpper + ($open * $vol * 0.05 * $noiseUpper)));
+        $wickLower = max(0.0, min($bodyHeight * 0.55, $bodyHeight * 0.22 * $noiseLower + ($open * $vol * 0.05 * $noiseLower)));
 
         $high = round(max($open, $close) + $wickUpper, $decimals);
         $low  = round(max($minStep, min($open, $close) - $wickLower), $decimals);
 
         if ($high <= max($open, $close)) {
-            $high = round(max($open, $close) + $minStep * 2, $decimals);
+            $high = round(max($open, $close) + ($noiseUpper > 0.4 ? $minStep : 0.0), $decimals);
         }
         if ($low >= min($open, $close)) {
-            $low = round(max($minStep, min($open, $close) - $minStep * 2), $decimals);
+            $low = round(max($minStep, min($open, $close) - ($noiseLower > 0.4 ? $minStep : 0.0)), $decimals);
         }
 
         $p1 = $close >= $open ? $low : $high;
