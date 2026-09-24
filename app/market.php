@@ -1075,57 +1075,15 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
             }
         }
     } else if (!empty($candles)) {
-        $bias = get_active_trade_price_bias($asset, $nowMs);
-        if ($bias != 0.0) {
-            $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
-            $minStep = pow(10, -$decimals);
-
-            // Apply active trade control bias smoothly across open trade candles
-            foreach ($candles as &$c) {
-                $cTime = (int)($c['time'] ?? 0);
-                $cEnd = (int)($c['lastTickTime'] ?? ($cTime + ($intervalSeconds * 1000) - 1));
-                $bStart = get_active_trade_price_bias($asset, $cTime);
-                $bEnd = get_active_trade_price_bias($asset, $cEnd);
-
-                if ($bStart != 0.0 || $bEnd != 0.0) {
-                    $cOpen = round((float)$c['open'] + $bStart, $decimals);
-                    $cClose = round((float)$c['close'] + $bEnd, $decimals);
-                    $cHigh = round(max((float)$c['high'] + max($bStart, $bEnd), $cOpen, $cClose), $decimals);
-                    $cLow = round(max($minStep, min((float)$c['low'] + min($bStart, $bEnd), $cOpen, $cClose)), $decimals);
-
-                    $c['open'] = $cOpen;
-                    $c['close'] = $cClose;
-                    $c['high'] = $cHigh;
-                    $c['low'] = $cLow;
-
-                    if (!empty($c['ticks']) && is_array($c['ticks'])) {
-                        foreach ($c['ticks'] as &$tk) {
-                            $tMs = (int)$tk[0];
-                            $tB = get_active_trade_price_bias($asset, $tMs);
-                            $tk[1] = round((float)$tk[1] + $tB, $decimals);
-                        }
-                        unset($tk);
-                    }
-                }
-            }
-            unset($c);
-
-            $lastIdx = count($candles) - 1;
-            $candles[$lastIdx]['close'] = $targetPrice;
-            $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $targetPrice);
-            $candles[$lastIdx]['low'] = min((float)$candles[$lastIdx]['low'], $targetPrice);
-            if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
-                $tCount = count($candles[$lastIdx]['ticks']);
-                $candles[$lastIdx]['ticks'][$tCount - 1][1] = $targetPrice;
-            }
-            $assetPayload['price'] = $targetPrice;
-        } else {
-            $lastCandle = end($candles);
-            if (isset($lastCandle['close']) && is_numeric($lastCandle['close'])) {
-                $lastClose = (float)$lastCandle['close'];
-                $assetPayload['price'] = $lastClose;
-            }
+        $lastIdx = count($candles) - 1;
+        $candles[$lastIdx]['close'] = $targetPrice;
+        $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $targetPrice);
+        $candles[$lastIdx]['low'] = min((float)$candles[$lastIdx]['low'], $targetPrice);
+        if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
+            $tCount = count($candles[$lastIdx]['ticks']);
+            $candles[$lastIdx]['ticks'][$tCount - 1][1] = $targetPrice;
         }
+        $assetPayload['price'] = $targetPrice;
     }
 
     foreach ($assets as &$a) {
