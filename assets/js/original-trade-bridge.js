@@ -9,6 +9,18 @@
 (function () {
   'use strict';
 
+  (function patchCanvas2D() {
+    if (typeof HTMLCanvasElement !== 'undefined' && HTMLCanvasElement.prototype.getContext) {
+      var origGetContext = HTMLCanvasElement.prototype.getContext;
+      HTMLCanvasElement.prototype.getContext = function (type, options) {
+        if (type === '2d') {
+          options = Object.assign({willReadFrequently: true}, options || {});
+        }
+        return origGetContext.call(this, type, options);
+      };
+    }
+  })();
+
   // Patch Highcharts Y-axis price scale to force step distance of 2 and close label spacing
   (function configureHighchartsYAxis() {
     function dynamicPriceTickPositioner(min, max) {

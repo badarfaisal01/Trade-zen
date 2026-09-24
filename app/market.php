@@ -498,9 +498,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
     }
 
-    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
-        throw new RuntimeException('Live candle provider unavailable for ' . ($asset['symbol'] ?? $apiSymbol));
-    }
+    // Fallback generator if API is unavailable, symbol not on Binance, or internal asset
 
     // Fallback generator if API is unavailable or internal asset
     $intervalMs = $intervalSeconds * 1000;
@@ -1034,9 +1032,6 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
             $candles = market_candles($assetWithTarget, $intervalSeconds, $count, $targetEndMs);
         } catch (Throwable $e) {
             error_log('Failed to generate candles for ' . $symbol . ': ' . $e->getMessage());
-            if (!market_is_currency($asset) && in_array($asset['price_source'] ?? 'internal', ['api', 'binance'], true)) {
-                throw new RuntimeException('Live market data unavailable for ' . $symbol . '. Configure the selected provider before trading.');
-            }
         }
     }
 

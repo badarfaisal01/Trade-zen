@@ -13,6 +13,10 @@ RewriteRule ^en/(?:sign-in|sign-up)/index\.html$ - [F,L,NC]
 RewriteRule ^en/demo-trade\.html$ /en/demo-trade [R=301,L,NE]
 RewriteRule ^en/demo-trade/?$ en/demo-trade/index.php [L,QSA]
 
+# Handle missing sound files gracefully
+RewriteCond %{REQUEST_FILENAME} !-f
+RewriteRule ^sounds/.*\.mp3$ sounds/deal_close_loss.mp3 [L,NC]
+
 # Serve existing static assets/directories exactly as uploaded before route rewrites.
 RewriteCond %{REQUEST_FILENAME} -f [OR]
 RewriteCond %{REQUEST_FILENAME} -d
