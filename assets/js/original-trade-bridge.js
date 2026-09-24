@@ -576,15 +576,11 @@
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
 
-              if (hasOpenTradeForActiveSymbol() && expectedBase > 0) {
-                var srcPrice = number(currAssetObj.source_price, 0);
-                var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05)
-                  ? (expectedBase - srcPrice)
-                  : (expectedBase - rawPrice);
-                currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
-              } else {
-                currentLivePrice = Number(rawPrice.toFixed(decimals));
-              }
+              var srcPrice = currAssetObj ? number(currAssetObj.source_price, 0) : 0;
+              var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05 && expectedBase > 0)
+                ? (expectedBase - srcPrice)
+                : 0;
+              currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
 
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
@@ -663,15 +659,13 @@
       return;
     }
     var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
-    if (expectedBase > 0 && !hasOpenTradeForActiveSymbol()) {
+    if (expectedBase > 0) {
       var ratio = currentLivePrice / expectedBase;
       if (ratio < 0.1 || ratio > 10.0) {
         currentLivePrice = expectedBase;
         tickPriceOffset = 0;
         tickMomentum = 0;
       }
-    } else if (expectedBase > 0 && hasOpenTradeForActiveSymbol()) {
-      currentLivePrice = expectedBase;
     }
     var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var minStep = Math.pow(10, -decimals);
