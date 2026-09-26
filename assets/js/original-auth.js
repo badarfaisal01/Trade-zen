@@ -35,4 +35,10 @@
       el.textContent = 'Quotex secure access';
     }
   });
+
+  // Prevent browser native top/bottom PWA app installation prompt on mobile
+  window.addEventListener('beforeinstallprompt', event => {
+    event.preventDefault();
+  });
 })();
+

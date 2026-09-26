@@ -21,6 +21,14 @@
     }
   })();
 
+  // Prevent browser native PWA install prompt popup and dismiss app banner in trade room
+  window.addEventListener('beforeinstallprompt', function (e) {
+    e.preventDefault();
+  });
+  try {
+    localStorage.setItem('app_banner', String(Date.now()));
+  } catch (ignored) {}
+
   // Patch Highcharts Y-axis price scale to force step distance of 2 and close label spacing
   (function configureHighchartsYAxis() {
     function dynamicPriceTickPositioner(min, max) {

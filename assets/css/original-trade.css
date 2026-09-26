@@ -207,6 +207,16 @@ div[class*="TJbx1"] a img.original-custom-logo {
   }
 }
 
+/* Suppress top app download / PWA popup banners on mobile */
+[class*="pwa-banner"],
+[class*="pwa_banner"],
+[class*="app-banner"],
+[class*="app_banner"],
+[class*="SLNjw"],
+[class*="LZxc7"] {
+  display: none !important;
+}
+
 /* Admin-published trade-room banner (optional image). */
 .original-announcement-banner { position:fixed; z-index:2147483000; top:76px; left:50%; width:min(620px,calc(100vw - 28px)); display:grid; grid-template-columns:auto 1fr 32px; gap:12px; align-items:center; padding:10px 12px; transform:translateX(-50%); border:1px solid rgba(76,141,255,.28); border-radius:10px; color:#fff; background:rgba(28,34,49,.96); box-shadow:0 20px 60px rgba(0,0,0,.36); backdrop-filter:blur(14px); }
 .original-announcement-banner.is-success { border-color:rgba(15,175,89,.38); }

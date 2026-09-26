@@ -5104,24 +5104,17 @@ hr {
     }
 }
 
+/* Suppress top app download / PWA popup banners on mobile */
+[class*="pwa-banner"],
+[class*="pwa_banner"],
+[class*="app-banner"],
+[class*="app_banner"],
 .header__mobile-container__footer-download-apk {
-    background: linear-gradient(135deg, #1672ec 0%, #0d52b5 100%);
-    border-radius: 4px;
-    color: #fff !important;
-    font-size: 15px;
-    font-weight: 700;
-    padding: 12px 16px;
-    text-align: center;
-    display: flex;
-    align-items: center;
-    justify-content: center;
-    gap: 8px;
-    margin-bottom: 12px;
-    text-decoration: none !important;
+    display: none !important;
 }
 
+
 .floating-apk-btn {
-    display: none !important;
     position: fixed;
     top: 85px;
     right: 24px;
