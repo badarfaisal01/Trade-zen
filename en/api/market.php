@@ -10,8 +10,18 @@ $count = min(800, max(10, (int)($_GET['count'] ?? 240)));
 $includeCandles = (string)($_GET['history'] ?? '1') !== '0';
 $endMs = isset($_GET['endMs']) && is_numeric($_GET['endMs']) ? (int)$_GET['endMs'] : (isset($_GET['before']) && is_numeric($_GET['before']) ? (int)$_GET['before'] : null);
 
+$userId = (int)($_SESSION['user_id'] ?? 0);
+if ($userId <= 0 && function_exists('current_user')) {
+    try {
+        $u = current_user();
+        $userId = $u ? (int)($u['id'] ?? 0) : 0;
+    } catch (Throwable $ignored) {
+        $userId = 0;
+    }
+}
+
 try {
-    json_response(['ok' => true, 'data' => market_snapshot($symbol, $interval, $count, $includeCandles, $endMs)]);
+    json_response(['ok' => true, 'data' => market_snapshot($symbol, $interval, $count, $includeCandles, $endMs, $userId)]);
 } catch (InvalidArgumentException $exception) {
     json_response(['ok' => false, 'message' => $exception->getMessage()], 422);
 } catch (Throwable $exception) {

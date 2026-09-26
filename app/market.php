@@ -359,12 +359,12 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     return max(-$maxBias, min($maxBias, $bias));
 }
 
-function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false): float
+function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false, ?int $userId = null): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
 
     if (!$withoutBias) {
-        $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs);
+        $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs, $userId);
         if ($controlledPrice !== null) {
             return round($controlledPrice, $decimals);
         }
@@ -442,7 +442,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     return round($price, $decimals);
 }
 
-function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null): array
+function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null, ?int $userId = null): array
 {
     $intervalSeconds = max(1, min(86400, $intervalSeconds));
     $count = max(10, min(3000, $count));
@@ -454,6 +454,19 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $minStep = pow(10, -$decimals);
     $volatility = max(0.0001, (float)($asset['volatility'] ?? 0.002));
     $seed = (int)($asset['market_seed'] ?? 100);
+
+    $effectiveUserId = $userId;
+    if ($effectiveUserId === null) {
+        $effectiveUserId = (int)($_SESSION['user_id'] ?? 0);
+        if ($effectiveUserId <= 0 && function_exists('current_user')) {
+            try {
+                $u = current_user();
+                $effectiveUserId = $u ? (int)($u['id'] ?? 0) : 0;
+            } catch (Throwable $ignored) {
+                $effectiveUserId = 0;
+            }
+        }
+    }
 
     $binanceKlines = [];
 
@@ -567,8 +580,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     }
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
-                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t, null, false, $cOpen);
-                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd, null, false, $cClose);
+                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t, $effectiveUserId, false, $cOpen);
+                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd, $effectiveUserId, false, $cClose);
 
                     $cOpenR  = round($cOpen + $cBiasStart, $decimals);
                     $cCloseR = round($cClose + $cBiasEnd, $decimals);
@@ -1098,7 +1111,7 @@ function market_asset_payload(array $asset, ?int $nowMs = null, bool $resolveLiv
     ];
 }
 
-function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 800, bool $includeCandles = true, ?int $endMs = null): array
+function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 800, bool $includeCandles = true, ?int $endMs = null, ?int $userId = null): array
 {
     $asset = market_asset($symbol, false);
     if (!$asset) {
@@ -1124,6 +1137,19 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         ];
     }
 
+    $effectiveUserId = $userId;
+    if ($effectiveUserId === null) {
+        $effectiveUserId = (int)($_SESSION['user_id'] ?? 0);
+        if ($effectiveUserId <= 0 && function_exists('current_user')) {
+            try {
+                $u = current_user();
+                $effectiveUserId = $u ? (int)($u['id'] ?? 0) : 0;
+            } catch (Throwable $ignored) {
+                $effectiveUserId = 0;
+            }
+        }
+    }
+
     $nowMs = (int)floor(microtime(true) * 1000);
     $status = market_status($asset, $nowMs);
 
@@ -1145,7 +1171,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $targetEndMs = $status['isOpen'] ? ($endMs !== null && $endMs > 0 ? $endMs : $nowMs) : $status['closedAt'];
-    $targetPrice = $status['isOpen'] ? market_price_at($asset, $nowMs) : (float)$status['closedPrice'];
+    $targetPrice = $status['isOpen'] ? market_price_at($asset, $nowMs, false, $effectiveUserId) : (float)$status['closedPrice'];
     $assetWithTarget = array_merge($asset, [
         'closed_price' => $status['closedPrice'],
         'target_price' => $targetPrice,
@@ -1155,7 +1181,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     $candles = [];
     if ($includeCandles) {
         try {
-            $candles = market_candles($assetWithTarget, $intervalSeconds, $count, $targetEndMs);
+            $candles = market_candles($assetWithTarget, $intervalSeconds, $count, $targetEndMs, $effectiveUserId);
         } catch (Throwable $e) {
             error_log('Failed to generate candles for ' . $symbol . ': ' . $e->getMessage());
         }

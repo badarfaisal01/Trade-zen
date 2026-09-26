@@ -71,6 +71,9 @@ function trade_balance_from_user(array $user, ?string $accountType = null): floa
 
 function get_active_trading_control(int $userId, int $assetId): ?array
 {
+    if ($userId <= 0) {
+        return null;
+    }
     try {
         $stmt = db()->prepare(
             "SELECT id, asset_id, user_id, direction, win_rate
@@ -80,13 +83,13 @@ function get_active_trading_control(int $userId, int $assetId): ?array
                AND (asset_id IS NULL OR asset_id = 0 OR asset_id = ?)
                AND (user_id IS NULL OR user_id = 0 OR user_id = ?)
              ORDER BY
-               (asset_id IS NOT NULL AND asset_id != 0 AND user_id IS NOT NULL AND user_id != 0) DESC,
-               (user_id IS NOT NULL AND user_id != 0) DESC,
-               (asset_id IS NOT NULL AND asset_id != 0) DESC,
+               (asset_id IS NOT NULL AND asset_id != 0 AND user_id IS NOT NULL AND user_id != 0 AND user_id = ?) DESC,
+               (user_id IS NOT NULL AND user_id != 0 AND user_id = ?) DESC,
+               (asset_id IS NOT NULL AND asset_id != 0 AND (user_id IS NULL OR user_id = 0)) DESC,
                id DESC
              LIMIT 1"
         );
-        $stmt->execute([$assetId, $userId]);
+        $stmt->execute([$assetId, $userId, $userId, $userId]);
         return $stmt->fetch(PDO::FETCH_ASSOC) ?: null;
     } catch (Throwable $ignored) {
         // Table may not exist on fresh installs; fall through to natural settlement.
@@ -144,7 +147,7 @@ function settle_open_trades(int $userId): int
             // second-level precision). The settlement always anchors to this fixed
             // timestamp so the result is idempotent and cannot change on a retry.
             $expiryMs = (int)strtotime((string)$trade['expires_at']) * 1000;
-            $closePrice = market_price_at($asset, $expiryMs);
+            $closePrice = market_price_at($asset, $expiryMs, false, (int)$trade['user_id']);
             $entryPrice = (float)$trade['entry_price'];
             $tick = pow(10, -(int)$trade['decimal_places']);
             $difference = $closePrice - $entryPrice;
