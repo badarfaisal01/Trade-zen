@@ -207,7 +207,7 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
             $stmt = db()->prepare(
                 "SELECT id, user_id, asset_id, direction, entry_price, opened_at, expires_at 
                  FROM trades 
-                 WHERE user_id = ? AND asset_id = ? AND status = 'open' AND expires_at > NOW()
+                 WHERE user_id = ? AND asset_id = ? AND status = 'open' AND expires_at >= NOW() - INTERVAL 10 SECOND
                  ORDER BY id DESC"
             );
             $stmt->execute([$userId, $assetId]);
@@ -226,7 +226,7 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     $openedAtMs = (int)strtotime((string)$trade['opened_at']) * 1000;
     $expiresAtMs = (int)strtotime((string)$trade['expires_at']) * 1000;
 
-    if ($timestampMs < $openedAtMs - 1000 || $timestampMs > $expiresAtMs + 2000) {
+    if ($timestampMs < $openedAtMs - 1000 || $timestampMs > $expiresAtMs + 10000) {
         return 0.0;
     }
 
@@ -251,7 +251,7 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
         $basePrice = market_reference_price($asset);
     }
 
-    $margin = max($tick * 2.0, $basePrice * 0.00025);
+    $margin = max($tick * 3.0, $basePrice * 0.0004);
 
     if ($trade['direction'] === 'up') {
         $targetPrice = ($outcome === 'lost') ? ($entryPrice - $margin) : ($entryPrice + $margin);
@@ -447,33 +447,36 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                             $cClose = round(max($minStep, $trendClose + ($bOpen * $noise)), $decimals);
 
                             $subSpan = abs($cClose - $cOpen);
-                            $wick = max($minStep * 2.0, $subSpan * 0.4);
-                            $cHigh = round(max($cOpen, $cClose) + $wick, $decimals);
-                            $cLow  = round(max($minStep, min($cOpen, $cClose) - $wick), $decimals);
+                            $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
+                            $wick = max($minWick, $subSpan * 0.20);
 
-                            // Bound within minute extremes
-                            $cHigh = min(round(max($bHigh, $cOpen, $cClose), $decimals), $cHigh);
-                            $cLow  = max(round(min($bLow, $cOpen, $cClose), $decimals), $cLow);
+                            $cHigh = round(max($cOpen, $cClose, $bHigh > 0 ? $bHigh : 0) + $wick * 0.25, $decimals);
+                            $cLow  = round(max($minStep, min($cOpen, $cClose, $bLow > 0 ? $bLow : $cOpen) - $wick * 0.25), $decimals);
                         }
                     } else {
                         // Bucket missing (low volume gap): continuous micro-trend
                         $noiseVal = market_noise($seed, (int)($t / 1000));
                         $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
-                        $cHigh  = round(max($cOpen, $cClose) + $minStep * 3.0, $decimals);
-                        $cLow   = round(max($minStep, min($cOpen, $cClose) - $minStep * 3.0), $decimals);
+                        $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
+                        $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
+                        $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
                     }
 
-                    if ($cHigh <= $cLow) {
-                        $cHigh = round(max($cOpen, $cClose) + $minStep * 2, $decimals);
-                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minStep * 2), $decimals);
+                    $minSpan = max($minStep * 2.0, $cOpen * $volatility * 0.03);
+                    if (($cHigh - $cLow) < $minSpan) {
+                        $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.3, $decimals);
+                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.3), $decimals);
                     }
-
-                    $cOpenR  = round($cOpen, $decimals);
-                    $cHighR  = round(max($cHigh, $cOpenR, $cClose), $decimals);
-                    $cLowR   = round(min($cLow, $cOpenR, $cClose), $decimals);
-                    $cCloseR = round($cClose, $decimals);
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
+                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t);
+                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd);
+
+                    $cOpenR  = round($cOpen + $cBiasStart, $decimals);
+                    $cCloseR = round($cClose + $cBiasEnd, $decimals);
+                    $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
+                    $cLowR   = round(max($minStep, min($cLow + min($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR)), $decimals);
+
                     $isComplete = ($t + $intervalMs) <= $endMs;
 
                     $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
@@ -557,8 +560,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         $noiseUpper = abs(market_noise($seed + 99, (int)($time / 1000)));
         $noiseLower = abs(market_noise($seed + 101, (int)($time / 1000)));
 
-        $wickUpper = max(0.0, min($bodyHeight * 0.55, $bodyHeight * 0.22 * $noiseUpper + ($open * $vol * 0.05 * $noiseUpper)));
-        $wickLower = max(0.0, min($bodyHeight * 0.55, $bodyHeight * 0.22 * $noiseLower + ($open * $vol * 0.05 * $noiseLower)));
+        $wickUpper = max(0.0, min($bodyHeight * 0.25, $bodyHeight * 0.10 * $noiseUpper + ($open * $vol * 0.01 * $noiseUpper)));
+        $wickLower = max(0.0, min($bodyHeight * 0.25, $bodyHeight * 0.10 * $noiseLower + ($open * $vol * 0.01 * $noiseLower)));
 
         $high = round(max($open, $close) + $wickUpper, $decimals);
         $low  = round(max($minStep, min($open, $close) - $wickLower), $decimals);

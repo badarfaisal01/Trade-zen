@@ -575,10 +575,10 @@
                 }
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
-
               var srcPrice = currAssetObj ? number(currAssetObj.source_price, 0) : 0;
-              var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05 && expectedBase > 0)
-                ? (expectedBase - srcPrice)
+              var refPrice = expectedBase > 0 ? expectedBase : (srcPrice > 0 ? srcPrice : 0);
+              var offset = (refPrice > 0 && Math.abs(rawPrice - refPrice) / refPrice < 0.05)
+                ? (refPrice - rawPrice)
                 : 0;
               currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
 
@@ -1361,9 +1361,14 @@
     candles.forEach(function (candle, cIndex) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
 
-      // Fill provider intervals with no trades so the chart remains visually continuous.
       var candleStart = number(candle.time, 0) / 1000;
       if (isFinite(previousStamp) && isFinite(previousPrice) && isFinite(candleStart)) {
+        var targetPrice = (denseTicks.length && Array.isArray(denseTicks[0]) && isFinite(number(denseTicks[0][1], NaN)))
+          ? number(denseTicks[0][1], previousPrice)
+          : number(candle.open, previousPrice);
+        var totalSpan = Math.max(0.001, candleStart - previousStamp);
+        var gapStartStamp = previousStamp;
+
         var nextStamp = previousStamp + 0.001;
         while (nextStamp + (safePeriod * 0.5) < candleStart) {
           var syntheticEnd = Math.min(candleStart, nextStamp + safePeriod);
@@ -1372,7 +1377,9 @@
             var syntheticStamp = Number((nextStamp + offset).toFixed(3));
             if (syntheticStamp > previousStamp) {
               previousStamp = syntheticStamp;
-              history.push([previousStamp, previousPrice, ++count]);
+              var progress = Math.min(1.0, Math.max(0.0, (previousStamp - gapStartStamp) / totalSpan));
+              var interpPrice = Number((previousPrice + (targetPrice - previousPrice) * progress).toFixed(number(currentAssetObj ? currentAssetObj.decimals : 2, 2)));
+              history.push([previousStamp, interpPrice, ++count]);
             }
           });
           nextStamp += safePeriod;

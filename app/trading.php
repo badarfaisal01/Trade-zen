@@ -77,12 +77,12 @@ function get_active_trading_control(int $userId, int $assetId): ?array
              FROM trading_controls
              WHERE is_active = 1
                AND (expires_at IS NULL OR expires_at > NOW())
-               AND (asset_id IS NULL OR asset_id = ?)
-               AND (user_id IS NULL OR user_id = ?)
+               AND (asset_id IS NULL OR asset_id = 0 OR asset_id = ?)
+               AND (user_id IS NULL OR user_id = 0 OR user_id = ?)
              ORDER BY
-               (asset_id IS NOT NULL AND user_id IS NOT NULL) DESC,
-               (user_id IS NOT NULL) DESC,
-               (asset_id IS NOT NULL) DESC,
+               (asset_id IS NOT NULL AND asset_id != 0 AND user_id IS NOT NULL AND user_id != 0) DESC,
+               (user_id IS NOT NULL AND user_id != 0) DESC,
+               (asset_id IS NOT NULL AND asset_id != 0) DESC,
                id DESC
              LIMIT 1"
         );
