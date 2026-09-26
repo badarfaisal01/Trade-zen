@@ -383,6 +383,102 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
     });
 }
 
+function sell_trade(int $userId, string $tradePublicId): array
+{
+    $tradePublicId = trim($tradePublicId);
+    if ($tradePublicId === '') {
+        throw new InvalidArgumentException('Trade ID is required.');
+    }
+
+    settle_open_trades($userId);
+
+    return db_transaction(function (PDO $pdo) use ($userId, $tradePublicId): array {
+        $stmt = $pdo->prepare("SELECT t.*, a.symbol, a.display_name, a.decimal_places, a.volatility, a.base_price, a.price_source, a.api_symbol, c.price source_price FROM trades t JOIN market_assets a ON a.id = t.asset_id LEFT JOIN market_price_cache c ON c.asset_id = a.id WHERE (t.public_id = ? OR CAST(t.id AS CHAR) = ?) AND t.user_id = ? FOR UPDATE");
+        $stmt->execute([$tradePublicId, $tradePublicId, $userId]);
+        $trade = $stmt->fetch(PDO::FETCH_ASSOC);
+
+        if (!$trade) {
+            throw new InvalidArgumentException('Trade not found.');
+        }
+
+        if ($trade['status'] !== 'open') {
+            throw new RuntimeException('This trade is already closed.');
+        }
+
+        $nowMs = (int)floor(microtime(true) * 1000);
+        $openedAtMs = (int)strtotime((string)$trade['opened_at']) * 1000;
+        $expiresAtMs = (int)strtotime((string)$trade['expires_at']) * 1000;
+
+        if ($nowMs >= $expiresAtMs) {
+            throw new RuntimeException('Trade expiration reached.');
+        }
+
+        $asset = [
+            'id' => (int)$trade['asset_id'],
+            'symbol' => $trade['symbol'],
+            'display_name' => $trade['display_name'],
+            'decimal_places' => $trade['decimal_places'],
+            'volatility' => $trade['volatility'],
+            'base_price' => $trade['base_price'],
+            'price_source' => $trade['price_source'],
+            'api_symbol' => $trade['api_symbol'],
+            'source_price' => $trade['source_price'],
+        ];
+
+        $closePrice = market_price_at($asset, $nowMs);
+        $entryPrice = (float)$trade['entry_price'];
+        $amount = (float)$trade['amount'];
+        $payout = (float)$trade['payout_percent'];
+
+        $totalDurationMs = max(1000, $expiresAtMs - $openedAtMs);
+        $remainingMs = max(0, $expiresAtMs - $nowMs);
+        $remainingRatio = $remainingMs / (float)$totalDurationMs;
+
+        $diff = $closePrice - $entryPrice;
+        $isFavored = ($trade['direction'] === 'up' && $diff > 0) || ($trade['direction'] === 'down' && $diff < 0);
+
+        if ($isFavored) {
+            $potentialProfit = $amount * ($payout / 100.0);
+            $sellPrice = $amount + ($potentialProfit * (1.0 - ($remainingRatio * 0.4)));
+        } else {
+            $sellPrice = $amount * max(0.15, min(0.80, $remainingRatio * 0.85));
+        }
+
+        $sellPrice = round(max(0.01, $sellPrice), 2);
+        $profitLoss = round($sellPrice - $amount, 2);
+
+        $accountType = ($trade['account_type'] ?? 'live') === 'demo' ? 'demo' : 'live';
+        $balanceColumn = trade_balance_column($accountType);
+
+        $userStmt = $pdo->prepare('SELECT `' . $balanceColumn . '` FROM users WHERE id = ? FOR UPDATE');
+        $userStmt->execute([$userId]);
+        $before = (float)$userStmt->fetchColumn();
+        $after = round($before + $sellPrice, 2);
+
+        $updateBalance = $pdo->prepare('UPDATE users SET `' . $balanceColumn . '` = ?, updated_at = NOW() WHERE id = ?');
+        $updateBalance->execute([$after, $userId]);
+
+        $ledger = $pdo->prepare('INSERT INTO wallet_transactions (user_id, account_type, transaction_type, amount, balance_before, balance_after, reference_type, reference_id, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
+        $ledger->execute([$userId, $accountType, 'trade_win', $sellPrice, $before, $after, 'trade', (int)$trade['id'], 'Early trade sale refund']);
+
+        $update = $pdo->prepare('UPDATE trades SET close_price = ?, status = "closed", profit_loss = ?, balance_after = ?, settled_at = NOW(), updated_at = NOW() WHERE id = ?');
+        $update->execute([$closePrice, $profitLoss, $after, (int)$trade['id']]);
+
+        $updatedTrade = array_merge($trade, [
+            'close_price' => $closePrice,
+            'status' => 'closed',
+            'profit_loss' => $profitLoss,
+            'settled_at' => date('Y-m-d H:i:s'),
+        ]);
+
+        $payload = trade_payload($updatedTrade);
+        $payload['balance'] = $after;
+        $payload['refundAmount'] = $sellPrice;
+
+        return $payload;
+    });
+}
+
 function user_trade_state(int $userId, int $recentLimit = 15): array
 {
     settle_open_trades($userId);

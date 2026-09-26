@@ -15,6 +15,14 @@ if (!session_rate_limit('trade:' . (int)$user['id'], 20, 60)) {
 
 $data = request_data();
 try {
+    $action = strtolower(trim((string)($data['action'] ?? '')));
+    $tradeId = trim((string)($data['tradeId'] ?? $data['id'] ?? $data['public_id'] ?? ''));
+
+    if ($action === 'sell' || $action === 'cancel' || $action === 'close' || ($tradeId !== '' && empty($data['direction']))) {
+        $result = sell_trade((int)$user['id'], $tradeId);
+        json_response(['ok' => true, 'message' => 'Trade sold successfully.', 'data' => $result], 200);
+    }
+
     $requestedAccount = strtolower(trim((string)($data['account'] ?? trade_account_type())));
     set_trade_account_type($requestedAccount, (int)$user['id']);
     $targetCloseTime = isset($data['targetCloseTime']) && is_numeric($data['targetCloseTime']) && (int)$data['targetCloseTime'] > 0

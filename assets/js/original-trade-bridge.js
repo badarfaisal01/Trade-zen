@@ -2127,7 +2127,34 @@
       socket.binaryEvent('s_chart_notification/get', {list: []});
       return;
     }
-    if (event.indexOf('double') !== -1 || event.indexOf('sell') !== -1 || event === 'orders/close') {
+    function closeOrSellTrade(targetSocket, reqEvent, reqPayload) {
+      var tradeId = String((reqPayload && (reqPayload.id || reqPayload.orderId || reqPayload.dealId || reqPayload.tradeId || reqPayload.public_id)) || '').trim();
+      if (!tradeId) {
+        showNotice('Trade ID is missing.', true);
+        return;
+      }
+
+      jsonRequest('/en/api/trade.php', {
+        method: 'POST',
+        body: JSON.stringify({ action: 'sell', tradeId: tradeId })
+      }).then(function () {
+        showNotice('Trade sold successfully!', 'success');
+        refreshState(true).then(function () {
+          emitTradeLists(targetSocket);
+          if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
+            targetSocket.binaryEvent('s_balance/list', balancePayload());
+          }
+        });
+      }).catch(function (err) {
+        showNotice(err && err.message ? err.message : 'Could not sell trade.', true);
+      });
+    }
+
+    if (event === 'orders/cancel' || event === 'orders/close' || event === 'orders/sell' || event === 'deals/cancel' || event === 'deals/close' || event === 'deals/sell' || (typeof event === 'string' && (event.indexOf('cancel') !== -1 || event.indexOf('sell') !== -1))) {
+      closeOrSellTrade(socket, event, payload);
+      return;
+    }
+    if (event.indexOf('double') !== -1) {
       socket.event('error', {error: 'action_unavailable', message: 'This action is currently unavailable.'});
       showNotice('This action is currently unavailable.', true);
     }
