@@ -149,52 +149,6 @@
       hc._tradeScalePatchedV7 = true;
 
       try {
-        if (hc.seriesTypes && hc.seriesTypes.candlestick && hc.seriesTypes.candlestick.prototype) {
-          var origCandlestickDrawPoints = hc.seriesTypes.candlestick.prototype.drawPoints;
-          hc.seriesTypes.candlestick.prototype.drawPoints = function () {
-            var series = this;
-            if (series && series.points && Array.isArray(series.points)) {
-              series.points.forEach(function (r) {
-                if (r && void 0 !== r.plotY && r.plotOpen !== undefined && r.plotClose !== undefined) {
-                  var diff = Math.abs(r.plotOpen - r.plotClose);
-                  if (diff < 3.0) {
-                    var center = (r.plotOpen + r.plotClose) / 2;
-                    r.plotOpen = center - 1.5;
-                    r.plotClose = center + 1.5;
-                  }
-                  if (r.shapeArgs && r.shapeArgs.width !== undefined && r.shapeArgs.width < 8) {
-                    r.shapeArgs.width = Math.max(r.shapeArgs.width, 8);
-                  }
-                }
-              });
-            }
-            return origCandlestickDrawPoints.apply(this, arguments);
-          };
-        }
-
-        if (hc.seriesTypes && hc.seriesTypes.ohlc && hc.seriesTypes.ohlc.prototype) {
-          var origOhlcDrawPoints = hc.seriesTypes.ohlc.prototype.drawPoints;
-          hc.seriesTypes.ohlc.prototype.drawPoints = function () {
-            var series = this;
-            if (series && series.points && Array.isArray(series.points)) {
-              series.points.forEach(function (r) {
-                if (r && void 0 !== r.plotY && r.plotOpen !== undefined && r.plotClose !== undefined) {
-                  var diff = Math.abs(r.plotOpen - r.plotClose);
-                  if (diff < 3.0) {
-                    var center = (r.plotOpen + r.plotClose) / 2;
-                    r.plotOpen = center - 1.5;
-                    r.plotClose = center + 1.5;
-                  }
-                  if (r.shapeArgs && r.shapeArgs.width !== undefined && r.shapeArgs.width < 8) {
-                    r.shapeArgs.width = Math.max(r.shapeArgs.width, 8);
-                  }
-                }
-              });
-            }
-            return origOhlcDrawPoints.apply(this, arguments);
-          };
-        }
-
         var isMobile = window.innerWidth <= 800;
 
         if (hc.setOptions) {

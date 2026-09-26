@@ -88,14 +88,6 @@ div[class*="TJbx1"] a img.original-custom-logo {
   stroke-width: 1px !important;
 }
 
-/* Candlestick & Flat Bar Broadening */
-.highcharts-candlestick-series .highcharts-point,
-.highcharts-ohlc-series .highcharts-point {
-  stroke-width: 1.5px !important;
-  stroke-linejoin: round !important;
-  stroke-linecap: round !important;
-}
-
 @media (max-width: 800px) {
   .highcharts-yaxis-labels {
     transform: translateX(42px) !important;
