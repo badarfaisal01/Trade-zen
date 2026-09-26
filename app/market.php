@@ -573,6 +573,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $cOpenR  = round($cOpen + $cBiasStart, $decimals);
                     $cCloseR = round($cClose + $cBiasEnd, $decimals);
 
+                    if (abs($cCloseR - $cOpenR) < $minStep) {
+                        $noiseDir = market_noise($seed + 55, (int)($t / 1000));
+                        $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minStep : max($minStep, $cOpenR - $minStep), $decimals);
+                    }
+
                     $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
                     $cLowR   = round(max($minStep, min($cLow + min($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR)), $decimals);
 
