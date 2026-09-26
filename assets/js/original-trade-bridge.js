@@ -563,6 +563,9 @@
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
+              if (hasOpenTradeForActiveSymbol()) {
+                return; // Active trade in progress under control: ignore external raw ticks
+              }
               var currAssetObj = findAsset(activeSymbol);
               if (!isAssetActive(currAssetObj)) {
                 return;
@@ -575,12 +578,7 @@
                 }
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
-              var srcPrice = currAssetObj ? number(currAssetObj.source_price, 0) : 0;
-              var refPrice = expectedBase > 0 ? expectedBase : (srcPrice > 0 ? srcPrice : 0);
-              var offset = (refPrice > 0 && Math.abs(rawPrice - refPrice) / refPrice < 0.05)
-                ? (refPrice - rawPrice)
-                : 0;
-              currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
+              currentLivePrice = Number(rawPrice.toFixed(decimals));
 
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
