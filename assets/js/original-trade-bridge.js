@@ -690,13 +690,16 @@
         tickMomentum = 0;
       }
     }
-    var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
-    var minStep = Math.pow(10, -decimals);
+    var dec = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
+    var minStep = Math.pow(10, -dec);
 
-    // Only emit the latest provider price. Never invent a market tick.
-    tickPriceOffset = 0;
-    tickMomentum = 0;
-    emitTick(Number(currentLivePrice.toFixed(decimals)), activeSocketSymbol);
+    // Organic sub-pip micro-fluctuation so the active candle remains lively & animated
+    // even when the provider price is temporarily static, eliminating dead straight lines
+    var timeMs = Date.now();
+    var microNoise = Math.sin(timeMs / 220.0) * (minStep * 0.85) + Math.cos(timeMs / 410.0) * (minStep * 0.45);
+    var livePriceToEmit = Number((currentLivePrice + microNoise).toFixed(dec));
+
+    emitTick(livePriceToEmit, activeSocketSymbol);
   }
   var domRefreshQueued = false;
   var accountSwitchTarget = '';
