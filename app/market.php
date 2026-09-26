@@ -213,7 +213,7 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
                  FROM trades 
                  WHERE user_id = ? AND asset_id = ? 
                    AND opened_at <= ? AND expires_at >= ?
-                 ORDER BY expires_at DESC, id DESC"
+                 ORDER BY expires_at ASC, id ASC"
             );
             $stmt->execute([$userId, $assetId, $timeStr, $decayStartStr]);
             $tradesCache[$cacheKey] = $stmt->fetchAll(PDO::FETCH_ASSOC) ?: [];
