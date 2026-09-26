@@ -149,6 +149,31 @@
       hc._tradeScalePatchedV7 = true;
 
       try {
+        if (hc.seriesTypes && hc.seriesTypes.candlestick && hc.seriesTypes.candlestick.prototype) {
+          var origCandlestickDrawPoints = hc.seriesTypes.candlestick.prototype.drawPoints;
+          hc.seriesTypes.candlestick.prototype.drawPoints = function () {
+            var series = this;
+            if (series && series.points && Array.isArray(series.points)) {
+              series.points.forEach(function (r) {
+                if (r && void 0 !== r.plotY && r.plotOpen !== undefined && r.plotClose !== undefined) {
+                  var diff = Math.abs(r.plotOpen - r.plotClose);
+                  if (diff < 3.0) {
+                    var mid = (r.plotOpen + r.plotClose) / 2;
+                    if (r.plotOpen >= r.plotClose) {
+                      r.plotOpen = mid + 1.5;
+                      r.plotClose = mid - 1.5;
+                    } else {
+                      r.plotOpen = mid - 1.5;
+                      r.plotClose = mid + 1.5;
+                    }
+                  }
+                }
+              });
+            }
+            return origCandlestickDrawPoints.apply(this, arguments);
+          };
+        }
+
         var isMobile = window.innerWidth <= 800;
 
         if (hc.setOptions) {
