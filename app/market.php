@@ -335,14 +335,28 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
     }
 }
 
-function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false): float
+function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userId = null, bool $fresh = false, ?float $unbiasedBasePrice = null): float
 {
     $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs, $userId, $fresh);
     if ($controlledPrice === null) {
         return 0.0;
     }
-    $rawRealPrice = market_price_at($asset, $timestampMs, true);
-    return $controlledPrice - $rawRealPrice;
+    $rawRealPrice = ($unbiasedBasePrice !== null && $unbiasedBasePrice > 0)
+        ? $unbiasedBasePrice
+        : market_price_at($asset, $timestampMs, true);
+
+    if ($rawRealPrice <= 0) {
+        return 0.0;
+    }
+
+    $bias = $controlledPrice - $rawRealPrice;
+
+    // Safety Clamp: Trade steering is designed for subtle tight margins (max +/- 0.005 of asset price or +/- 50 ticks)
+    $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
+    $tick = pow(10, -$decimals);
+    $maxBias = max($tick * 50.0, $rawRealPrice * 0.005);
+
+    return max(-$maxBias, min($maxBias, $bias));
 }
 
 function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false): float
@@ -360,9 +374,9 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
-    if (!market_is_currency($asset) && $isLive && ($source === 'api' || $source === 'binance')) {
+    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
-        if ($symbol !== '') {
+        if ($isLive && $symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
@@ -375,7 +389,9 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
         if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
             return round((float)$asset['source_price'], $decimals);
         }
-        return 0.0;
+        if (isset($asset['base_price']) && (float)$asset['base_price'] > 0) {
+            return round((float)$asset['base_price'], $decimals);
+        }
     }
 
     $minStep = pow(10, -$decimals);
@@ -551,8 +567,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     }
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
-                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t);
-                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd);
+                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t, null, false, $cOpen);
+                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd, null, false, $cClose);
 
                     $cOpenR  = round($cOpen + $cBiasStart, $decimals);
                     $cCloseR = round($cClose + $cBiasEnd, $decimals);
