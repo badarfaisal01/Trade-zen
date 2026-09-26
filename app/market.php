@@ -406,7 +406,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $ratio = ($waveTotal + ($noise * 0.40)) * $volatility * 2.2;
     $price = max($base * 0.1, $base * (1.0 + $ratio));
 
-    return round($price + $bias, $decimals);
+    return round($price, $decimals);
 }
 
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null): array
