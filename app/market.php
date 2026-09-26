@@ -573,9 +573,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $cOpenR  = round($cOpen + $cBiasStart, $decimals);
                     $cCloseR = round($cClose + $cBiasEnd, $decimals);
 
-                    if (abs($cCloseR - $cOpenR) < $minStep) {
+                    $minBody = max($minStep * 3.0, $cOpen * 0.00004);
+                    if (abs($cCloseR - $cOpenR) < $minBody) {
                         $noiseDir = market_noise($seed + 55, (int)($t / 1000));
-                        $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minStep : max($minStep, $cOpenR - $minStep), $decimals);
+                        $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minBody : max($minStep, $cOpenR - $minBody), $decimals);
                     }
 
                     $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
@@ -653,10 +654,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         $open = ($i === 0) ? round(market_price_at($asset, $time, true) + $priceOffset, $decimals) : $candles[$i - 1]['close'];
         $close = ($i === $count - 1) ? $targetPrice : round(market_price_at($asset, $candleEndMs, true) + $priceOffset, $decimals);
 
+        $minBody = max($minStep * 3.0, $open * 0.00004);
         // Ensure visible candle body with directional movement
-        if (abs($close - $open) < $minStep) {
+        if (abs($close - $open) < $minBody) {
             $noiseDir = market_noise($seed + 55, (int)($time / 1000));
-            $close = round($noiseDir >= 0 ? $open + $minStep : max($minStep, $open - $minStep), $decimals);
+            $close = round($noiseDir >= 0 ? $open + $minBody : max($minStep, $open - $minBody), $decimals);
         }
 
         // Elegant, natural candle wicks: distinct upper and lower shadows, crisp and realistic
