@@ -94,6 +94,8 @@ function run_auto_migrations(): void
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
+    $pdo->exec("UPDATE market_assets SET price_source='binance' WHERE LOWER(category)='crypto'");
+    $pdo->exec("UPDATE market_assets SET api_symbol=CONCAT(REPLACE(symbol, 'USD', ''), 'USDT') WHERE LOWER(category)='crypto' AND (api_symbol IS NULL OR api_symbol='' OR api_symbol=symbol)");
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
     $check->execute([$targetVersion]);
     if ((int)$check->fetchColumn() > 0) {

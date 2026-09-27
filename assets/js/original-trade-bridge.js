@@ -551,8 +551,19 @@
       'NVDA': 'nvdabusdt',
       'NVDABUSDT': 'nvdabusdt',
 
-    };
-    return map[clean] || '';
+    if (map[clean]) return map[clean];
+
+    var assetObj = findAsset(clean);
+    var category = assetObj && assetObj.category ? String(assetObj.category).toLowerCase() : '';
+    if (category === 'crypto' || clean.indexOf('USDT') !== -1 || (clean.length > 3 && clean.endsWith('USD'))) {
+      if (clean.endsWith('USDT')) {
+        return clean.toLowerCase();
+      }
+      if (clean.endsWith('USD')) {
+        return clean.slice(0, -3).toLowerCase() + 'usdt';
+      }
+    }
+    return '';
   }
 
   var currentBinanceStream = '';
