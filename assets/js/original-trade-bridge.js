@@ -828,6 +828,7 @@
     if (embAsset.symbol) {
       activeSymbol = plainSymbol(embAsset.symbol);
       activeSocketSymbol = socketSymbol(activeSymbol);
+      snapshotCache[activeSymbol + '_' + activePeriod] = embeddedSnapshot;
     }
     if (number(embAsset.price, 0) > 0) {
       currentLivePrice = number(embAsset.price, 0);
@@ -2127,14 +2128,19 @@
       }
 
       var currentSnapSymbol = marketSnapshot && marketSnapshot.asset ? plainSymbol(marketSnapshot.asset.symbol) : '';
-      var hasFullCandles = marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length >= 200;
-      if (!marketSnapshot || currentSnapSymbol !== activeSymbol || !hasFullCandles) {
-        refreshMarket(true, socket, chartHistoryCount);
-      } else {
+      var isMatchingSymbol = currentSnapSymbol === activeSymbol;
+      var hasCandles = marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0;
+
+      if (hasCandles && isMatchingSymbol) {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
+      }
+
+      var hasFullCandles = hasCandles && marketSnapshot.candles.length >= 200;
+      if (!marketSnapshot || !isMatchingSymbol || !hasFullCandles) {
+        refreshMarket(!hasCandles || !isMatchingSymbol, socket, chartHistoryCount);
       }
       return;
     }
