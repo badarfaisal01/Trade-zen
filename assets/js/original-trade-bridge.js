@@ -1941,8 +1941,15 @@
       firstState = false;
       lastStateSignature = '';
       scheduleDomRefresh();
+      if (!marketSnapshot || !Array.isArray(marketSnapshot.candles) || !marketSnapshot.candles.length) {
+        window.setTimeout(function () { refreshMarket(true, socket); }, 1200);
+      }
     }).catch(function (error) {
       showNotice('Connection is slow. The trading screen is ready and live data will retry automatically.', 'warning', 5000);
+      window.setTimeout(function () {
+        refreshMarket(true, socket);
+        refreshState(true);
+      }, 1500);
       return error;
     }).then(function (result) {
       marketRequestRunning = false;
