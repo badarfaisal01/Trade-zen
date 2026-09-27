@@ -942,7 +942,18 @@ function market_status(array $asset, ?int $nowMs = null): array
 
     $displayName = (string)($asset['display_name'] ?? '');
     $isOtc = (stripos($symbol, 'OTC') !== false || stripos($displayName, 'OTC') !== false || $category === 'otc' || stripos($category, 'otc') !== false);
-    $isCrypto = ($category === 'crypto' || $category === 'cryptocurrency' || stripos($symbol, 'BTC') !== false || stripos($symbol, 'ETH') !== false || stripos($symbol, 'SOL') !== false || stripos($symbol, 'DOGE') !== false || stripos($symbol, 'XRP') !== false || stripos($symbol, 'BNB') !== false);
+    $isCrypto = (
+        stripos($category, 'crypto') !== false ||
+        stripos($symbol, 'BTC') !== false ||
+        stripos($symbol, 'ETH') !== false ||
+        stripos($symbol, 'SOL') !== false ||
+        stripos($symbol, 'DOGE') !== false ||
+        stripos($symbol, 'XRP') !== false ||
+        stripos($symbol, 'BNB') !== false ||
+        stripos($symbol, 'BITCOIN') !== false ||
+        stripos($displayName, 'Bitcoin') !== false ||
+        stripos($displayName, 'Crypto') !== false
+    );
 
     // Crypto and OTC assets trade 24/7
     if ($isOtc || $isCrypto) {
