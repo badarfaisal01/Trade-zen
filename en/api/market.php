@@ -6,9 +6,14 @@ session_write_close();
 
 $symbol = strtoupper(trim((string)($_GET['symbol'] ?? 'EURUSD')));
 $interval = (int)($_GET['interval'] ?? 5);
-$count = min(800, max(10, (int)($_GET['count'] ?? 240)));
+$count = min(800, max(400, (int)($_GET['count'] ?? 800)));
 $includeCandles = (string)($_GET['history'] ?? '1') !== '0';
 $endMs = isset($_GET['endMs']) && is_numeric($_GET['endMs']) ? (int)$_GET['endMs'] : (isset($_GET['before']) && is_numeric($_GET['before']) ? (int)$_GET['before'] : null);
+
+$nowMs = (int)floor(microtime(true) * 1000);
+if ($endMs !== null && ($nowMs - $endMs) < 600000 && !isset($_GET['before'])) {
+    $endMs = null;
+}
 
 $userId = (int)($_SESSION['user_id'] ?? 0);
 if ($userId <= 0 && function_exists('current_user')) {
