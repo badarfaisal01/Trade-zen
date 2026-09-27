@@ -456,8 +456,12 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null, ?int $userId = null): array
 {
     $intervalSeconds = max(1, min(86400, $intervalSeconds));
-    $count = max(10, min(3000, $count));
-    $endMs = $endMs ?? ((int)floor(microtime(true) * 1000));
+    $count = max(400, min(3000, $count));
+    $now = (int)floor(microtime(true) * 1000);
+    if ($endMs !== null && ($now - $endMs) < 600000 && !isset($_GET['before'])) {
+        $endMs = $now;
+    }
+    $endMs = $endMs ?? $now;
     $decimals = max(0, min(8, (int)$asset['decimal_places']));
     $source = $asset['price_source'] ?? 'internal';
     $apiSymbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
@@ -1289,7 +1293,14 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $assets[] = market_asset_payload($asset, $nowMs);
     }
 
-    $targetEndMs = $status['isOpen'] ? ($endMs !== null && $endMs > 0 ? $endMs : $nowMs) : $status['closedAt'];
+    if ($status['isOpen']) {
+        if ($endMs !== null && ($nowMs - $endMs) < 600000 && !isset($_GET['before'])) {
+            $endMs = null;
+        }
+        $targetEndMs = ($endMs !== null && $endMs > 0) ? $endMs : $nowMs;
+    } else {
+        $targetEndMs = $status['closedAt'];
+    }
     $targetPrice = $status['isOpen'] ? market_price_at($asset, $nowMs, false, $effectiveUserId) : (float)$status['closedPrice'];
     $assetWithTarget = array_merge($asset, [
         'closed_price' => $status['closedPrice'],
