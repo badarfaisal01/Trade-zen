@@ -612,10 +612,13 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
                     }
 
-                    $minSpan = max($minStep * 2.0, $cOpen * $volatility * 0.03);
-                    if (($cHigh - $cLow) < $minSpan) {
-                        $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.3, $decimals);
-                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.3), $decimals);
+                    // Only enforce artificial minSpan wick expansion when real market data is missing
+                    if (!$hasRealKline) {
+                        $minSpan = max($minStep * 2.0, $cOpen * $volatility * 0.03);
+                        if (($cHigh - $cLow) < $minSpan) {
+                            $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.3, $decimals);
+                            $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.3), $decimals);
+                        }
                     }
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
