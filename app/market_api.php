@@ -204,8 +204,8 @@ function finnhub_request(string $path, array $params, ?string $apiKey = null): a
     $params['token'] = $apiKey;
     $ch = curl_init('https://finnhub.io/api/v1/' . ltrim($path, '/') . '?' . http_build_query($params));
     curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 5);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 15);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 3);
     curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, true);
     curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
     $response = curl_exec($ch);

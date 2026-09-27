@@ -77,6 +77,12 @@ function migration_release_lock(PDO $pdo, array $lock): void
 
 function run_auto_migrations(): void
 {
+    $targetVersion = '4.8.0';
+    $flagFile = BASE_PATH . '/storage/cache/schema-' . $targetVersion . '.flag';
+    if (file_exists($flagFile)) {
+        return;
+    }
+
     $pdo = db();
     foreach ([BASE_PATH . '/storage/cache', BASE_PATH . '/storage/logs', BASE_PATH . '/storage/payment-proofs', BASE_PATH . '/storage/payment-methods', BASE_PATH . '/storage/avatars', BASE_PATH . '/storage/announcements', BASE_PATH . '/storage/site-assets'] as $directory) {
         if (!is_dir($directory) && !mkdir($directory, 0750, true) && !is_dir($directory)) {
@@ -88,10 +94,10 @@ function run_auto_migrations(): void
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
-    $targetVersion = '4.8.0';
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
     $check->execute([$targetVersion]);
     if ((int)$check->fetchColumn() > 0) {
+        @file_put_contents($flagFile, date('c'));
         return;
     }
 
@@ -444,6 +450,8 @@ function run_auto_migrations(): void
         $insert = $pdo->prepare('INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES (?, NOW())');
         $insert->execute(['4.6.0']);
         $insert->execute(['4.7.0']);
+        $insert->execute(['4.8.0']);
+        @file_put_contents($flagFile, date('c'));
     } finally {
         migration_release_lock($pdo, $migrationLock);
     }
