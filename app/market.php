@@ -568,7 +568,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
                         if (!empty($matchingKlines)) {
                             $hasRealKline = true;
-                            $cOpen       = (float)$matchingKlines[0]['open'];
+                            if ($t === $targetStartBucket || $prevClose <= 0) {
+                                $cOpen = (float)$matchingKlines[0]['open'];
+                            } else {
+                                $cOpen = $prevClose;
+                            }
                             $targetClose = (float)$matchingKlines[count($matchingKlines) - 1]['close'];
 
                             $targetHigh = (float)$matchingKlines[0]['high'];
@@ -604,7 +608,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                             if ($bKey !== null && isset($bMap[$bKey])) {
                                 $hasRealKline = true;
                                 $bKline = $bMap[$bKey];
-                                $cOpen       = (float)$bKline['open'];
+                                if ($t === $targetStartBucket || $prevClose <= 0) {
+                                    $cOpen = (float)$bKline['open'];
+                                } else {
+                                    $cOpen = $prevClose;
+                                }
                                 $targetClose = (float)$bKline['close'];
                                 $targetHigh  = (float)$bKline['high'];
                                 $targetLow   = (float)$bKline['low'];
@@ -647,8 +655,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                             $bOpen  = (float)$bKline['open'];
 
                             $secInMin = (int)(($t - $bKey) / 1000) % 60;
-                            if ($t === $targetStartBucket || $secInMin === 0) {
+                            if ($t === $targetStartBucket || $prevClose <= 0) {
                                 $cOpen = $bOpen;
+                            } else {
+                                $cOpen = $prevClose;
                             }
 
                             $bClose = (float)$bKline['close'];
