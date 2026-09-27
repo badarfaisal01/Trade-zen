@@ -426,7 +426,7 @@
   var activePeriod = 60;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
-  var chartHistoryCount = Math.max(60, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '240'), 240))));
+  var chartHistoryCount = Math.max(400, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '800'), 800))));
   var marketPollIntervalMs = Math.max(1000, Math.min(5000, Math.floor(number(meta('trade-quote-poll-ms', '1500'), 1500))));
   var marketRequestRunning = false;
   var stateRequestRunning = false;
@@ -443,6 +443,54 @@
   var tickPriceOffset = 0;
   var tickMomentum = 0;
   var tickNumber = 1;
+
+  var chartLoaderTimer = null;
+  function showChartLoader() {
+    try {
+      var loader = document.getElementById('tradeChartLoader');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'tradeChartLoader';
+        loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.78);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.25s ease, visibility 0.25s ease;';
+        loader.innerHTML = '<div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:12px;"></div>' +
+                           '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;">Loading market chart...</span>' +
+                           '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+      }
+      var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
+      if (parent && loader.parentElement !== parent) {
+        var compStyle = window.getComputedStyle(parent);
+        if (compStyle.position === 'static') {
+          parent.style.position = 'relative';
+        }
+        parent.appendChild(loader);
+      }
+      loader.style.display = 'flex';
+      loader.style.visibility = 'visible';
+      loader.style.opacity = '1';
+
+      if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
+      chartLoaderTimer = setTimeout(hideChartLoader, 4500);
+    } catch (e) {}
+  }
+
+  function hideChartLoader() {
+    try {
+      if (chartLoaderTimer) {
+        clearTimeout(chartLoaderTimer);
+        chartLoaderTimer = null;
+      }
+      var loader = document.getElementById('tradeChartLoader');
+      if (loader) {
+        loader.style.opacity = '0';
+        setTimeout(function () {
+          if (loader && loader.style.opacity === '0') {
+            loader.style.display = 'none';
+            loader.style.visibility = 'hidden';
+          }
+        }, 250);
+      }
+    } catch (e) {}
+  }
   var firstState = true;
   var previousOpenIds = {};
   var lastStateSignature = '';
@@ -1507,10 +1555,13 @@
         window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 180);
       });
     }
+    if (sendHistory) {
+      showChartLoader();
+    }
     marketRequestRunning = true;
     var symbolAtStart = activeSymbol;
     var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
-    var countToFetch = Math.max(60, Math.min(10000, number(customCount, chartHistoryCount)));
+    var countToFetch = Math.max(400, Math.min(10000, number(customCount, chartHistoryCount)));
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
       '&count=' + encodeURIComponent(String(countToFetch)) +
@@ -1546,9 +1597,15 @@
       return marketSnapshot;
     }).then(function (snapshot) {
       marketRequestRunning = false;
+      if (sendHistory) {
+        hideChartLoader();
+      }
       return snapshot;
     }, function (error) {
       marketRequestRunning = false;
+      if (sendHistory) {
+        hideChartLoader();
+      }
       throw error;
     });
   }
@@ -2059,6 +2116,7 @@
       var symbolOrPeriodChanged = reqSymbol !== activeSymbol || (hasHistPeriod && reqPeriod !== activePeriod);
 
       if (symbolOrPeriodChanged) {
+        showChartLoader();
         activeSymbol = reqSymbol;
         activeSocketSymbol = socketSymbol(activeSymbol);
         if (hasHistPeriod) {
@@ -2079,16 +2137,7 @@
           if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
           broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-        } else {
-          if (nextAsset) {
-            marketSnapshot = {
-              ok: true,
-              asset: nextAsset,
-              candles: [],
-              assets: (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets),
-              serverTime: Date.now() + serverTimeOffset
-            };
-          }
+          hideChartLoader();
         }
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
