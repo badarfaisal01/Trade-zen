@@ -1537,9 +1537,8 @@
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
         if (socket && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent('history/list/v2', hPayload);
-        } else {
-          broadcastBinary('history/list/v2', hPayload);
         }
+        broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
       }
       return snapshot;
@@ -1615,8 +1614,14 @@
   function prewarmSnapshots() {
     if (prewarmTimer) return;
     prewarmTimer = window.setTimeout(function () {
-      var topSymbols = ['BTCUSD', 'SOLUSD', 'ETHUSD', 'BNBUSD', 'EURUSD', 'GBPUSD', 'AAPLUSD', 'US30', 'XAUUSD'];
-      topSymbols.forEach(function (sym, idx) {
+      var assets = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length)
+        ? marketSnapshot.assets
+        : bootstrapAssets;
+      var symbolsToWarm = assets.map(function (a) { return plainSymbol(a.symbol); });
+      if (!symbolsToWarm.length) {
+        symbolsToWarm = ['BTCUSD', 'SOLUSD', 'ETHUSD', 'BNBUSD', 'EURUSD', 'GBPUSD', 'AUDUSD', 'USDCAD', 'USDJPY', 'AAPLUSD', 'US30', 'XAUUSD'];
+      }
+      symbolsToWarm.forEach(function (sym, idx) {
         var s = plainSymbol(sym);
         if (s !== activeSymbol && !snapshotCache[s + '_' + activePeriod]) {
           window.setTimeout(function () {
@@ -1625,10 +1630,10 @@
                 snapshotCache[plainSymbol(snap.asset.symbol) + '_' + activePeriod] = snap;
               }
             }).catch(function () {});
-          }, idx * 250);
+          }, idx * 120);
         }
       });
-    }, 800);
+    }, 400);
   }
 
   function startPolling() {
@@ -2074,6 +2079,17 @@
           var cAsset = cachedSnap.asset || {};
           if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+        } else {
+          if (nextAsset) {
+            marketSnapshot = {
+              ok: true,
+              asset: nextAsset,
+              candles: [],
+              assets: (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets),
+              serverTime: Date.now() + serverTimeOffset
+            };
+          }
         }
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
