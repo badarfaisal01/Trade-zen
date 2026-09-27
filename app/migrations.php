@@ -94,7 +94,8 @@ function run_auto_migrations(): void
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
     $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
-    $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD','BTCUSDT','ETHUSDT','SOLUSDT') OR display_name LIKE '%Bitcoin%' OR display_name LIKE '%Ethereum%'");
+    $pdo->exec("UPDATE market_assets SET is_active=0 WHERE LOWER(category)='crypto' AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
+    $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET price_source='binance' WHERE LOWER(category)='crypto'");
     $pdo->exec("UPDATE market_assets SET api_symbol=CONCAT(REPLACE(symbol, 'USD', ''), 'USDT') WHERE LOWER(category)='crypto' AND (api_symbol IS NULL OR api_symbol='' OR api_symbol=symbol)");
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
@@ -450,9 +451,10 @@ function run_auto_migrations(): void
             CONSTRAINT uts_creator_fk FOREIGN KEY (created_by) REFERENCES users (id) ON DELETE SET NULL
         ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
 
-        // Self-healing: Ensure Bitcoin and standard 24/7 Crypto assets are active in production DB
+        // Self-healing: Ensure only core 6 Crypto assets are active in production DB
         try {
-            $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD','BTCUSDT','ETHUSDT','SOLUSDT') OR display_name LIKE '%Bitcoin%' OR display_name LIKE '%Ethereum%'");
+            $pdo->exec("UPDATE market_assets SET is_active=0 WHERE LOWER(category)='crypto' AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
+            $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
         } catch (Throwable $e) {}
 
         $insert = $pdo->prepare('INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES (?, NOW())');
