@@ -508,9 +508,29 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                 $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
                 $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
 
-                // Initial prevClose from lowest available kline or market price
-                $firstTime = $sortedTimes[0] ?? $targetStartBucket;
-                $prevClose = (float)($bMap[$firstTime]['open'] ?? market_price_at($asset, $targetStartBucket, true));
+                // Initial prevClose matching targetStartBucket (NOT sortedTimes[0] which is 13+ hours in the past)
+                $startKey = null;
+                if (isset($bMap[$targetStartBucket])) {
+                    $startKey = $targetStartBucket;
+                } else {
+                    $floorMin = (int)(floor($targetStartBucket / 60000) * 60000);
+                    if (isset($bMap[$floorMin])) {
+                        $startKey = $floorMin;
+                    } else {
+                        foreach ($sortedTimes as $st) {
+                            if ($st <= $targetStartBucket) {
+                                $startKey = $st;
+                            } else {
+                                break;
+                            }
+                        }
+                    }
+                }
+
+                $prevClose = 0.0;
+                if ($startKey !== null && isset($bMap[$startKey])) {
+                    $prevClose = (float)$bMap[$startKey]['open'];
+                }
                 if ($prevClose <= 0) {
                     $prevClose = market_price_at($asset, $targetStartBucket, true);
                 }
@@ -543,10 +563,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $hasRealKline = ($bKey !== null && isset($bMap[$bKey]));
                     if ($hasRealKline) {
                         $bKline = $bMap[$bKey];
+                        $bOpen  = (float)$bKline['open'];
 
                         if ($intervalSeconds >= 60) {
                             // Standard 1m+ candle: target open/close are from real Binance market
-                            $cOpen       = (float)$bKline['open'];
+                            $cOpen       = $bOpen;
                             $targetClose = (float)$bKline['close'];
                             $targetHigh  = (float)$bKline['high'];
                             $targetLow   = (float)$bKline['low'];
@@ -556,14 +577,17 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                             $cLow   = round(min($cOpen, $cClose, $targetLow), $decimals);
                         } else {
                             // Sub-minute candle (5s, 10s, 15s, 30s):
-                            // Use real Binance 1m OHLC values — distribute open→close linearly
-                            // and apply the minute's real high/low only to the proportional slice.
-                            $bOpen  = (float)$bKline['open'];
+                            // Use real Binance 1m OHLC values — distribute open→close linearly.
+                            // For initial candle or at minute boundary (secInMin == 0), set cOpen to bOpen.
+                            $secInMin = (int)(($t - $bKey) / 1000) % 60;
+                            if ($t === $targetStartBucket || $secInMin === 0) {
+                                $cOpen = $bOpen;
+                            }
+
                             $bClose = (float)$bKline['close'];
                             $bHigh  = (float)$bKline['high'];
                             $bLow   = (float)$bKline['low'];
 
-                            $secInMin    = (int)(($t - $bKey) / 1000) % 60;
                             $fractionEnd = min(1.0, ($secInMin + $intervalSeconds) / 60.0);
 
                             // Linearly interpolate close along the real open→close progression
