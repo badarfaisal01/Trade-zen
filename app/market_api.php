@@ -389,6 +389,20 @@ function binance_request_headers(): array
 }
 
 /**
+ * Fallback endpoints for Binance Public API to bypass regional blocks or host rate limits
+ */
+function binance_api_hosts(): array
+{
+    return [
+        'https://api.binance.com',
+        'https://api1.binance.com',
+        'https://api2.binance.com',
+        'https://api3.binance.com',
+        'https://data-api.binance.vision',
+    ];
+}
+
+/**
  * Fetch all ticker prices from Binance in a single fast call with persistent cross-request caching
  */
 function fetch_binance_all_prices(): array
@@ -428,62 +442,64 @@ function fetch_binance_all_prices(): array
         return $memoryCache ?? [];
     }
 
-    // 3. Fast network fetch from Binance with tight timeouts (max 2 seconds)
-    $url = "https://api.binance.com/api/v3/ticker/price";
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
+    // 3. Fast network fetch from Binance with fallback endpoints
+    foreach (binance_api_hosts() as $host) {
+        $url = $host . "/api/v3/ticker/price";
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
-    $response = curl_exec($ch);
-    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-    if ($httpCode === 200 && is_string($response)) {
-        $data = json_decode($response, true);
-        if (is_array($data) && !empty($data)) {
-            $prices = [];
-            foreach ($data as $item) {
-                if (isset($item['symbol'], $item['price'])) {
-                    $prices[$item['symbol']] = (float)$item['price'];
+        if ($httpCode === 200 && is_string($response)) {
+            $data = json_decode($response, true);
+            if (is_array($data) && !empty($data)) {
+                $prices = [];
+                foreach ($data as $item) {
+                    if (isset($item['symbol'], $item['price'])) {
+                        $prices[$item['symbol']] = (float)$item['price'];
+                    }
                 }
-            }
 
-            // Real-time derived rates from Binance spot pairs
-            if (isset($prices['BTCJPY'], $prices['BTCUSDT']) && $prices['BTCUSDT'] > 0) {
-                $prices['USDJPY'] = (float)($prices['BTCJPY'] / $prices['BTCUSDT']);
-                $prices['JPYUSD'] = (float)($prices['BTCUSDT'] / $prices['BTCJPY']);
-            } elseif (isset($prices['BNBJPY'], $prices['BNBUSDT']) && $prices['BNBUSDT'] > 0) {
-                $prices['USDJPY'] = (float)($prices['BNBJPY'] / $prices['BNBUSDT']);
-                $prices['JPYUSD'] = (float)($prices['BNBUSDT'] / $prices['BNBJPY']);
-            }
+                // Real-time derived rates from Binance spot pairs
+                if (isset($prices['BTCJPY'], $prices['BTCUSDT']) && $prices['BTCUSDT'] > 0) {
+                    $prices['USDJPY'] = (float)($prices['BTCJPY'] / $prices['BTCUSDT']);
+                    $prices['JPYUSD'] = (float)($prices['BTCUSDT'] / $prices['BTCJPY']);
+                } elseif (isset($prices['BNBJPY'], $prices['BNBUSDT']) && $prices['BNBUSDT'] > 0) {
+                    $prices['USDJPY'] = (float)($prices['BNBJPY'] / $prices['BNBUSDT']);
+                    $prices['JPYUSD'] = (float)($prices['BNBUSDT'] / $prices['BNBJPY']);
+                }
 
-            // Real-time Silver (XAGUSD) derived from PAXGUSDT spot gold
-            if (isset($prices['PAXGUSDT']) && $prices['PAXGUSDT'] > 0) {
-                $prices['XAGUSD'] = round((float)($prices['PAXGUSDT'] / 84.5), 3);
-            }
+                // Real-time Silver (XAGUSD) derived from PAXGUSDT spot gold
+                if (isset($prices['PAXGUSDT']) && $prices['PAXGUSDT'] > 0) {
+                    $prices['XAGUSD'] = round((float)($prices['PAXGUSDT'] / 84.5), 3);
+                }
 
-            // Real-time Indices baseline
-            if (!isset($prices['US30'])) {
-                $prices['US30'] = 43850.00;
-            }
-            if (!isset($prices['US500'])) {
-                $prices['US500'] = 5885.00;
-            }
+                // Real-time Indices baseline
+                if (!isset($prices['US30'])) {
+                    $prices['US30'] = 43850.00;
+                }
+                if (!isset($prices['US500'])) {
+                    $prices['US500'] = 5885.00;
+                }
 
-            $memoryCache = $prices;
-            $memoryCacheTime = $now;
+                $memoryCache = $prices;
+                $memoryCacheTime = $now;
 
-            // Save to disk cache atomically
-            $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
-            if (@file_put_contents($tmpFile, json_encode($prices)) !== false) {
-                @rename($tmpFile, $cacheFile);
+                // Save to disk cache atomically
+                $tmpFile = $cacheFile . '.' . bin2hex(random_bytes(4)) . '.tmp';
+                if (@file_put_contents($tmpFile, json_encode($prices)) !== false) {
+                    @rename($tmpFile, $cacheFile);
+                }
+                return $prices;
             }
-            return $prices;
         }
     }
 
@@ -540,25 +556,27 @@ function fetch_binance_price(string $symbol): float
         return 0.0;
     }
 
-    $url = "https://api.binance.com/api/v3/ticker/price?symbol=" . urlencode($apiSymbol);
+    foreach (binance_api_hosts() as $host) {
+        $url = $host . "/api/v3/ticker/price?symbol=" . urlencode($apiSymbol);
 
-    $ch = curl_init();
-    curl_setopt($ch, CURLOPT_URL, $url);
-    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
-    curl_setopt($ch, CURLOPT_TIMEOUT, 2);
-    curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-    curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 1);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 2);
+        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
-    $response = curl_exec($ch);
-    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-    curl_close($ch);
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        curl_close($ch);
 
-    if ($httpCode === 200 && is_string($response)) {
-        $data = json_decode($response, true);
-        if (is_array($data) && isset($data['price']) && is_numeric($data['price'])) {
-            return (float)$data['price'];
+        if ($httpCode === 200 && is_string($response)) {
+            $data = json_decode($response, true);
+            if (is_array($data) && isset($data['price']) && is_numeric($data['price'])) {
+                return (float)$data['price'];
+            }
         }
     }
 
@@ -716,51 +734,57 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $endTime = $endTimeMs !== null ? $endTimeMs : null;
 
     for ($batch = 0; $batch < $neededBatches; $batch++) {
-        $url = "https://api.binance.com/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
-        if ($endTime !== null) {
-            $url .= "&endTime=" . $endTime;
-        }
+        $batchSuccess = false;
+        foreach (binance_api_hosts() as $host) {
+            $url = $host . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
+            if ($endTime !== null) {
+                $url .= "&endTime=" . $endTime;
+            }
 
-        $ch = curl_init();
-        curl_setopt($ch, CURLOPT_URL, $url);
-        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-        curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-        curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-        curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
 
-        $response = curl_exec($ch);
-        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-        curl_close($ch);
+            $response = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
 
-        if ($httpCode === 200 && is_string($response)) {
-            $klines = json_decode($response, true);
-            if (is_array($klines) && !empty($klines)) {
-                $batchResult = [];
-                foreach ($klines as $k) {
-                    if (!is_array($k) || count($k) < 6) continue;
-                    $batchResult[] = [
-                        'openTime'  => (int)$k[0],
-                        'open'      => (float)$k[1],
-                        'high'      => (float)$k[2],
-                        'low'       => (float)$k[3],
-                        'close'     => (float)$k[4],
-                        'closeTime' => (int)$k[6],
-                    ];
-                }
-                if (!empty($batchResult)) {
-                    $allKlines = array_merge($batchResult, $allKlines);
-                    // Next batch fetches older klines before current oldest openTime
-                    $endTime = (int)$batchResult[0]['openTime'] - 1;
-                    if (count($batchResult) < 1000) {
-                        break; // No more historical candles on Binance
+            if ($httpCode === 200 && is_string($response)) {
+                $klines = json_decode($response, true);
+                if (is_array($klines) && !empty($klines)) {
+                    $batchResult = [];
+                    foreach ($klines as $k) {
+                        if (!is_array($k) || count($k) < 6) continue;
+                        $batchResult[] = [
+                            'openTime'  => (int)$k[0],
+                            'open'      => (float)$k[1],
+                            'high'      => (float)$k[2],
+                            'low'       => (float)$k[3],
+                            'close'     => (float)$k[4],
+                            'closeTime' => (int)$k[6],
+                        ];
                     }
-                    continue;
+                    if (!empty($batchResult)) {
+                        $allKlines = array_merge($batchResult, $allKlines);
+                        // Next batch fetches older klines before current oldest openTime
+                        $endTime = (int)$batchResult[0]['openTime'] - 1;
+                        $batchSuccess = true;
+                        if (count($batchResult) < 1000) {
+                            break 2; // No more historical candles on Binance
+                        }
+                        break; // Host succeeded, move to next batch
+                    }
                 }
             }
         }
-        break;
+        if (!$batchSuccess) {
+            break;
+        }
     }
 
     if (!empty($allKlines)) {

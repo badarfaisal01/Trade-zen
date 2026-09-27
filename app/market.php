@@ -540,11 +540,13 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     // Always chain open from prevClose to prevent vertical price gaps between candles
                     $cOpen = $prevClose;
 
-                    if ($bKey !== null && isset($bMap[$bKey])) {
+                    $hasRealKline = ($bKey !== null && isset($bMap[$bKey]));
+                    if ($hasRealKline) {
                         $bKline = $bMap[$bKey];
 
                         if ($intervalSeconds >= 60) {
-                            // Standard 1m+ candle: target close is the Binance close
+                            // Standard 1m+ candle: target open/close are from real Binance market
+                            $cOpen       = (float)$bKline['open'];
                             $targetClose = (float)$bKline['close'];
                             $targetHigh  = (float)$bKline['high'];
                             $targetLow   = (float)$bKline['low'];
@@ -599,10 +601,13 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $cOpenR  = round($cOpen + $cBiasStart, $decimals);
                     $cCloseR = round($cClose + $cBiasEnd, $decimals);
 
-                    $minBody = max($minStep * 3.0, $cOpen * 0.00004);
-                    if (abs($cCloseR - $cOpenR) < $minBody) {
-                        $noiseDir = market_noise($seed + 55, (int)($t / 1000));
-                        $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minBody : max($minStep, $cOpenR - $minBody), $decimals);
+                    // Only enforce artificial minBody noise when real market data is missing
+                    if (!$hasRealKline) {
+                        $minBody = max($minStep * 3.0, $cOpen * 0.00004);
+                        if (abs($cCloseR - $cOpenR) < $minBody) {
+                            $noiseDir = market_noise($seed + 55, (int)($t / 1000));
+                            $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minBody : max($minStep, $cOpenR - $minBody), $decimals);
+                        }
                     }
 
                     $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
