@@ -448,21 +448,23 @@
   var lastStateSignature = '';
   var lastHistoryBroadcastAt = 0;
 
-  function findAsset(symbol) {
+  function findAsset(symbol, list) {
     if (!symbol) return null;
     var clean = plainSymbol(symbol).toUpperCase();
+    var arr = Array.isArray(list) && list.length ? list : ((marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length) ? marketSnapshot.assets : bootstrapAssets);
     if (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol).toUpperCase() === clean) {
       return marketSnapshot.asset;
     }
-    if (marketSnapshot && Array.isArray(marketSnapshot.assets)) {
-      for (var i = 0; i < marketSnapshot.assets.length; i++) {
-        if (plainSymbol(marketSnapshot.assets[i].symbol).toUpperCase() === clean) {
-          return marketSnapshot.assets[i];
+    if (Array.isArray(arr)) {
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].symbol && plainSymbol(arr[i].symbol).toUpperCase() === clean) {
+          return arr[i];
         }
       }
     }
     return null;
   }
+
 
   function hasOpenTradeForActiveSymbol() {
     if (!tradeState || !Array.isArray(tradeState.trades)) return false;
@@ -615,14 +617,7 @@
               if (!isAssetActive(currAssetObj)) {
                 return;
               }
-              var expectedBase = currAssetObj ? number(currAssetObj.price, 0) : 0;
-              if (expectedBase > 0) {
-                var scaleRatio = rawPrice / expectedBase;
-                if (scaleRatio < 0.1 || scaleRatio > 10.0) {
-                  return; // Mismatched stream tick, discard immediately
-                }
-              }
-              var decimals = currAssetObj ? number(currAssetObj.decimals, 2) : 2;
+              var decimals = currAssetObj ? number(currAssetObj.decimals || currAssetObj.decimal_places, 2) : 2;
               currentLivePrice = Number(rawPrice.toFixed(decimals));
 
               tickPriceOffset = 0;
@@ -676,14 +671,7 @@
       // Market is closed: do not emit fake moving ticks
       return;
     }
-    var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
-    if (expectedBase > 0) {
-      var ratio = price / expectedBase;
-      if (ratio < 0.1 || ratio > 10.0) {
-        return; // Reject price if outside expected asset range
-      }
-    }
-    var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
+    var decimals = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
 
     // Safety: prevent quote timestamp from lagging or drifting into future
@@ -707,16 +695,7 @@
       // Market is closed: freeze quote completely at close price
       return;
     }
-    var expectedBase = expectedAsset ? number(expectedAsset.price, 0) : 0;
-    if (expectedBase > 0) {
-      var ratio = currentLivePrice / expectedBase;
-      if (ratio < 0.1 || ratio > 10.0) {
-        currentLivePrice = expectedBase;
-        tickPriceOffset = 0;
-        tickMomentum = 0;
-      }
-    }
-    var dec = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
+    var dec = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
     var minStep = Math.pow(10, -dec);
 
     // Organic sub-pip micro-fluctuation so the active candle remains lively & animated
@@ -1144,12 +1123,17 @@
   }
 
   function findAsset(sym, list) {
-    var target = plainSymbol(sym);
-    var arr = Array.isArray(list) && list.length ? list : bootstrapAssets;
-    for (var i = 0; i < arr.length; i++) {
-      if (plainSymbol(arr[i].symbol) === target) return arr[i];
+    if (!sym) return null;
+    var target = plainSymbol(sym).toUpperCase();
+    var arr = Array.isArray(list) && list.length ? list : ((marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length) ? marketSnapshot.assets : bootstrapAssets);
+    if (Array.isArray(arr)) {
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] && arr[i].symbol && plainSymbol(arr[i].symbol).toUpperCase() === target) {
+          return arr[i];
+        }
+      }
     }
-    return arr.length ? arr[0] : null;
+    return null;
   }
 
   function extractPeriod(payload, fallback) {
@@ -1196,13 +1180,7 @@
     if (basePrice <= 0) basePrice = (activeSymbol.indexOf('BTC') !== -1 ? 80000 : (activeSymbol.indexOf('ETH') !== -1 ? 2500 : 1.159));
 
     var priceScaleRatio = (currentLivePrice > 0 && basePrice > 0) ? (currentLivePrice / basePrice) : 1;
-    if (priceScaleRatio < 0.2 || priceScaleRatio > 5.0) {
-      currentLivePrice = basePrice;
-      tickPriceOffset = 0;
-      tickMomentum = 0;
-    }
-
-    var dec = number(selected.decimals, 5);
+    var dec = number(selected.decimals || selected.decimal_places, 5);
     var assets = bootstrapAssets.length ? bootstrapAssets.slice() : [selected];
     return {serverTime: nowMs, asset: selected, assets: assets, candles: [], engine: 'server-bootstrap-unavailable'};
   }
