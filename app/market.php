@@ -553,27 +553,29 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                             $cHigh  = round(max($cOpen, $cClose, $targetHigh), $decimals);
                             $cLow   = round(min($cOpen, $cClose, $targetLow), $decimals);
                         } else {
-                            // Sub-minute candle (5s, 10s, 15s, 30s): interpolate smoothly across the 60s Binance kline
-                            $secInMin = (int)(($t - $bKey) / 1000) % 60;
-                            $fractionStart = $secInMin / 60.0;
-                            $fractionEnd   = min(1.0, ($secInMin + $intervalSeconds) / 60.0);
-
+                            // Sub-minute candle (5s, 10s, 15s, 30s):
+                            // Use real Binance 1m OHLC values — distribute open→close linearly
+                            // and apply the minute's real high/low only to the proportional slice.
                             $bOpen  = (float)$bKline['open'];
                             $bClose = (float)$bKline['close'];
                             $bHigh  = (float)$bKline['high'];
                             $bLow   = (float)$bKline['low'];
 
-                            // Progression through the minute
-                            $trendClose = $bOpen + ($bClose - $bOpen) * $fractionEnd;
-                            $noise = market_noise($seed + 77, (int)($t / 1000)) * $volatility * 0.05;
-                            $cClose = round(max($minStep, $trendClose + ($bOpen * $noise)), $decimals);
+                            $secInMin    = (int)(($t - $bKey) / 1000) % 60;
+                            $fractionEnd = min(1.0, ($secInMin + $intervalSeconds) / 60.0);
 
-                            $subSpan = abs($cClose - $cOpen);
-                            $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
-                            $wick = max($minWick, $subSpan * 0.20);
+                            // Linearly interpolate close along the real open→close progression
+                            $cClose = round($bOpen + ($bClose - $bOpen) * $fractionEnd, $decimals);
 
-                            $cHigh = round(max($cOpen, $cClose, $bHigh > 0 ? $bHigh : 0) + $wick * 0.25, $decimals);
-                            $cLow  = round(max($minStep, min($cOpen, $cClose, $bLow > 0 ? $bLow : $cOpen) - $wick * 0.25), $decimals);
+                            // High/low are scaled portions of the real 1m range
+                            $minuteRange = max($minStep, $bHigh - $bLow);
+                            $sliceFraction = $intervalSeconds / 60.0;
+
+                            $sliceHigh = $bLow + $minuteRange * min(1.0, $fractionEnd + $sliceFraction * 0.5);
+                            $sliceLow  = $bLow + $minuteRange * max(0.0, $fractionEnd - $sliceFraction * 1.5);
+
+                            $cHigh = round(max($cOpen, $cClose, $sliceHigh), $decimals);
+                            $cLow  = round(max($minStep, min($cOpen, $cClose, $sliceLow)), $decimals);
                         }
                     } else {
                         // Bucket missing (low volume gap): continuous micro-trend
