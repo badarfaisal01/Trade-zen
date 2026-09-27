@@ -685,6 +685,12 @@
     }
     var decimals = expectedAsset ? number(expectedAsset.decimals, 2) : 2;
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
+
+    // Safety: prevent quote timestamp from lagging or drifting into future
+    if (lastEmittedQuoteSec > 0 && Math.abs(lastEmittedQuoteSec - currentSec) > 1.5) {
+      lastEmittedQuoteSec = currentSec;
+    }
+
     if (currentSec <= lastEmittedQuoteSec) {
       currentSec = lastEmittedQuoteSec + 0.001;
     }
@@ -1491,7 +1497,9 @@
     }
 
     if (previousStamp > 0 && isFinite(previousStamp)) {
-      lastEmittedQuoteSec = Math.max(lastEmittedQuoteSec, previousStamp);
+      var nowSecCheck = (Date.now() + serverTimeOffset) / 1000;
+      var validStamp = Math.min(nowSecCheck, previousStamp);
+      lastEmittedQuoteSec = Math.max(lastEmittedQuoteSec, validStamp);
     }
 
     return {
@@ -3204,4 +3212,30 @@
     var observer = new MutationObserver(scheduleDomRefresh);
     observer.observe(document.getElementById('root') || document.body, {childList: true, subtree: true});
   });
+
+  function handleMobileResume() {
+    var nowSec = (Date.now() + serverTimeOffset) / 1000;
+    if (lastEmittedQuoteSec > 0 && Math.abs(nowSec - lastEmittedQuoteSec) > 2.0) {
+      lastEmittedQuoteSec = Number(nowSec.toFixed(3));
+    }
+    var stream = getBinanceStreamSymbol(activeSymbol);
+    if (stream && (!binanceWs || binanceWs.readyState > 1)) {
+      connectBinanceWs(stream);
+    }
+    refreshMarket(true, null);
+    refreshState(false);
+  }
+
+  if (typeof document !== 'undefined') {
+    document.addEventListener('visibilitychange', function () {
+      if (document.visibilityState === 'visible') {
+        handleMobileResume();
+      }
+    });
+  }
+  if (typeof window !== 'undefined') {
+    window.addEventListener('focus', handleMobileResume);
+    window.addEventListener('pageshow', handleMobileResume);
+  }
 }());
+
