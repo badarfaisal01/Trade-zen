@@ -380,7 +380,17 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
-                    return round((float)$livePrice, $decimals);
+                    $liveRounded = round((float)$livePrice, $decimals);
+                    // Auto-sync base_price to stay current — updates at most once per 60s per asset
+                    $storedBase = (float)($asset['base_price'] ?? 0);
+                    if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.03) {
+                        try {
+                            db()->prepare(
+                                'UPDATE market_assets SET base_price=? WHERE id=? AND (base_price IS NULL OR ABS(base_price - ?) / GREATEST(ABS(base_price), 0.0001) > 0.005)'
+                            )->execute([$liveRounded, (int)($asset['id'] ?? 0), $liveRounded]);
+                        } catch (Throwable $ignored) {}
+                    }
+                    return $liveRounded;
                 }
             } catch (Throwable $exception) {
                 // Fall through to reference math
@@ -393,6 +403,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
             return round((float)$asset['base_price'], $decimals);
         }
     }
+
 
     $minStep = pow(10, -$decimals);
 
