@@ -12,7 +12,7 @@ function market_assets(bool $activeOnly = true): array
     try {
         $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,a.updated_at,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id';
         if ($activeOnly) {
-            $sql .= ' WHERE a.is_active = 1';
+            $sql .= " WHERE a.is_active = 1 OR LOWER(a.category) LIKE '%crypto%' OR a.symbol LIKE '%BTC%' OR a.symbol LIKE '%ETH%' OR a.display_name LIKE '%Bitcoin%'";
         }
         $sql .= ' ORDER BY a.sort_order ASC,a.display_name ASC';
         $cache[$key] = db()->query($sql)->fetchAll();
@@ -20,7 +20,7 @@ function market_assets(bool $activeOnly = true): array
         try {
             $fallbackSql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.is_active,a.sort_order,a.updated_at FROM market_assets a';
             if ($activeOnly) {
-                $fallbackSql .= ' WHERE a.is_active = 1';
+                $fallbackSql .= " WHERE a.is_active = 1 OR LOWER(a.category) LIKE '%crypto%' OR a.symbol LIKE '%BTC%' OR a.symbol LIKE '%ETH%' OR a.display_name LIKE '%Bitcoin%'";
             }
             $fallbackSql .= ' ORDER BY a.sort_order ASC,a.display_name ASC';
             $cache[$key] = db()->query($fallbackSql)->fetchAll();
@@ -920,8 +920,36 @@ function market_status(array $asset, ?int $nowMs = null): array
     $isActive = (bool)($asset['is_active'] ?? true);
     $symbol = strtoupper(trim((string)($asset['symbol'] ?? '')));
     $category = strtolower(trim((string)($asset['category'] ?? 'forex')));
-    
-    // 1. Check if manually disabled/closed by admin
+    $displayName = (string)($asset['display_name'] ?? '');
+
+    $isOtc = (stripos($symbol, 'OTC') !== false || stripos($displayName, 'OTC') !== false || $category === 'otc' || stripos($category, 'otc') !== false);
+    $isCrypto = (
+        stripos($category, 'crypto') !== false ||
+        stripos($symbol, 'BTC') !== false ||
+        stripos($symbol, 'ETH') !== false ||
+        stripos($symbol, 'SOL') !== false ||
+        stripos($symbol, 'DOGE') !== false ||
+        stripos($symbol, 'XRP') !== false ||
+        stripos($symbol, 'BNB') !== false ||
+        stripos($symbol, 'BITCOIN') !== false ||
+        stripos($displayName, 'Bitcoin') !== false ||
+        stripos($displayName, 'Crypto') !== false
+    );
+
+    // Crypto and OTC assets trade 24/7 (Always Open)
+    if ($isOtc || $isCrypto) {
+        return [
+            'isOpen' => true,
+            'isOtc' => $isOtc,
+            'reason' => 'open_24_7',
+            'closedAt' => null,
+            'closedPrice' => null,
+            'nextOpenAt' => null,
+            'statusText' => 'Market Open 24/7'
+        ];
+    }
+
+    // 1. Check if manually disabled/closed by admin (for non-crypto assets)
     if (!$isActive) {
         $updatedAt = !empty($asset['updated_at']) ? strtotime((string)$asset['updated_at']) : 0;
         if ($updatedAt <= 0) {
@@ -937,34 +965,6 @@ function market_status(array $asset, ?int $nowMs = null): array
             'closedPrice' => $closedPrice,
             'nextOpenAt' => null,
             'statusText' => 'Market is Closed'
-        ];
-    }
-
-    $displayName = (string)($asset['display_name'] ?? '');
-    $isOtc = (stripos($symbol, 'OTC') !== false || stripos($displayName, 'OTC') !== false || $category === 'otc' || stripos($category, 'otc') !== false);
-    $isCrypto = (
-        stripos($category, 'crypto') !== false ||
-        stripos($symbol, 'BTC') !== false ||
-        stripos($symbol, 'ETH') !== false ||
-        stripos($symbol, 'SOL') !== false ||
-        stripos($symbol, 'DOGE') !== false ||
-        stripos($symbol, 'XRP') !== false ||
-        stripos($symbol, 'BNB') !== false ||
-        stripos($symbol, 'BITCOIN') !== false ||
-        stripos($displayName, 'Bitcoin') !== false ||
-        stripos($displayName, 'Crypto') !== false
-    );
-
-    // Crypto and OTC assets trade 24/7
-    if ($isOtc || $isCrypto) {
-        return [
-            'isOpen' => true,
-            'isOtc' => $isOtc,
-            'reason' => 'open_24_7',
-            'closedAt' => null,
-            'closedPrice' => null,
-            'nextOpenAt' => null,
-            'statusText' => 'Market Open 24/7'
         ];
     }
 
