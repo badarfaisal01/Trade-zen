@@ -11,7 +11,7 @@ function send_security_headers(): void
     header('X-Frame-Options: DENY');
     header('Referrer-Policy: strict-origin-when-cross-origin');
     header('Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=()');
-    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: https:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' wss://stream.binance.com:9443 https://api.binance.com https://*.binance.com; font-src 'self' data:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
+    header("Content-Security-Policy: default-src 'self'; img-src 'self' data: https: blob:; style-src 'self' 'unsafe-inline' https:; script-src 'self' 'unsafe-inline' 'unsafe-eval'; connect-src 'self' ws: wss: https: blob: data:; font-src 'self' data: https:; base-uri 'self'; form-action 'self'; frame-ancestors 'none'");
 
     if (is_https()) {
         header('Strict-Transport-Security: max-age=31536000; includeSubDomains');
