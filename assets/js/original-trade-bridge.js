@@ -549,7 +549,8 @@
       'AAPLBUSDT': 'aaplbusdt',
       'NVDAUSD': 'nvdabusdt',
       'NVDA': 'nvdabusdt',
-      'NVDABUSDT': 'nvdabusdt',
+      'NVDABUSDT': 'nvdabusdt'
+    };
 
     if (map[clean]) return map[clean];
 
