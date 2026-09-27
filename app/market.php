@@ -1261,12 +1261,39 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         }
     } else if (!empty($candles)) {
         $lastIdx = count($candles) - 1;
-        $candles[$lastIdx]['close'] = $targetPrice;
-        $candles[$lastIdx]['high'] = max((float)$candles[$lastIdx]['high'], $targetPrice);
-        $candles[$lastIdx]['low'] = min((float)$candles[$lastIdx]['low'], $targetPrice);
-        if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
-            $tCount = count($candles[$lastIdx]['ticks']);
-            $candles[$lastIdx]['ticks'][$tCount - 1][1] = $targetPrice;
+        $intervalMs = max(1000, $intervalSeconds * 1000);
+        $activeBucket = (int)(floor($targetEndMs / $intervalMs) * $intervalMs);
+
+        if (!empty($candles[$lastIdx]['complete']) && $activeBucket > $candles[$lastIdx]['time']) {
+            // Last candle from generator is historical & complete; append active forming candle for current bucket
+            $cOpen  = (float)$candles[$lastIdx]['close'];
+            $cClose = $targetPrice;
+            $cHigh  = max($cOpen, $cClose);
+            $cLow   = min($cOpen, $cClose);
+            $cEnd   = min($activeBucket + $intervalMs - 1, $targetEndMs);
+
+            $candles[] = [
+                'time'        => $activeBucket,
+                'open'        => $cOpen,
+                'high'        => $cHigh,
+                'low'         => $cLow,
+                'close'       => $cClose,
+                'lastTickTime'=> $cEnd,
+                'complete'    => false,
+                'ticks'       => [
+                    [$activeBucket, $cOpen],
+                    [$cEnd, $cClose],
+                ],
+            ];
+        } else {
+            // Update active incomplete forming candle
+            $candles[$lastIdx]['close'] = $targetPrice;
+            $candles[$lastIdx]['high']  = max((float)$candles[$lastIdx]['high'], $targetPrice);
+            $candles[$lastIdx]['low']   = min((float)$candles[$lastIdx]['low'], $targetPrice);
+            if (!empty($candles[$lastIdx]['ticks']) && is_array($candles[$lastIdx]['ticks']) && count($candles[$lastIdx]['ticks']) > 0) {
+                $tCount = count($candles[$lastIdx]['ticks']);
+                $candles[$lastIdx]['ticks'][$tCount - 1][1] = $targetPrice;
+            }
         }
         $assetPayload['price'] = $targetPrice;
     }
