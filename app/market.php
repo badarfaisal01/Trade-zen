@@ -19,9 +19,9 @@ function market_assets(bool $activeOnly = true): array
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
             db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD')");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','AUDUSD','USDCAD')");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE symbol='GBPUSD'");
             db()->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
             db()->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
             db()->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
             db()->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
