@@ -254,7 +254,8 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
         $diskData = json_decode((string)@file_get_contents($cacheFile), true);
         if (is_array($diskData) && !empty($diskData['candles'])) {
             $cachedTime = (float)($diskData['time'] ?? 0);
-            if (($now - $cachedTime) < 300 && count($diskData['candles']) >= min($count, 500)) {
+            $maxTtl = ($intervalSeconds <= 60) ? 15 : 45;
+            if (($now - $cachedTime) < $maxTtl && count($diskData['candles']) >= min($count, 500)) {
                 return $diskData['candles'];
             }
             // Only use as fallback if there are enough candles to be useful

@@ -444,6 +444,7 @@
   var tickMomentum = 0;
   var tickNumber = 1;
 
+  var chartLoaderActive = false;
   var chartLoaderTimer = null;
   function showChartLoader(force) {
     try {
@@ -454,6 +455,7 @@
         hideChartLoader();
         return;
       }
+      chartLoaderActive = true;
       var loader = document.getElementById('tradeChartLoader');
       if (!loader) {
         loader = document.createElement('div');
@@ -482,6 +484,7 @@
 
   function hideChartLoader() {
     try {
+      chartLoaderActive = false;
       if (chartLoaderTimer) {
         clearTimeout(chartLoaderTimer);
         chartLoaderTimer = null;
@@ -745,6 +748,7 @@
 
   function emitSmoothQuote() {
     if (!currentLivePrice || !activeSocketSymbol) return;
+    if (chartLoaderActive) return;
     var expectedAsset = findAsset(activeSymbol);
     if (!isAssetActive(expectedAsset)) {
       // Market is closed: freeze quote completely at close price
@@ -2133,11 +2137,15 @@
       }
 
       if (storeChanged) {
-        var storeAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
-        if (storeAsset && number(storeAsset.price, 0) > 0) {
-          currentLivePrice = number(storeAsset.price, 0);
+        var cachedStoreSnap = snapshotCache[activeSymbol + '_' + activePeriod];
+        if (cachedStoreSnap && Array.isArray(cachedStoreSnap.candles) && cachedStoreSnap.candles.length > 0) {
+          marketSnapshot = cachedStoreSnap;
+          var csAsset = cachedStoreSnap.asset || {};
+          if (number(csAsset.price, 0) > 0) currentLivePrice = number(csAsset.price, 0);
           tickPriceOffset = 0;
           tickMomentum = 0;
+        } else {
+          showChartLoader(true);
         }
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2160,11 +2168,15 @@
       }
 
       if (instChanged) {
-        var instAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
-        if (instAsset && number(instAsset.price, 0) > 0) {
-          currentLivePrice = number(instAsset.price, 0);
+        var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
+        if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
+          marketSnapshot = cachedInstSnap;
+          var ciAsset = cachedInstSnap.asset || {};
+          if (number(ciAsset.price, 0) > 0) currentLivePrice = number(ciAsset.price, 0);
           tickPriceOffset = 0;
           tickMomentum = 0;
+        } else {
+          showChartLoader(true);
         }
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2188,21 +2200,17 @@
           activePeriod = reqPeriod;
         }
 
-        var nextAsset = findAsset(activeSymbol, marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length ? marketSnapshot.assets : bootstrapAssets);
-        if (nextAsset && number(nextAsset.price, 0) > 0) {
-          currentLivePrice = number(nextAsset.price, 0);
-          tickPriceOffset = 0;
-          tickMomentum = 0;
-        }
-
         var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length > 0) {
           marketSnapshot = cachedSnap;
           var cAsset = cachedSnap.asset || {};
           if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
+          tickPriceOffset = 0;
+          tickMomentum = 0;
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
           broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
           hideChartLoader();
+          emitSmoothQuote();
         } else {
           showChartLoader(true);
         }
@@ -2210,7 +2218,6 @@
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
         refreshMarket(true, socket, chartHistoryCount);
         emitClockTick();
-        emitSmoothQuote();
         return;
       }
 
