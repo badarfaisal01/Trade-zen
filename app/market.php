@@ -1134,8 +1134,18 @@ function market_status(array $asset, ?int $nowMs = null): array
         stripos($displayName, 'Crypto') !== false
     );
 
-    // Crypto and OTC assets trade 24/7 (Always Open)
-    if ($isOtc || $isCrypto) {
+    $isAlwaysOpen = (
+        $isOtc ||
+        $isCrypto ||
+        ($asset['price_source'] ?? '') === 'binance' ||
+        stripos($symbol, 'XAU') !== false ||
+        stripos($symbol, 'XAUT') !== false ||
+        stripos($symbol, 'PAXG') !== false ||
+        stripos($displayName, 'Gold') !== false
+    );
+
+    // Crypto, Binance Commodities (Gold/Tether Gold) and OTC assets trade 24/7 (Always Open)
+    if ($isAlwaysOpen) {
         return [
             'isOpen' => true,
             'isOtc' => $isOtc,
