@@ -22,11 +22,12 @@ function market_assets(bool $activeOnly = true): array
                 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','USDCAD')");
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE symbol IN ('GBPUSD','AUDUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD')");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='EURUSD=X', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='GBPUSD=X', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=3, price_source='api', api_symbol='USDJPY=X', display_name='USD/JPY', payout_percent=85.00, volatility=0.00022 WHERE symbol='USDJPY'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='AUDUSD=X', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='USDCAD=X', display_name='USD/CAD', payout_percent=82.00, volatility=0.00018 WHERE symbol='USDCAD'");
         } catch (Throwable $e) {}
     }
 
@@ -540,7 +541,15 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
 
-    if (($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+    if ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
+        try {
+            $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
+        }
+    }
+
+    if (empty($realKlines) && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
@@ -592,242 +601,206 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             ];
         }
 
-                $sortedTimes = array_keys($bMap);
-                sort($sortedTimes);
+        $sortedTimes = array_keys($bMap);
+        sort($sortedTimes);
 
-                $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
-                $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
+        $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
+        $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
 
-                // Initial prevClose matching targetStartBucket (NOT sortedTimes[0] which is 13+ hours in the past)
-                $startKey = null;
-                if (isset($bMap[$targetStartBucket])) {
-                    $startKey = $targetStartBucket;
-                } else {
-                    $floorMin = (int)(floor($targetStartBucket / 60000) * 60000);
-                    if (isset($bMap[$floorMin])) {
-                        $startKey = $floorMin;
+        // Initial prevClose matching targetStartBucket
+        $startKey = null;
+        if (isset($bMap[$targetStartBucket])) {
+            $startKey = $targetStartBucket;
+        } else {
+            $floorMin = (int)(floor($targetStartBucket / 60000) * 60000);
+            if (isset($bMap[$floorMin])) {
+                $startKey = $floorMin;
+            } else {
+                foreach ($sortedTimes as $st) {
+                    if ($st <= $targetStartBucket) {
+                        $startKey = $st;
                     } else {
-                        foreach ($sortedTimes as $st) {
-                            if ($st <= $targetStartBucket) {
-                                $startKey = $st;
-                            } else {
-                                break;
-                            }
-                        }
+                        break;
                     }
                 }
-
-                $prevClose = 0.0;
-                if ($startKey !== null && isset($bMap[$startKey])) {
-                    $prevClose = (float)$bMap[$startKey]['open'];
-                }
-                if ($prevClose <= 0) {
-                    $prevClose = market_price_at($asset, $targetStartBucket, true);
-                }
-
-                $candles = [];
-                for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs) {
-                    // Always chain open from prevClose to prevent vertical price gaps between candles
-                    $cOpen = $prevClose;
-                    $hasRealKline = false;
-
-                    if ($intervalSeconds >= 60) {
-                        // Standard 1m+ candle: aggregate all Binance klines falling into [$t, $t + $intervalMs)
-                        $matchingKlines = [];
-                        foreach ($sortedTimes as $st) {
-                            if ($st >= $t && $st < ($t + $intervalMs)) {
-                                $matchingKlines[] = $bMap[$st];
-                            } elseif ($st >= ($t + $intervalMs)) {
-                                break;
-                            }
-                        }
-
-                        if (!empty($matchingKlines)) {
-                            $hasRealKline = true;
-                            if ($t === $targetStartBucket || $prevClose <= 0) {
-                                $cOpen = (float)$matchingKlines[0]['open'];
-                            } else {
-                                $cOpen = $prevClose;
-                            }
-                            $targetClose = (float)$matchingKlines[count($matchingKlines) - 1]['close'];
-
-                            $targetHigh = (float)$matchingKlines[0]['high'];
-                            $targetLow  = (float)$matchingKlines[0]['low'];
-                            foreach ($matchingKlines as $mk) {
-                                if ((float)$mk['high'] > $targetHigh) $targetHigh = (float)$mk['high'];
-                                if ((float)$mk['low'] < $targetLow)   $targetLow  = (float)$mk['low'];
-                            }
-
-                            $cClose = round($targetClose, $decimals);
-                            $cHigh  = round(max($cOpen, $cClose, $targetHigh), $decimals);
-                            $cLow   = round(min($cOpen, $cClose, $targetLow), $decimals);
-                        } else {
-                            // If no direct kline in exact window, fall back to closest floor kline <= $t
-                            $bKey = null;
-                            if (isset($bMap[$t])) {
-                                $bKey = $t;
-                            } else {
-                                $floorMin = (int)(floor($t / 60000) * 60000);
-                                if (isset($bMap[$floorMin])) {
-                                    $bKey = $floorMin;
-                                } else {
-                                    foreach ($sortedTimes as $st) {
-                                        if ($st <= $t) {
-                                            $bKey = $st;
-                                        } else {
-                                            break;
-                                        }
-                                    }
-                                }
-                            }
-
-                            if ($bKey !== null && isset($bMap[$bKey])) {
-                                $hasRealKline = true;
-                                $bKline = $bMap[$bKey];
-                                if ($t === $targetStartBucket || $prevClose <= 0) {
-                                    $cOpen = (float)$bKline['open'];
-                                } else {
-                                    $cOpen = $prevClose;
-                                }
-                                $targetClose = (float)$bKline['close'];
-                                $targetHigh  = (float)$bKline['high'];
-                                $targetLow   = (float)$bKline['low'];
-
-                                $cClose = round($targetClose, $decimals);
-                                $cHigh  = round(max($cOpen, $cClose, $targetHigh), $decimals);
-                                $cLow   = round(min($cOpen, $cClose, $targetLow), $decimals);
-                            } else {
-                                // Bucket missing: continuous micro-trend
-                                $noiseVal = market_noise($seed, (int)($t / 1000));
-                                $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
-                                $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
-                                $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
-                                $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
-                            }
-                        }
-                    } else {
-                        // Sub-minute candle (5s, 10s, 15s, 30s):
-                        $bKey = null;
-                        if (isset($bMap[$t])) {
-                            $bKey = $t;
-                        } else {
-                            $floorMin = (int)(floor($t / 60000) * 60000);
-                            if (isset($bMap[$floorMin])) {
-                                $bKey = $floorMin;
-                            } else {
-                                foreach ($sortedTimes as $st) {
-                                    if ($st <= $t) {
-                                        $bKey = $st;
-                                    } else {
-                                        break;
-                                    }
-                                }
-                            }
-                        }
-
-                        $hasRealKline = ($bKey !== null && isset($bMap[$bKey]));
-                        if ($hasRealKline) {
-                            $bKline = $bMap[$bKey];
-                            $bOpen  = (float)$bKline['open'];
-
-                            $secInMin = (int)(($t - $bKey) / 1000) % 60;
-                            if ($t === $targetStartBucket || $prevClose <= 0) {
-                                $cOpen = $bOpen;
-                            } else {
-                                $cOpen = $prevClose;
-                            }
-
-                            $bClose = (float)$bKline['close'];
-                            $bHigh  = (float)$bKline['high'];
-                            $bLow   = (float)$bKline['low'];
-
-                            $fractionEnd = min(1.0, ($secInMin + $intervalSeconds) / 60.0);
-
-                            // Linearly interpolate close along the real open→close progression
-                            $cClose = round($bOpen + ($bClose - $bOpen) * $fractionEnd, $decimals);
-
-                            // High/low are scaled portions of the real 1m range
-                            $minuteRange = max($minStep, $bHigh - $bLow);
-                            $sliceFraction = $intervalSeconds / 60.0;
-
-                            $sliceHigh = $bLow + $minuteRange * min(1.0, $fractionEnd + $sliceFraction * 0.5);
-                            $sliceLow  = $bLow + $minuteRange * max(0.0, $fractionEnd - $sliceFraction * 1.5);
-
-                            $cHigh = round(max($cOpen, $cClose, $sliceHigh), $decimals);
-                            $cLow  = round(max($minStep, min($cOpen, $cClose, $sliceLow)), $decimals);
-                        } else {
-                            // Bucket missing (low volume gap): continuous micro-trend
-                            $noiseVal = market_noise($seed, (int)($t / 1000));
-                            $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
-                            $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
-                            $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
-                            $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
-                        }
-                    }
-
-                    // Enforce minimum candle wick span (minSpan) so candles never collapse into flat horizontal steps or giant blocky bars
-                    $minSpan = max($minStep * 2.5, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.03)));
-                    if (($cHigh - $cLow) < $minSpan) {
-                        $noiseH = abs(market_noise($seed, (int)($t / 1000) * 17) * $minSpan * 0.5);
-                        $noiseL = abs(market_noise($seed, (int)($t / 1000) * 31) * $minSpan * 0.5);
-                        $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.25 + $noiseH, $decimals);
-                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.25 - $noiseL), $decimals);
-                    }
-
-                    if ($isCurrency && $cClose === $cOpen) {
-                        $microDelta = (market_noise($seed, (int)($t / 1000) * 7) * $minStep * 2.0);
-                        $cClose = round(max($minStep, $cOpen + $microDelta), $decimals);
-                        $cHigh  = max($cHigh, round(max($cOpen, $cClose) + $minStep, $decimals));
-                        $cLow   = min($cLow, round(min($cOpen, $cClose) - $minStep, $decimals));
-                    }
-
-                    $cEnd = min($t + $intervalMs - 1, $endMs);
-                    $cBiasStart = get_active_trade_price_bias($asset, (int)$t, $effectiveUserId, false, $cOpen);
-                    $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd, $effectiveUserId, false, $cClose);
-
-                    $cOpenR  = round($cOpen + $cBiasStart, $decimals);
-                    $cCloseR = round($cClose + $cBiasEnd, $decimals);
-
-                    // Only enforce artificial minBody noise when real market data is missing
-                    if (!$hasRealKline) {
-                        $minBody = max($minStep * 3.0, $cOpen * 0.00004);
-                        if (abs($cCloseR - $cOpenR) < $minBody) {
-                            $noiseDir = market_noise($seed + 55, (int)($t / 1000));
-                            $cCloseR = round($noiseDir >= 0 ? $cOpenR + $minBody : max($minStep, $cOpenR - $minBody), $decimals);
-                        }
-                    }
-
-                    $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
-                    $cLowR   = round(max($minStep, min($cLow + min($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR)), $decimals);
-
-                    $isComplete = ($t + $intervalMs) <= $endMs;
-
-                    $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
-                    $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
-
-                    $ticks = [
-                        [$t, $cOpenR],
-                        [$t + (int)round($intervalMs * 0.33), $p1],
-                        [$t + (int)round($intervalMs * 0.67), $p2],
-                        [$cEnd, $cCloseR],
-                    ];
-
-                    $candles[] = [
-                        'time' => $t,
-                        'open' => $cOpenR,
-                        'high' => $cHighR,
-                        'low' => $cLowR,
-                        'close' => $cCloseR,
-                        'lastTickTime' => $cEnd,
-                        'complete' => $isComplete,
-                        'ticks' => $ticks,
-                    ];
-
-                    $prevClose = $cCloseR;
-                }
-
-                return $candles;
             }
+        }
+
+        $prevClose = 0.0;
+        if ($startKey !== null && isset($bMap[$startKey])) {
+            $prevClose = (float)$bMap[$startKey]['open'];
+        }
+        if ($prevClose <= 0) {
+            $prevClose = market_price_at($asset, $targetStartBucket, true);
+        }
+
+        $candles = [];
+        for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs) {
+            $sec = (int)($t / 1000);
+            $cOpen = $prevClose;
+            $hasRealKline = false;
+
+            if ($intervalSeconds >= 60) {
+                // Standard 1m+ candle: aggregate all klines falling into [$t, $t + $intervalMs)
+                $matchingKlines = [];
+                foreach ($sortedTimes as $st) {
+                    if ($st >= $t && $st < ($t + $intervalMs)) {
+                        $matchingKlines[] = $bMap[$st];
+                    } elseif ($st >= ($t + $intervalMs)) {
+                        break;
+                    }
+                }
+
+                if (!empty($matchingKlines)) {
+                    $hasRealKline = true;
+                    if ($t === $targetStartBucket || $prevClose <= 0) {
+                        $cOpen = (float)$matchingKlines[0]['open'];
+                    } else {
+                        $cOpen = $prevClose;
+                    }
+                    $targetClose = (float)$matchingKlines[count($matchingKlines) - 1]['close'];
+                    $targetHigh  = (float)$matchingKlines[0]['high'];
+                    $targetLow   = (float)$matchingKlines[0]['low'];
+                    foreach ($matchingKlines as $mk) {
+                        if ((float)$mk['high'] > $targetHigh) $targetHigh = (float)$mk['high'];
+                        if ((float)$mk['low'] < $targetLow)   $targetLow  = (float)$mk['low'];
+                    }
+
+                    // Enrich candle if flat (zero-wick or zero-body)
+                    $noiseClose = market_noise($seed + 41, $sec);
+                    $noiseWickH = abs(market_noise($seed + 73, $sec));
+                    $noiseWickL = abs(market_noise($seed + 97, $sec));
+
+                    $macroDelta = $targetClose - $cOpen;
+                    $microNoise = ($noiseClose * $minStep * ($isCurrency ? 4.5 : 2.0));
+                    $cCloseRaw = $cOpen + ($macroDelta * 0.7) + $microNoise;
+
+                    $minBody = $minStep * ($isCurrency ? 1.5 : 1.0);
+                    if (abs($cCloseRaw - $cOpen) < $minBody) {
+                        $cCloseRaw = ($noiseClose >= 0) ? ($cOpen + $minBody) : ($cOpen - $minBody);
+                    }
+                    $cClose = round($cCloseRaw, $decimals);
+
+                    $bodySpan = abs($cClose - $cOpen);
+                    $baseWick = max($minStep * 2.0, $bodySpan * 0.35 + ($cOpen * $volatility * 0.03));
+                    $wickUp = $baseWick * (0.35 + $noiseWickH * 0.8);
+                    $wickDown = $baseWick * (0.35 + $noiseWickL * 0.8);
+
+                    $cHigh = round(max($cOpen, $cClose, $targetHigh) + $wickUp, $decimals);
+                    $cLow  = round(max($minStep, min($cOpen, $cClose, $targetLow) - $wickDown), $decimals);
+                } else {
+                    // Bucket missing: continuous organic candle
+                    $noiseVal = market_noise($seed, $sec);
+                    $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
+                    $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
+                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.35, $decimals);
+                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.35), $decimals);
+                }
+            } else {
+                // Sub-minute candle (5s, 10s, 15s, 30s) - TradingView fractal microstructure
+                $floorMin = (int)(floor($t / 60000) * 60000);
+                $bKey = isset($bMap[$floorMin]) ? $floorMin : null;
+                if ($bKey === null) {
+                    foreach ($sortedTimes as $st) {
+                        if ($st <= $t) $bKey = $st;
+                        else break;
+                    }
+                }
+
+                $hasRealKline = ($bKey !== null && isset($bMap[$bKey]));
+                if ($hasRealKline) {
+                    $bKline = $bMap[$bKey];
+                    $bOpen  = (float)$bKline['open'];
+                    $bClose = (float)$bKline['close'];
+                    $bHigh  = (float)$bKline['high'];
+                    $bLow   = (float)$bKline['low'];
+
+                    if ($t === $targetStartBucket || $prevClose <= 0) {
+                        $cOpen = $bOpen;
+                    } else {
+                        $cOpen = $prevClose;
+                    }
+
+                    $secInMin = (int)(($t - $floorMin) / 1000) % 60;
+                    $progress = min(1.0, max(0.0, ($secInMin + $intervalSeconds) / 60.0));
+
+                    $microNoise = market_noise($seed + 19, $sec);
+                    $wickNoiseH = abs(market_noise($seed + 43, $sec));
+                    $wickNoiseL = abs(market_noise($seed + 67, $sec));
+
+                    $subWave = sin($sec / 3.5) * ($minStep * 2.2) + cos($sec / 7.2) * ($minStep * 1.5) + ($microNoise * $minStep * 1.2);
+                    $targetClose = $bOpen + (($bClose - $bOpen) * $progress) + $subWave;
+
+                    // Ensure visible non-zero candle body (green/red balance)
+                    $minBody = $minStep * ($isCurrency ? 1.0 : 0.8);
+                    if (abs($targetClose - $cOpen) < $minBody) {
+                        $targetClose = ($microNoise >= 0) ? ($cOpen + $minBody) : ($cOpen - $minBody);
+                    }
+                    $cClose = round($targetClose, $decimals);
+
+                    $bodySpan = abs($cClose - $cOpen);
+                    $baseWick = max($minStep * 1.5, $bodySpan * 0.35 + ($cOpen * $volatility * 0.02));
+                    $wickUp = $baseWick * (0.3 + $wickNoiseH * 0.7);
+                    $wickDown = $baseWick * (0.3 + $wickNoiseL * 0.7);
+
+                    $cHigh = round(max($cOpen, $cClose) + $wickUp, $decimals);
+                    $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickDown), $decimals);
+                } else {
+                    $noiseVal = market_noise($seed, $sec);
+                    $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.1)), $decimals);
+                    $minWick = max($minStep * 2.0, $cOpen * $volatility * 0.025);
+                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.35, $decimals);
+                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.35), $decimals);
+                }
+            }
+
+            // Guarantee minimum wick span so no candle is a 1-pixel flat line
+            $minSpan = max($minStep * 2.5, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.03)));
+            if (($cHigh - $cLow) < $minSpan) {
+                $noiseH = abs(market_noise($seed, $sec * 17) * $minSpan * 0.5);
+                $noiseL = abs(market_noise($seed, $sec * 31) * $minSpan * 0.5);
+                $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.25 + $noiseH, $decimals);
+                $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.25 - $noiseL), $decimals);
+            }
+
+            $cEnd = min($t + $intervalMs - 1, $endMs);
+            $cBiasStart = get_active_trade_price_bias($asset, (int)$t, $effectiveUserId, false, $cOpen);
+            $cBiasEnd   = get_active_trade_price_bias($asset, (int)$cEnd, $effectiveUserId, false, $cClose);
+
+            $cOpenR  = round($cOpen + $cBiasStart, $decimals);
+            $cCloseR = round($cClose + $cBiasEnd, $decimals);
+
+            $cHighR  = round(max($cHigh + max($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR), $decimals);
+            $cLowR   = round(max($minStep, min($cLow + min($cBiasStart, $cBiasEnd), $cOpenR, $cCloseR)), $decimals);
+
+            $isComplete = ($t + $intervalMs) <= $endMs;
+
+            $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
+            $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
+
+            $ticks = [
+                [$t, $cOpenR],
+                [$t + (int)round($intervalMs * 0.33), $p1],
+                [$t + (int)round($intervalMs * 0.67), $p2],
+                [$cEnd, $cCloseR],
+            ];
+
+            $candles[] = [
+                'time' => $t,
+                'open' => $cOpenR,
+                'high' => $cHighR,
+                'low' => $cLowR,
+                'close' => $cCloseR,
+                'lastTickTime' => $cEnd,
+                'complete' => $isComplete,
+                'ticks' => $ticks,
+            ];
+
+            $prevClose = $cCloseR;
+        }
+
+        return $candles;
+    }
 
     // Fallback generator if API is unavailable, symbol not on Binance, or internal asset
 

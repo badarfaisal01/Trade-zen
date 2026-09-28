@@ -226,6 +226,159 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     throw new RuntimeException('Twelve Data price request failed for ' . $symbol);
 }
 
+function yahoo_forex_symbol(string $symbol): string
+{
+    $clean = normalize_market_api_symbol($symbol);
+    return $clean . '=X';
+}
+
+function fetch_yahoo_forex_price(string $symbol): float
+{
+    static $memoryPrice = [];
+    static $memoryTime = [];
+    $cleanSym = normalize_market_api_symbol($symbol);
+    $now = microtime(true);
+
+    if (isset($memoryPrice[$cleanSym], $memoryTime[$cleanSym]) && ($now - $memoryTime[$cleanSym]) < 10.0) {
+        return $memoryPrice[$cleanSym];
+    }
+
+    $yfSym = yahoo_forex_symbol($cleanSym);
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . urlencode($yfSym) . "?interval=1m&range=1d";
+    
+    if (!function_exists('curl_init')) return 0.0;
+    
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+    $res = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && is_string($res)) {
+        $data = json_decode($res, true);
+        $meta = $data['chart']['result'][0]['meta'] ?? null;
+        if ($meta && isset($meta['regularMarketPrice']) && (float)$meta['regularMarketPrice'] > 0) {
+            $price = (float)$meta['regularMarketPrice'];
+            $memoryPrice[$cleanSym] = $price;
+            $memoryTime[$cleanSym] = $now;
+            return $price;
+        }
+    }
+
+    return 0.0;
+}
+
+function fetch_yahoo_forex_candles(string $symbol, int $intervalSeconds = 60, int $count = 2000, ?int $endTimeMs = null): array
+{
+    static $memoryKlines = [];
+    static $memoryTime = [];
+    $cleanSym = normalize_market_api_symbol($symbol);
+    $yfSym = yahoo_forex_symbol($cleanSym);
+    $now = microtime(true);
+
+    $yfInterval = '1m';
+    $range = '2d';
+    if ($intervalSeconds >= 86400) { $yfInterval = '1d'; $range = '1y'; }
+    elseif ($intervalSeconds >= 3600) { $yfInterval = '60m'; $range = '1mo'; }
+    elseif ($intervalSeconds >= 900) { $yfInterval = '15m'; $range = '5d'; }
+    elseif ($intervalSeconds >= 300) { $yfInterval = '5m'; $range = '5d'; }
+
+    $cacheKey = "{$cleanSym}_{$yfInterval}";
+    if (isset($memoryKlines[$cacheKey], $memoryTime[$cacheKey]) && ($now - $memoryTime[$cacheKey]) < 20.0 && count($memoryKlines[$cacheKey]) >= min($count, 200)) {
+        return array_slice($memoryKlines[$cacheKey], -$count);
+    }
+
+    $cacheDir = dirname(__DIR__) . '/storage/cache/market/yahoo_candles';
+    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0777, true);
+    $cacheFile = $cacheDir . "/{$cacheKey}.json";
+
+    if (file_exists($cacheFile)) {
+        $mtime = (float)@filemtime($cacheFile);
+        if (($now - $mtime) < 20.0) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $memoryKlines[$cacheKey] = $decoded;
+                    $memoryTime[$cacheKey] = $mtime;
+                    return array_slice($decoded, -$count);
+                }
+            }
+        }
+    }
+
+    if (!function_exists('curl_init')) return [];
+
+    $url = "https://query1.finance.yahoo.com/v8/finance/chart/" . urlencode($yfSym) . "?interval={$yfInterval}&range={$range}";
+    $ch = curl_init($url);
+    curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+    curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+    curl_setopt($ch, CURLOPT_TIMEOUT, 4);
+    curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+    curl_setopt($ch, CURLOPT_USERAGENT, 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36');
+    $res = curl_exec($ch);
+    $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+    curl_close($ch);
+
+    if ($httpCode === 200 && is_string($res)) {
+        $data = json_decode($res, true);
+        $result = $data['chart']['result'][0] ?? null;
+        if ($result && !empty($result['timestamp'])) {
+            $timestamps = $result['timestamp'];
+            $quotes = $result['indicators']['quote'][0] ?? [];
+            $opens = $quotes['open'] ?? [];
+            $highs = $quotes['high'] ?? [];
+            $lows = $quotes['low'] ?? [];
+            $closes = $quotes['close'] ?? [];
+
+            $candles = [];
+            $len = count($timestamps);
+            $stepMs = max(1000, $intervalSeconds * 1000);
+
+            for ($i = 0; $i < $len; $i++) {
+                if (!isset($opens[$i], $closes[$i]) || $opens[$i] === null || $closes[$i] === null) continue;
+                $t = (int)$timestamps[$i] * 1000;
+                $o = (float)$opens[$i];
+                $h = (float)($highs[$i] ?? $o);
+                $l = (float)($lows[$i] ?? $o);
+                $c = (float)$closes[$i];
+
+                $candles[] = [
+                    'openTime'  => $t,
+                    'open'      => round($o, 5),
+                    'high'      => round($h, 5),
+                    'low'       => round($l, 5),
+                    'close'     => round($c, 5),
+                    'closeTime' => $t + $stepMs - 1,
+                ];
+            }
+
+            if (!empty($candles)) {
+                $memoryKlines[$cacheKey] = $candles;
+                $memoryTime[$cacheKey] = $now;
+                @file_put_contents($cacheFile, json_encode($candles), LOCK_EX);
+                return array_slice($candles, -$count);
+            }
+        }
+    }
+
+    if (file_exists($cacheFile)) {
+        $raw = @file_get_contents($cacheFile);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                return array_slice($decoded, -$count);
+            }
+        }
+    }
+
+    return [];
+}
+
 function twelvedata_interval(int $intervalSeconds): string
 {
     if ($intervalSeconds <= 180) return '1min';
@@ -1050,24 +1203,39 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD'];
-    $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'twelvedata'));
-    if (in_array($normalized, $forexSymbols, true) && $currencyProvider === 'binance') {
+    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'];
+    if (in_array($normalized, $forexSymbols, true)) {
+        // 1. Try Yahoo Finance real-time forex
         try {
-            $binancePrice = fetch_binance_price($normalized);
-            if ($binancePrice > 0) return $binancePrice;
+            $yfPrice = fetch_yahoo_forex_price($normalized);
+            if ($yfPrice > 0) return $yfPrice;
         } catch (Throwable $e) {}
-        return 0.0;
-    }
-    if (in_array($normalized, $forexSymbols, true) && !empty(env('TWELVEDATA_API_KEY'))) {
-        try {
-            $forexPrice = fetch_twelvedata_price($normalized);
-            if ($forexPrice > 0) return $forexPrice;
-        } catch (Throwable $e) {}
-    }
-    if (in_array($normalized, $forexSymbols, true)) return 0.0;
 
-    // Binance is suitable for crypto and supported exchange-backed instruments.
+        // 2. Try Binance derived spot / EURUSDT
+        try {
+            $binanceSym = str_replace('USD', 'USDT', $normalized);
+            $bPrice = fetch_binance_price($binanceSym);
+            if ($bPrice > 0) return $bPrice;
+        } catch (Throwable $e) {}
+
+        // 3. Try Twelve Data
+        if (!empty(env('TWELVEDATA_API_KEY'))) {
+            try {
+                $forexPrice = fetch_twelvedata_price($normalized);
+                if ($forexPrice > 0) return $forexPrice;
+            } catch (Throwable $e) {}
+        }
+
+        // 4. Try Alpha Vantage
+        if (!empty(env('ALPHAVANTAGE_API_KEY')) && function_exists('fetch_alphavantage_price')) {
+            try {
+                $avPrice = fetch_alphavantage_price($normalized);
+                if ($avPrice > 0) return $avPrice;
+            } catch (Throwable $e) {}
+        }
+    }
+
+    // Crypto and supported exchange-backed instruments
     try {
         $bPrice = fetch_binance_price($normalized);
         if ($bPrice > 0) {
@@ -1075,14 +1243,14 @@ function fetch_market_price(string $symbol): float
         }
     } catch (Throwable $e) {}
 
-    // 2. Fall back to Metals API for Gold/Precious metals only if API key is configured
+    // Fall back to Metals API for Gold/Precious metals
     if (!empty(env('METALS_API_KEY')) && in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {
         try {
             return fetch_metals_api_price('XAU', 'USD');
         } catch (Throwable $e) {}
     }
 
-    // 3. Fall back to Twelve Data only if API key is configured
+    // Fall back to Twelve Data
     if (!empty(env('TWELVEDATA_API_KEY'))) {
         try {
             return fetch_twelvedata_price($normalized);

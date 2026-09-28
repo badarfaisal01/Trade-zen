@@ -768,7 +768,8 @@
     // Organic sub-pip micro-fluctuation so the active candle remains lively & animated
     // even when the provider price is temporarily static, eliminating dead straight lines
     var timeMs = Date.now();
-    var microNoise = Math.sin(timeMs / 220.0) * (minStep * 0.85) + Math.cos(timeMs / 410.0) * (minStep * 0.45);
+    var scale = dec >= 4 ? (minStep * 2.8) : (minStep * 0.75);
+    var microNoise = Math.sin(timeMs / 280.0) * scale + Math.cos(timeMs / 540.0) * (scale * 0.6) + Math.sin(timeMs / 120.0) * (scale * 0.35);
     var livePriceToEmit = Number((currentLivePrice + microNoise).toFixed(dec));
 
     emitTick(livePriceToEmit, activeSocketSymbol);
