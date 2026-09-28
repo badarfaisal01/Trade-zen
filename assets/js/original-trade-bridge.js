@@ -551,8 +551,15 @@
   function getBinanceStreamSymbol(sym) {
     var clean = String(sym || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     clean = clean.replace(/OTC$/, '');
-    if (isCurrencyAsset(findAsset(clean))) return '';
     var map = {
+      // Forex / Currencies
+      'EURUSD': 'eurusdt',
+      'EURUSDT': 'eurusdt',
+      'GBPUSD': 'gbpusdt',
+      'GBPUSDT': 'gbpusdt',
+      'AUDUSD': 'audusdt',
+      'AUDUSDT': 'audusdt',
+
       // Crypto
       'BTCUSD': 'btcusdt',
       'BTCUSDT': 'btcusdt',
@@ -616,6 +623,7 @@
 
     var assetObj = findAsset(clean);
     var category = assetObj && assetObj.category ? String(assetObj.category).toLowerCase() : '';
+    if (category === 'currencies') return '';
     if (category === 'crypto' || clean.indexOf('USDT') !== -1 || (clean.length > 3 && clean.endsWith('USD'))) {
       if (clean.endsWith('USDT')) {
         return clean.toLowerCase();
