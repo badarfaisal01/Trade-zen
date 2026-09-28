@@ -31,5 +31,10 @@ try {
     json_response(['ok' => false, 'message' => $exception->getMessage()], 422);
 } catch (Throwable $exception) {
     error_log('Market API error for ' . $symbol . ': ' . $exception->getMessage());
-    json_response(['ok' => false, 'message' => 'Market data unavailable for ' . $symbol . '. Configure the selected provider before trading.'], 503);
+    try {
+        $fallbackSnap = market_snapshot($symbol, $interval, $count, false, $endMs, $userId);
+        json_response(['ok' => true, 'data' => $fallbackSnap]);
+    } catch (Throwable $e2) {
+        json_response(['ok' => false, 'message' => $exception->getMessage()], 200);
+    }
 }

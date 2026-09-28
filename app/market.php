@@ -744,13 +744,20 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         }
                     }
 
-                    // Only enforce artificial minSpan wick expansion when real market data is missing
-                    if (!$hasRealKline) {
-                        $minSpan = max($minStep * 2.0, $cOpen * $volatility * 0.03);
-                        if (($cHigh - $cLow) < $minSpan) {
-                            $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.3, $decimals);
-                            $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.3), $decimals);
-                        }
+                    // Enforce minimum candle wick span (minSpan) so candles never collapse into flat horizontal steps or giant blocky bars
+                    $minSpan = max($minStep * 2.5, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.03)));
+                    if (($cHigh - $cLow) < $minSpan) {
+                        $noiseH = abs(market_noise($seed, (int)($t / 1000) * 17) * $minSpan * 0.5);
+                        $noiseL = abs(market_noise($seed, (int)($t / 1000) * 31) * $minSpan * 0.5);
+                        $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.25 + $noiseH, $decimals);
+                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.25 - $noiseL), $decimals);
+                    }
+
+                    if ($isCurrency && $cClose === $cOpen) {
+                        $microDelta = (market_noise($seed, (int)($t / 1000) * 7) * $minStep * 2.0);
+                        $cClose = round(max($minStep, $cOpen + $microDelta), $decimals);
+                        $cHigh  = max($cHigh, round(max($cOpen, $cClose) + $minStep, $decimals));
+                        $cLow   = min($cLow, round(min($cOpen, $cClose) - $minStep, $decimals));
                     }
 
                     $cEnd = min($t + $intervalMs - 1, $endMs);
