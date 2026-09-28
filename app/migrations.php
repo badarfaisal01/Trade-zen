@@ -77,7 +77,7 @@ function migration_release_lock(PDO $pdo, array $lock): void
 
 function run_auto_migrations(): void
 {
-    $targetVersion = '4.9.7';
+    $targetVersion = '4.9.8';
     $flagFile = BASE_PATH . '/storage/cache/schema-' . $targetVersion . '.flag';
     if (file_exists($flagFile)) {
         return;
@@ -91,9 +91,12 @@ function run_auto_migrations(): void
     }
 
     $pdo->exec("CREATE TABLE IF NOT EXISTS schema_migrations (version VARCHAR(40) NOT NULL, applied_at DATETIME NOT NULL, PRIMARY KEY (version)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci");
-    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
-    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='GBPUSDT' WHERE symbol='GBPUSD'");
-    $pdo->exec("UPDATE market_assets SET price_source='binance', api_symbol='AUDUSDT' WHERE symbol='AUDUSD'");
+    $pdo->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD')");
+    $pdo->exec("UPDATE market_assets SET is_active=1, price_source='api' WHERE symbol IN ('EURUSD','GBPUSD','USDJPY','AUDUSD')");
+    $pdo->exec("UPDATE market_assets SET api_symbol='EUR/USD' WHERE symbol='EURUSD'");
+    $pdo->exec("UPDATE market_assets SET api_symbol='GBP/USD' WHERE symbol='GBPUSD'");
+    $pdo->exec("UPDATE market_assets SET api_symbol='USD/JPY' WHERE symbol='USDJPY'");
+    $pdo->exec("UPDATE market_assets SET api_symbol='AUD/USD' WHERE symbol='AUDUSD'");
     $pdo->exec("DELETE FROM market_assets WHERE LOWER(category)='crypto' AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET price_source='binance' WHERE LOWER(category)='crypto'");
