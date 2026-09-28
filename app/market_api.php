@@ -228,8 +228,8 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
 
 function twelvedata_interval(int $intervalSeconds): string
 {
-    if ($intervalSeconds <= 60) return '1min';
-    if ($intervalSeconds <= 300) return '5min';
+    if ($intervalSeconds <= 180) return '1min';
+    if ($intervalSeconds <= 600) return '5min';
     if ($intervalSeconds <= 900) return '15min';
     if ($intervalSeconds <= 1800) return '30min';
     if ($intervalSeconds <= 3600) return '1h';
@@ -254,7 +254,7 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
         $diskData = json_decode((string)@file_get_contents($cacheFile), true);
         if (is_array($diskData) && !empty($diskData['candles'])) {
             $cachedTime = (float)($diskData['time'] ?? 0);
-            if (($now - $cachedTime) < 300) {
+            if (($now - $cachedTime) < 300 && count($diskData['candles']) >= min($count, 500)) {
                 return $diskData['candles'];
             }
             $cachedCandles = $diskData['candles'];

@@ -542,7 +542,16 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
     if ($isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
         try {
-            $neededCount = max(20, min(5000, $count));
+            if ($intervalSeconds <= 180) $tdBaseSec = 60;
+            elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
+            elseif ($intervalSeconds <= 900) $tdBaseSec = 900;
+            elseif ($intervalSeconds <= 1800) $tdBaseSec = 1800;
+            elseif ($intervalSeconds <= 3600) $tdBaseSec = 3600;
+            elseif ($intervalSeconds <= 14400) $tdBaseSec = 14400;
+            else $tdBaseSec = 86400;
+
+            $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $tdBaseSec));
+            $neededCount = max(20, min(5000, $count * $klinesPerCandle));
             $realKlines = fetch_twelvedata_candles($apiSymbol, $intervalSeconds, $neededCount, $endMs, $twelvedataKey);
         } catch (Throwable $e) {
             error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());

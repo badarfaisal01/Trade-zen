@@ -1192,16 +1192,71 @@
   }
 
   function extractPeriod(payload, fallback) {
-    if (!payload) return Math.max(1, Math.min(86400, number(fallback, 60)));
-    var settings = payload.settings || {};
-    // PRIORITY: Look specifically for candle timeframe properties.
-    // NEVER fallback to timePeriod (which is trade expiration duration, e.g. 5, 10, 30, 60)!
-    var val = payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
-              settings.chartPeriod || settings.timeframe || settings.period || settings.interval;
-    if (!val && typeof payload === 'number' && payload > 0) {
-      val = payload;
+    if (payload === undefined || payload === null) {
+      return Math.max(1, Math.min(86400, number(fallback, 60)));
     }
-    return Math.max(1, Math.min(86400, number(val, fallback)));
+    var settings = payload.settings || {};
+    var val = undefined;
+    if (payload.chartPeriod !== undefined && payload.chartPeriod !== null) val = payload.chartPeriod;
+    else if (payload.timeframe !== undefined && payload.timeframe !== null) val = payload.timeframe;
+    else if (payload.period !== undefined && payload.period !== null) val = payload.period;
+    else if (payload.interval !== undefined && payload.interval !== null) val = payload.interval;
+    else if (settings.chartPeriod !== undefined && settings.chartPeriod !== null) val = settings.chartPeriod;
+    else if (settings.timeframe !== undefined && settings.timeframe !== null) val = settings.timeframe;
+    else if (settings.period !== undefined && settings.period !== null) val = settings.period;
+    else if (settings.interval !== undefined && settings.interval !== null) val = settings.interval;
+    else if (typeof payload === 'number' || typeof payload === 'string') val = payload;
+
+    if (val === undefined || val === null || val === '') {
+      return Math.max(1, Math.min(86400, number(fallback, 60)));
+    }
+
+    if (typeof val === 'string') {
+      var s = val.trim();
+      var enumMatch = s.match(/^Period_(\d+)$/i);
+      if (enumMatch) {
+        var num = parseInt(enumMatch[1], 10);
+        if (!isNaN(num) && num > 0) return Math.max(1, Math.min(86400, num));
+      }
+      if (/^\d+[smhd]$/i.test(s)) {
+        var unit = s.slice(-1).toLowerCase();
+        var numVal = parseInt(s.slice(0, -1), 10);
+        if (unit === 's') return Math.max(1, Math.min(86400, numVal));
+        if (unit === 'm') return Math.max(1, Math.min(86400, numVal * 60));
+        if (unit === 'h') return Math.max(1, Math.min(86400, numVal * 3600));
+        if (unit === 'd') return Math.max(1, Math.min(86400, numVal * 86400));
+      }
+      var parsed = parseInt(s, 10);
+      if (!isNaN(parsed)) val = parsed;
+    }
+
+    if (typeof val === 'number' && isFinite(val)) {
+      // Map Quotex/React chart enum values (0..14) to candle duration in seconds
+      var enumToSec = {
+        0: 5,      // Period_5
+        1: 10,     // Period_10
+        2: 15,     // Period_15
+        3: 30,     // Period_30
+        4: 60,     // Period_60 (1m)
+        6: 300,    // Period_300 (5m)
+        7: 600,    // Period_600 (10m)
+        8: 900,    // Period_900 (15m)
+        9: 1800,   // Period_1800 (30m)
+        10: 3600,  // Period_3600 (1h)
+        11: 14400, // Period_14400 (4h)
+        12: 86400, // Period_86400 (1d)
+        13: 120,   // Period_120 (2m)
+        14: 180    // Period_180 (3m)
+      };
+      if (val in enumToSec) {
+        return enumToSec[val];
+      }
+      if (val > 0) {
+        return Math.max(1, Math.min(86400, val));
+      }
+    }
+
+    return Math.max(1, Math.min(86400, number(fallback, 60)));
   }
 
   function extractSymbol(payload, fallback) {
@@ -2066,8 +2121,8 @@
         selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
       var reqSymStore = extractSymbol(payload, activeSymbol);
-      var hasChartPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
-                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var hasChartPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
+                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
       activeSymbol = reqSymStore;
@@ -2093,8 +2148,8 @@
     }
     if (event === 'instruments/update') {
       var reqSym = extractSymbol(payload, activeSymbol);
-      var hasInstPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
-                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var hasInstPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
+                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPer = hasInstPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var instChanged = reqSym !== activeSymbol || (hasInstPeriod && reqPer !== activePeriod);
       activeSymbol = reqSym;
@@ -2120,8 +2175,8 @@
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
       var reqSymbol = extractSymbol(payload, activeSymbol);
-      var hasHistPeriod = Boolean(payload && (payload.chartPeriod || payload.timeframe || payload.period || payload.interval ||
-                                  (payload.settings && (payload.settings.chartPeriod || payload.settings.timeframe || payload.settings.period || payload.settings.interval))));
+      var hasHistPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
+                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPeriod = hasHistPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var symbolOrPeriodChanged = reqSymbol !== activeSymbol || (hasHistPeriod && reqPeriod !== activePeriod);
 
