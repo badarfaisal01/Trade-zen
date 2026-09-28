@@ -341,12 +341,22 @@ function fetch_yahoo_forex_candles(string $symbol, int $intervalSeconds = 60, in
 
             for ($i = 0; $i < $len; $i++) {
                 if (!isset($opens[$i], $closes[$i]) || $opens[$i] === null || $closes[$i] === null) continue;
-                $t = (int)$timestamps[$i] * 1000;
                 $o = (float)$opens[$i];
+                $c = (float)$closes[$i];
+                if ($o <= 0 || $c <= 0) continue; // Skip corrupted 0 quotes
+
                 $h = (float)($highs[$i] ?? $o);
                 $l = (float)($lows[$i] ?? $o);
-                $c = (float)$closes[$i];
+                if ($h <= 0) $h = max($o, $c);
+                if ($l <= 0) $l = min($o, $c);
 
+                // Normalize unnatural provider outlier wicks to standard TradingView ratios
+                $body = abs($c - $o);
+                $maxAllowedWick = max(0.00008, min(0.00025, $body * 1.5 + 0.00006));
+                $h = min($h, max($o, $c) + $maxAllowedWick);
+                $l = max($l, min($o, $c) - $maxAllowedWick);
+
+                $t = (int)$timestamps[$i] * 1000;
                 $candles[] = [
                     'openTime'  => $t,
                     'open'      => round($o, 5),
