@@ -1415,6 +1415,23 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         }
     }
 
+    // Reconcile targetPrice with candle data: the last candle's close is the most
+    // reliable price because it comes directly from the real-time data provider
+    // (TwelveData time_series or Binance klines). The spot-price from market_price_at()
+    // may be stale (rate-limited quote, missing cache, or fallback to deterministic
+    // generator). Using a divergent targetPrice creates a visible vertical spike
+    // between the candle history and the chart's current-price indicator.
+    if ($status['isOpen'] && !empty($candles)) {
+        $lastCandleClose = (float)$candles[count($candles) - 1]['close'];
+        if ($lastCandleClose > 0) {
+            $divergence = abs($targetPrice - $lastCandleClose) / max($lastCandleClose, 0.0001);
+            // If spot price diverges more than 0.05% from candle data, trust candle data
+            if ($divergence > 0.0005) {
+                $targetPrice = $lastCandleClose;
+            }
+        }
+    }
+
     $assetPayload = market_asset_payload($asset, $nowMs);
     if (!$status['isOpen']) {
         $officialClosedP = (float)$status['closedPrice'];
