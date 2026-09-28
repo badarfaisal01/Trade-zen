@@ -1437,8 +1437,9 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $activeBucket = (int)(floor($targetEndMs / $intervalMs) * $intervalMs);
         $candleClose = (float)$candles[$lastIdx]['close'];
 
-        // If targetPrice differs noticeably from candle close, harmonize to prevent vertical cliff spikes
-        if ($candleClose > 0 && abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.001) {
+        // Only harmonize to prevent genuine cross-symbol vertical cliff spikes (>5% gap).
+        // DO NOT clamp small natural Forex/crypto price moves — this would flatten the live candle.
+        if ($candleClose > 0 && abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.05) {
             $targetPrice = $candleClose;
         }
 
