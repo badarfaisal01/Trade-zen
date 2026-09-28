@@ -1738,9 +1738,9 @@
       var assets = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length)
         ? marketSnapshot.assets
         : bootstrapAssets;
-      var symbolsToWarm = assets.map(function (a) { return plainSymbol(a.symbol); });
+      var symbolsToWarm = assets.slice(0, 4).map(function (a) { return plainSymbol(a.symbol); });
       if (!symbolsToWarm.length) {
-        symbolsToWarm = ['BTCUSD', 'SOLUSD', 'ETHUSD', 'BNBUSD', 'EURUSD', 'GBPUSD', 'AUDUSD', 'USDCAD', 'USDJPY', 'AAPLUSD', 'US30', 'XAUUSD'];
+        symbolsToWarm = ['BTCUSD', 'EURUSD', 'ETHUSD', 'SOLUSD'];
       }
       symbolsToWarm.forEach(function (sym, idx) {
         var s = plainSymbol(sym);
@@ -1751,10 +1751,10 @@
                 snapshotCache[plainSymbol(snap.asset.symbol) + '_' + activePeriod] = snap;
               }
             }).catch(function () {});
-          }, idx * 120);
+          }, (idx + 1) * 800);
         }
       });
-    }, 400);
+    }, 1500);
   }
 
   function startPolling() {
