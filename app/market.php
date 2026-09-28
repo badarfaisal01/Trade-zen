@@ -15,6 +15,9 @@ function market_assets(bool $activeOnly = true): array
         try {
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='crypto' OR category LIKE '%crypto%') AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
             db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
+
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
+            db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('XAUUSD','XAUTUSD')");
         } catch (Throwable $e) {}
     }
 

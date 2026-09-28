@@ -77,7 +77,7 @@ function migration_release_lock(PDO $pdo, array $lock): void
 
 function run_auto_migrations(): void
 {
-    $targetVersion = '4.9.6';
+    $targetVersion = '4.9.7';
     $flagFile = BASE_PATH . '/storage/cache/schema-' . $targetVersion . '.flag';
     if (file_exists($flagFile)) {
         return;
@@ -98,6 +98,8 @@ function run_auto_migrations(): void
     $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET price_source='binance' WHERE LOWER(category)='crypto'");
     $pdo->exec("UPDATE market_assets SET api_symbol=CONCAT(REPLACE(symbol, 'USD', ''), 'USDT') WHERE LOWER(category)='crypto' AND (api_symbol IS NULL OR api_symbol='' OR api_symbol=symbol)");
+    $pdo->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
+    $pdo->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('XAUUSD','XAUTUSD')");
     $check = $pdo->prepare('SELECT COUNT(*) FROM schema_migrations WHERE version = ?');
     $check->execute([$targetVersion]);
     if ((int)$check->fetchColumn() > 0) {
