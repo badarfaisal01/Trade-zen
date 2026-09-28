@@ -16,8 +16,11 @@ function market_assets(bool $activeOnly = true): array
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='crypto' OR category LIKE '%crypto%') AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
             db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
 
+            db()->exec("INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, price_source, api_symbol, sort_order, is_active, created_at, updated_at) VALUES
+                ('XAUUSD', 'Gold / USD', 'Commodities', 4136.00, 2, 85.00, 0.00250000, 88101, 'binance', 'PAXGUSDT', 1, 1, NOW(), NOW()),
+                ('XAUTUSD', 'Tether Gold / USD', 'Commodities', 4131.00, 2, 85.00, 0.00250000, 88102, 'binance', 'XAUTUSDT', 2, 1, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('XAUUSD','XAUTUSD')");
 
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','USDCAD')");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE symbol IN ('GBPUSD','AUDUSD')");
