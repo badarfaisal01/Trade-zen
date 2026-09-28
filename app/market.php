@@ -395,61 +395,26 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $source = $asset['price_source'] ?? 'internal';
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
-
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
-    $alphaVantageKey = (string)env('ALPHAVANTAGE_API_KEY', '');
-    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'alphavantage'));
 
-    if ($source === 'api' && $isCurrency && ($alphaVantageKey !== '' || $twelvedataKey !== '')) {
-        $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
-        if ($isLive && $symbol !== '') {
-            try {
-                if ($currencyProvider === 'twelvedata' && $twelvedataKey !== '') {
-                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
-                } elseif ($currencyProvider === 'alphavantage' && $alphaVantageKey !== '' && function_exists('fetch_alphavantage_price')) {
-                    $livePrice = fetch_alphavantage_price($symbol, $alphaVantageKey);
-                } elseif ($twelvedataKey !== '') {
-                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
-                } else {
-                    $livePrice = fetch_alphavantage_price($symbol, $alphaVantageKey);
-                }
-                if (is_numeric($livePrice) && $livePrice > 0) {
-                    $liveRounded = round((float)$livePrice, $decimals);
-                    $storedBase = (float)($asset['base_price'] ?? 0);
-                    if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.005) {
-                        try {
-                            db()->prepare(
-                                'UPDATE market_assets SET base_price=? WHERE id=? AND (base_price IS NULL OR ABS(base_price - ?) / GREATEST(ABS(base_price), 0.0001) > 0.002)'
-                            )->execute([$liveRounded, (int)($asset['id'] ?? 0), $liveRounded]);
-                        } catch (Throwable $ignored) {}
-                    }
-                    return $liveRounded;
-                }
-            } catch (Throwable $exception) {
-                // Fall through to reference math
-            }
-        }
-    } elseif ($source === 'api' || $source === 'binance') {
-        $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
-        if ($isLive && $symbol !== '') {
+    $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
+    if ($symbol !== '' && ($source === 'api' || $source === 'binance' || $isCurrency)) {
+        if ($isLive && function_exists('fetch_market_price')) {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
                     $liveRounded = round((float)$livePrice, $decimals);
                     $storedBase = (float)($asset['base_price'] ?? 0);
-                    if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.03) {
+                    if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.001) {
                         try {
                             db()->prepare(
-                                'UPDATE market_assets SET base_price=? WHERE id=? AND (base_price IS NULL OR ABS(base_price - ?) / GREATEST(ABS(base_price), 0.0001) > 0.005)'
+                                'UPDATE market_assets SET base_price=? WHERE id=? AND (base_price IS NULL OR ABS(base_price - ?) / GREATEST(ABS(base_price), 0.0001) > 0.001)'
                             )->execute([$liveRounded, (int)($asset['id'] ?? 0), $liveRounded]);
                         } catch (Throwable $ignored) {}
                     }
                     return $liveRounded;
                 }
-            } catch (Throwable $exception) {
-                // Fall through to reference math
-            }
+            } catch (Throwable $exception) {}
         }
         if (isset($asset['source_price']) && (float)$asset['source_price'] > 0) {
             return round((float)$asset['source_price'], $decimals);
@@ -903,32 +868,14 @@ function market_reference_price(array $asset): float
         return (float)$asset['price'];
     }
     $source = $asset['price_source'] ?? 'internal';
-    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
-    if ($isCurrency) {
-        $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-        if ($twelvedataKey !== '') {
-            $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
-            if ($symbol !== '') {
-                try {
-                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
-                    if (is_numeric($livePrice) && $livePrice > 0) {
-                        return (float)$livePrice;
-                    }
-                } catch (Throwable $exception) {}
+    $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+    if ($symbol !== '' && ($source === 'api' || $source === 'binance' || market_is_currency($asset))) {
+        try {
+            $livePrice = fetch_market_price($symbol);
+            if (is_numeric($livePrice) && $livePrice > 0) {
+                return (float)$livePrice;
             }
-        }
-    } elseif ($source === 'api' || $source === 'binance') {
-        $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
-        if ($symbol !== '') {
-            try {
-                $livePrice = fetch_market_price($symbol);
-                if (is_numeric($livePrice) && $livePrice > 0) {
-                    return (float)$livePrice;
-                }
-            } catch (Throwable $exception) {
-                // Ignore API failure, fallback to base_price
-            }
-        }
+        } catch (Throwable $exception) {}
     }
 
     return max(0.00000001, (float)($asset['base_price'] ?? 100.0));

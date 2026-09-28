@@ -728,6 +728,7 @@
     }
   }
 
+  var lastEmittedTickPrices = {};
   function emitTick(price, targetSocketSym) {
     var targetSocket = targetSocketSym || activeSocketSymbol;
     if (!price || !targetSocket) return;
@@ -738,6 +739,7 @@
       return;
     }
     var decimals = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
+    var minStep = Math.pow(10, -decimals);
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
 
     // Safety: prevent quote timestamp from lagging or drifting into future
@@ -750,6 +752,17 @@
     }
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
     var tickPrice = Number(price.toFixed(decimals));
+
+    // Smooth Rate-of-Change Limiter: prevent abnormal single-tick spikes or drops (max 0.1% or 10 pips per tick)
+    var prevTick = lastEmittedTickPrices[targetSocket];
+    if (prevTick > 0) {
+      var maxTickJump = Math.max(minStep * 10, prevTick * 0.001);
+      if (Math.abs(tickPrice - prevTick) > maxTickJump) {
+        tickPrice = Number((prevTick + Math.sign(tickPrice - prevTick) * maxTickJump).toFixed(decimals));
+      }
+    }
+    lastEmittedTickPrices[targetSocket] = tickPrice;
+
     var quote = [[targetSocket, lastEmittedQuoteSec, tickPrice, ++tickNumber]];
     broadcastBinary('quotes/stream', quote);
   }
@@ -1574,20 +1587,28 @@
       });
     });
 
+    // Anchor currentLivePrice strictly to the last history point to prevent any vertical cliff or spike
+    if (history.length > 0) {
+      var lastHistPrice = history[history.length - 1][1];
+      if (lastHistPrice > 0) {
+        if (!currentLivePrice || Math.abs(currentLivePrice - lastHistPrice) / lastHistPrice > 0.002) {
+          currentLivePrice = lastHistPrice;
+        }
+      }
+    }
+
     // Seamless connection: ensure the last history point touches current live price ONLY if this is an OPEN market
     var isLiveStream = (!isClosed) && ((nowSec - previousStamp) <= (safePeriod * 2));
     if (isLiveStream && history.length > 0 && currentLivePrice > 0) {
       var lastHistPrice = history[history.length - 1][1];
-      var scaleRatio = lastHistPrice > 0 ? (currentLivePrice / lastHistPrice) : 1;
-      // Prevent genuine cross-symbol anomalies only (e.g. EURUSD 1.15 vs BTC 81,000)
-      // Allow full Forex range including JPY pairs (~150) vs minor pairs (~0.007)
-      if (scaleRatio >= 0.001 && scaleRatio <= 1000.0) {
-        if (previousStamp < nowSec) {
-          var finalStamp = Number(nowSec.toFixed(3));
-          if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
-          history.push([finalStamp, currentLivePrice, ++count]);
-          previousStamp = finalStamp;
-        }
+      var diffPct = Math.abs(currentLivePrice - lastHistPrice) / Math.max(lastHistPrice, 0.0001);
+      if (diffPct <= 0.0025 && previousStamp < nowSec) {
+        var finalStamp = Number(nowSec.toFixed(3));
+        if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
+        history.push([finalStamp, currentLivePrice, ++count]);
+        previousStamp = finalStamp;
+      } else {
+        currentLivePrice = lastHistPrice;
       }
     }
 
