@@ -1435,10 +1435,16 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $lastIdx = count($candles) - 1;
         $intervalMs = max(1000, $intervalSeconds * 1000);
         $activeBucket = (int)(floor($targetEndMs / $intervalMs) * $intervalMs);
+        $candleClose = (float)$candles[$lastIdx]['close'];
+
+        // If targetPrice differs noticeably from candle close, harmonize to prevent vertical cliff spikes
+        if ($candleClose > 0 && abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.001) {
+            $targetPrice = $candleClose;
+        }
 
         if (!empty($candles[$lastIdx]['complete']) && $activeBucket > $candles[$lastIdx]['time']) {
             // Last candle from generator is historical & complete; append active forming candle for current bucket
-            $cOpen  = (float)$candles[$lastIdx]['close'];
+            $cOpen  = $candleClose;
             $cClose = $targetPrice;
             $cHigh  = max($cOpen, $cClose);
             $cLow   = min($cOpen, $cClose);
