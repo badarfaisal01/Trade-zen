@@ -868,8 +868,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         $close = ($i === $count - 1) ? $targetPrice : round(market_price_at($asset, $candleEndMs, true) + $priceOffset, $decimals);
 
         $minBody = max($minStep * 3.0, $open * 0.00004);
-        // Ensure visible candle body with directional movement
-        if (abs($close - $open) < $minBody) {
+        // Ensure visible candle body with directional movement (except last candle which must match targetPrice)
+        if ($i < $count - 1 && abs($close - $open) < $minBody) {
             $noiseDir = market_noise($seed + 55, (int)($time / 1000));
             $close = round($noiseDir >= 0 ? $open + $minBody : max($minStep, $open - $minBody), $decimals);
         }

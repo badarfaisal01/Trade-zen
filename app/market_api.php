@@ -258,8 +258,9 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
             if (($now - $cachedTime) < $maxTtl && count($diskData['candles']) >= min($count, 500)) {
                 return $diskData['candles'];
             }
-            // Only use as fallback if there are enough candles to be useful
-            if (count($diskData['candles']) >= 20) {
+            // Only use as fallback if the latest candle is fresh (within 5 minutes)
+            $lastCandleTime = !empty($diskData['candles']) ? ((float)end($diskData['candles'])['openTime'] / 1000) : 0;
+            if (count($diskData['candles']) >= 20 && ($now - $lastCandleTime) < 300) {
                 $cachedCandles = $diskData['candles'];
             }
         }
@@ -351,10 +352,24 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
         } catch (Throwable $e) {}
     }
 
+    $realPrice = 0.0;
     try {
-        $realPrice = fetch_twelvedata_price($symbol, $apiKey);
-    } catch (Throwable $e) {
-        $realPrice = 1.0;
+        if (function_exists('fetch_alphavantage_price')) {
+            $realPrice = fetch_alphavantage_price($cleanSym);
+        }
+    } catch (Throwable $e) {}
+
+    if ($realPrice <= 0) {
+        try {
+            $realPrice = fetch_twelvedata_price($symbol, $apiKey);
+        } catch (Throwable $e) {
+            $realPrice = 0.0;
+        }
+    }
+
+    if ($realPrice <= 0 && function_exists('market_asset')) {
+        $a = market_asset($symbol);
+        $realPrice = (float)($a['base_price'] ?? 1.0);
     }
 
     if ($realPrice > 0) {
