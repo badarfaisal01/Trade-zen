@@ -537,27 +537,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
     $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
-    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
 
-    if ($isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
-        try {
-            if ($intervalSeconds <= 180) $tdBaseSec = 60;
-            elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
-            elseif ($intervalSeconds <= 900) $tdBaseSec = 900;
-            elseif ($intervalSeconds <= 1800) $tdBaseSec = 1800;
-            elseif ($intervalSeconds <= 3600) $tdBaseSec = 3600;
-            elseif ($intervalSeconds <= 14400) $tdBaseSec = 14400;
-            else $tdBaseSec = 86400;
-
-            $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $tdBaseSec));
-            $neededCount = max(20, min(5000, $count * $klinesPerCandle));
-            $realKlines = fetch_twelvedata_candles($apiSymbol, $intervalSeconds, $neededCount, $endMs, $twelvedataKey);
-        } catch (Throwable $e) {
-            error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());
-        }
-    }
-
-    if (empty($realKlines) && !$isCurrency && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+    if (($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
@@ -573,6 +554,25 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $realKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
+        }
+    }
+
+    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
+    if (empty($realKlines) && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
+        try {
+            if ($intervalSeconds <= 180) $tdBaseSec = 60;
+            elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
+            elseif ($intervalSeconds <= 900) $tdBaseSec = 900;
+            elseif ($intervalSeconds <= 1800) $tdBaseSec = 1800;
+            elseif ($intervalSeconds <= 3600) $tdBaseSec = 3600;
+            elseif ($intervalSeconds <= 14400) $tdBaseSec = 14400;
+            else $tdBaseSec = 86400;
+
+            $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $tdBaseSec));
+            $neededCount = max(20, min(5000, $count * $klinesPerCandle));
+            $realKlines = fetch_twelvedata_candles($apiSymbol, $intervalSeconds, $neededCount, $endMs, $twelvedataKey);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());
         }
     }
 
