@@ -397,7 +397,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
     $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'alphavantage'));
 
-    if ($isCurrency && ($alphaVantageKey !== '' || $twelvedataKey !== '')) {
+    if ($source === 'api' && $isCurrency && ($alphaVantageKey !== '' || $twelvedataKey !== '')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($isLive && $symbol !== '') {
             try {
@@ -426,7 +426,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
                 // Fall through to reference math
             }
         }
-    } elseif (!$isCurrency && ($source === 'api' || $source === 'binance')) {
+    } elseif ($source === 'api' || $source === 'binance') {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($isLive && $symbol !== '') {
             try {
@@ -557,7 +557,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     }
 
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    if (empty($realKlines) && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
+    if ($source === 'api' && empty($realKlines) && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 180) $tdBaseSec = 60;
             elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
