@@ -1563,17 +1563,22 @@
 
     // Seamless connection: ensure the last history point touches current live price ONLY if this is an OPEN market
     var isLiveStream = (!isClosed) && ((nowSec - previousStamp) <= (safePeriod * 2));
-    if (isLiveStream && history.length > 0 && currentLivePrice > 0) {
+    if (isLiveStream && history.length > 0) {
       var lastHistPrice = history[history.length - 1][1];
-      var scaleRatio = lastHistPrice > 0 ? (currentLivePrice / lastHistPrice) : 1;
-      // Completely prevent cross-symbol vertical spikes (e.g. 1.15 to 81,000)
-      if (scaleRatio >= 0.5 && scaleRatio <= 2.0) {
-        if (previousStamp < nowSec) {
-          var finalStamp = Number(nowSec.toFixed(3));
-          if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
-          history.push([finalStamp, currentLivePrice, ++count]);
-          previousStamp = finalStamp;
+      if (!currentLivePrice || currentLivePrice <= 0 || isNaN(currentLivePrice)) {
+        currentLivePrice = lastHistPrice;
+      } else {
+        var diff = Math.abs(currentLivePrice - lastHistPrice);
+        var maxDrift = lastHistPrice * 0.0008;
+        if (diff > maxDrift) {
+          currentLivePrice = lastHistPrice;
         }
+      }
+      if (previousStamp < nowSec) {
+        var finalStamp = Number(nowSec.toFixed(3));
+        if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
+        history.push([finalStamp, currentLivePrice, ++count]);
+        previousStamp = finalStamp;
       }
     }
 
@@ -1642,11 +1647,18 @@
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
-      var price = number(asset.price, 0);
-      if (price > 0) currentLivePrice = price;
 
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       snapshot.candles = apiCandles;
+
+      var price = number(asset.price, 0);
+      if (apiCandles.length > 0) {
+        var lastC = apiCandles[apiCandles.length - 1];
+        if (lastC && number(lastC.close, 0) > 0) {
+          price = number(lastC.close, price);
+        }
+      }
+      if (price > 0) currentLivePrice = price;
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
