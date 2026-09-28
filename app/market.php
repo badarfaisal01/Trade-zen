@@ -19,12 +19,11 @@ function market_assets(bool $activeOnly = true): array
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
             db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='api' WHERE symbol IN ('EURUSD','GBPUSD','USDJPY','AUDUSD')");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY')");
+            db()->exec("UPDATE market_assets SET is_active=1, price_source='api' WHERE symbol IN ('EURUSD','GBPUSD','USDJPY')");
             db()->exec("UPDATE market_assets SET api_symbol='EUR/USD' WHERE symbol='EURUSD'");
             db()->exec("UPDATE market_assets SET api_symbol='GBP/USD' WHERE symbol='GBPUSD'");
             db()->exec("UPDATE market_assets SET api_symbol='USD/JPY' WHERE symbol='USDJPY'");
-            db()->exec("UPDATE market_assets SET api_symbol='AUD/USD' WHERE symbol='AUDUSD'");
         } catch (Throwable $e) {}
     }
 
@@ -394,13 +393,23 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
+    $alphaVantageKey = (string)env('ALPHAVANTAGE_API_KEY', '');
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
+    $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'alphavantage'));
 
-    if ($isCurrency && $twelvedataKey !== '') {
+    if ($isCurrency && ($alphaVantageKey !== '' || $twelvedataKey !== '')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($isLive && $symbol !== '') {
             try {
-                $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
+                if ($currencyProvider === 'twelvedata' && $twelvedataKey !== '') {
+                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
+                } elseif ($currencyProvider === 'alphavantage' && $alphaVantageKey !== '' && function_exists('fetch_alphavantage_price')) {
+                    $livePrice = fetch_alphavantage_price($symbol, $alphaVantageKey);
+                } elseif ($twelvedataKey !== '') {
+                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
+                } else {
+                    $livePrice = fetch_alphavantage_price($symbol, $alphaVantageKey);
+                }
                 if (is_numeric($livePrice) && $livePrice > 0) {
                     $liveRounded = round((float)$livePrice, $decimals);
                     $storedBase = (float)($asset['base_price'] ?? 0);

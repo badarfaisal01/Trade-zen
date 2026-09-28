@@ -49,6 +49,81 @@ function normalize_twelvedata_symbol(string $symbol): string
     return $normalized;
 }
 
+function fetch_alphavantage_price(string $symbol, ?string $apiKey = null): float
+{
+    static $memoryCache = [];
+    $cleanSym = normalize_market_api_symbol($symbol);
+    $cacheKey = strtoupper($cleanSym);
+    $now = microtime(true);
+
+    if (isset($memoryCache[$cacheKey]) && ($now - $memoryCache[$cacheKey]['time']) < 60) {
+        return $memoryCache[$cacheKey]['price'];
+    }
+
+    $cacheDir = dirname(__DIR__) . '/storage/cache/market';
+    $cacheFile = $cacheDir . '/alphavantage_quotes.json';
+    $diskCache = [];
+    if (is_file($cacheFile)) {
+        $diskCache = json_decode((string)@file_get_contents($cacheFile), true) ?: [];
+        if (isset($diskCache[$cacheKey]['price'], $diskCache[$cacheKey]['time']) && ($now - (float)$diskCache[$cacheKey]['time']) < 60) {
+            $memoryCache[$cacheKey] = $diskCache[$cacheKey];
+            return (float)$diskCache[$cacheKey]['price'];
+        }
+    }
+
+    $apiKey = $apiKey ?? (string)env('ALPHAVANTAGE_API_KEY', 'F8Y3Y16L2S3US7B6');
+    if (!empty($apiKey) && strlen($cleanSym) >= 6 && function_exists('curl_init')) {
+        $from = substr($cleanSym, 0, 3);
+        $to = substr($cleanSym, 3, 3);
+        $url = "https://www.alphavantage.co/query?function=CURRENCY_EXCHANGE_RATE&from_currency=" . urlencode($from) . "&to_currency=" . urlencode($to) . "&apikey=" . urlencode($apiKey);
+
+        $ch = curl_init();
+        curl_setopt($ch, CURLOPT_URL, $url);
+        curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+        curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 3);
+        curl_setopt($ch, CURLOPT_TIMEOUT, 6);
+        curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+        curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
+
+        $response = curl_exec($ch);
+        $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+        $curlError = curl_error($ch);
+        curl_close($ch);
+
+        if (!$curlError && $httpCode === 200) {
+            $data = json_decode((string)$response, true);
+            if (is_array($data) && isset($data['Realtime Currency Exchange Rate']['5. Exchange Rate'])) {
+                $price = (float)$data['Realtime Currency Exchange Rate']['5. Exchange Rate'];
+                if ($price > 0) {
+                    $memoryCache[$cacheKey] = ['price' => $price, 'time' => $now];
+                    $diskCache[$cacheKey] = $memoryCache[$cacheKey];
+                    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0750, true);
+                    @file_put_contents($cacheFile, json_encode($diskCache), LOCK_EX);
+                    return $price;
+                }
+            }
+        }
+    }
+
+    if (isset($diskCache[$cacheKey]['price']) && (float)$diskCache[$cacheKey]['price'] > 0) {
+        return (float)$diskCache[$cacheKey]['price'];
+    }
+
+    try {
+        return fetch_twelvedata_price($symbol);
+    } catch (Throwable $e) {
+        if (in_array($cleanSym, ['EURUSD', 'GBPUSD', 'AUDUSD'], true)) {
+            try {
+                $binanceSym = str_replace('USD', 'USDT', $cleanSym);
+                $binancePrice = fetch_binance_price($binanceSym);
+                if ($binancePrice > 0) return $binancePrice;
+            } catch (Throwable $e2) {}
+        }
+    }
+
+    throw new RuntimeException('Alpha Vantage price request failed for ' . $symbol);
+}
+
 function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
 {
     static $memoryCache = [];
@@ -924,7 +999,7 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    $forexSymbols = ['EURUSD', 'GBPUSD', 'AUDUSD', 'USDCAD', 'USDCHF', 'EURGBP', 'USDJPY', 'JPYUSD'];
+    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'EUR/USD', 'GBP/USD', 'USD/JPY'];
     $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'twelvedata'));
     if (in_array($normalized, $forexSymbols, true) && $currencyProvider === 'binance') {
         try {
