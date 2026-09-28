@@ -94,8 +94,8 @@ function run_auto_migrations(): void
     $pdo->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','USDCAD')");
     $pdo->exec("UPDATE market_assets SET is_active=0 WHERE symbol IN ('GBPUSD','AUDUSD')");
     $pdo->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
-    $pdo->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
-    $pdo->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
+    $pdo->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
+    $pdo->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
     $pdo->exec("DELETE FROM market_assets WHERE LOWER(category)='crypto' AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET is_active=1, category='Crypto' WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
     $pdo->exec("UPDATE market_assets SET price_source='binance' WHERE LOWER(category)='crypto'");

@@ -22,8 +22,8 @@ function market_assets(bool $activeOnly = true): array
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','USDCAD')");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE symbol IN ('GBPUSD','AUDUSD')");
             db()->exec("UPDATE market_assets SET is_active=1, price_source='binance', api_symbol='EURUSDT' WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
-            db()->exec("UPDATE market_assets SET is_active=1, price_source='internal', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
+            db()->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/JPY' WHERE symbol='USDJPY'");
+            db()->exec("UPDATE market_assets SET is_active=1, price_source='api', api_symbol='USD/CAD' WHERE symbol='USDCAD'");
         } catch (Throwable $e) {}
     }
 
@@ -1371,6 +1371,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
 
     $nowMs = (int)floor(microtime(true) * 1000);
     $status = market_status($asset, $nowMs);
+    $source = $asset['price_source'] ?? 'internal';
 
     // Pre-warm Binance batch price cache so all binance assets are fetched in a single fast call
     if (!market_is_currency($asset)) {
@@ -1415,16 +1416,12 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
 
     // Reconcile targetPrice with candle data: the last candle's close is the most
     // reliable price because it comes directly from the real-time data provider
-    // (TwelveData time_series or Binance klines). The spot-price from market_price_at()
-    // may be stale (rate-limited quote, missing cache, or fallback to deterministic
-    // generator). Using a divergent targetPrice creates a visible vertical spike
-    // between the candle history and the chart's current-price indicator.
+    // (TwelveData time_series or Binance klines).
     if ($status['isOpen'] && !empty($candles)) {
         $lastCandleClose = (float)$candles[count($candles) - 1]['close'];
         if ($lastCandleClose > 0) {
             $divergence = abs($targetPrice - $lastCandleClose) / max($lastCandleClose, 0.0001);
-            // If spot price diverges more than 0.05% from candle data, trust candle data
-            if ($divergence > 0.0005) {
+            if ($divergence > 0.0001 || $source === 'api' || $source === 'binance') {
                 $targetPrice = $lastCandleClose;
             }
         }
@@ -1452,9 +1449,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $activeBucket = (int)(floor($targetEndMs / $intervalMs) * $intervalMs);
         $candleClose = (float)$candles[$lastIdx]['close'];
 
-        // Only harmonize to prevent genuine cross-symbol vertical cliff spikes (>5% gap).
-        // DO NOT clamp small natural Forex/crypto price moves — this would flatten the live candle.
-        if ($candleClose > 0 && abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.05) {
+        if ($candleClose > 0 && ($source === 'api' || $source === 'binance' || abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.0005)) {
             $targetPrice = $candleClose;
         }
 
