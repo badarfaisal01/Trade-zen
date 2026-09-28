@@ -183,6 +183,26 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
         return (float)$diskCache[$cacheKey]['price'];
     }
 
+    $safeSym = str_replace('/', '_', $normalizedSymbol);
+    $candleDir = $cacheDir . '/twelvedata_candles';
+    foreach (['1min', '5min', '15min', '1h', '1day'] as $iv) {
+        $cFile = $candleDir . "/{$safeSym}_{$iv}.json";
+        if (is_file($cFile)) {
+            $cData = json_decode((string)@file_get_contents($cFile), true);
+            if (is_array($cData) && !empty($cData['candles'])) {
+                $lastCandle = end($cData['candles']);
+                if (isset($lastCandle['close']) && (float)$lastCandle['close'] > 0) {
+                    $priceVal = (float)$lastCandle['close'];
+                    $memoryCache[$cacheKey] = ['price' => $priceVal, 'time' => $now];
+                    $diskCache[$cacheKey] = $memoryCache[$cacheKey];
+                    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0750, true);
+                    @file_put_contents($cacheFile, json_encode($diskCache), LOCK_EX);
+                    return $priceVal;
+                }
+            }
+        }
+    }
+
     $cleanSym = normalize_market_api_symbol($symbol);
     if (in_array($cleanSym, ['EURUSD', 'GBPUSD', 'AUDUSD'], true)) {
         try {
@@ -193,6 +213,15 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
             }
         } catch (Throwable $e) {}
     }
+
+    try {
+        if (function_exists('market_asset')) {
+            $a = market_asset($symbol);
+            if ($a && !empty($a['base_price']) && (float)$a['base_price'] > 0) {
+                return (float)$a['base_price'];
+            }
+        }
+    } catch (Throwable $e) {}
 
     throw new RuntimeException('Twelve Data price request failed for ' . $symbol);
 }
@@ -225,7 +254,7 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
         $diskData = json_decode((string)@file_get_contents($cacheFile), true);
         if (is_array($diskData) && !empty($diskData['candles'])) {
             $cachedTime = (float)($diskData['time'] ?? 0);
-            if (($now - $cachedTime) < 60) {
+            if (($now - $cachedTime) < 300) {
                 return $diskData['candles'];
             }
             $cachedCandles = $diskData['candles'];
@@ -264,6 +293,9 @@ function fetch_twelvedata_candles(string $symbol, int $intervalSeconds = 60, int
             curl_close($ch);
 
             if ($httpCode === 429 && $attempts < 2) {
+                if (!empty($cachedCandles)) {
+                    return $cachedCandles;
+                }
                 usleep(1200000);
                 continue;
             }
@@ -999,7 +1031,7 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'EUR/USD', 'GBP/USD', 'USD/JPY'];
+    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD'];
     $currencyProvider = strtolower((string)env('MARKET_CURRENCY_PROVIDER', 'twelvedata'));
     if (in_array($normalized, $forexSymbols, true) && $currencyProvider === 'binance') {
         try {
