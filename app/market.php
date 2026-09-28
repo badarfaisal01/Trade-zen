@@ -4,15 +4,24 @@ declare(strict_types=1);
 function market_assets(bool $activeOnly = true): array
 {
     static $cache = [];
+    static $cleanedUp = false;
     $key = $activeOnly ? '1' : '0';
     if (isset($cache[$key])) {
         return $cache[$key];
     }
 
+    if (!$cleanedUp) {
+        $cleanedUp = true;
+        try {
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='crypto' OR category LIKE '%crypto%') AND symbol NOT IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
+            db()->exec("UPDATE market_assets SET is_active=1 WHERE symbol IN ('BTCUSD','ETHUSD','SOLUSD','BNBUSD','XRPUSD','DOGEUSD')");
+        } catch (Throwable $e) {}
+    }
+
     try {
         $sql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.price_source,a.api_symbol,a.is_active,a.sort_order,a.updated_at,c.price source_price,c.source source_name,c.fetched_at source_fetched_at FROM market_assets a LEFT JOIN market_price_cache c ON c.asset_id=a.id';
         if ($activeOnly) {
-            $sql .= " WHERE a.is_active = 1 OR LOWER(a.category) LIKE '%crypto%' OR a.symbol LIKE '%BTC%' OR a.symbol LIKE '%ETH%' OR a.display_name LIKE '%Bitcoin%'";
+            $sql .= ' WHERE a.is_active = 1';
         }
         $sql .= ' ORDER BY a.sort_order ASC,a.display_name ASC';
         $cache[$key] = db()->query($sql)->fetchAll();
@@ -20,7 +29,7 @@ function market_assets(bool $activeOnly = true): array
         try {
             $fallbackSql = 'SELECT a.id,a.symbol,a.display_name,a.category,a.base_price,a.decimal_places,a.payout_percent,a.volatility,a.market_seed,a.is_active,a.sort_order,a.updated_at FROM market_assets a';
             if ($activeOnly) {
-                $fallbackSql .= " WHERE a.is_active = 1 OR LOWER(a.category) LIKE '%crypto%' OR a.symbol LIKE '%BTC%' OR a.symbol LIKE '%ETH%' OR a.display_name LIKE '%Bitcoin%'";
+                $fallbackSql .= ' WHERE a.is_active = 1';
             }
             $fallbackSql .= ' ORDER BY a.sort_order ASC,a.display_name ASC';
             $cache[$key] = db()->query($fallbackSql)->fetchAll();
