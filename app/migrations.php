@@ -77,7 +77,7 @@ function migration_release_lock(PDO $pdo, array $lock): void
 
 function run_auto_migrations(): void
 {
-    $targetVersion = '4.9.8';
+    $targetVersion = '4.9.9';
     $flagFile = BASE_PATH . '/storage/cache/schema-' . $targetVersion . '.flag';
     if (file_exists($flagFile)) {
         return;
