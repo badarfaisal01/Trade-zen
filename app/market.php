@@ -386,14 +386,37 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     $nowMs = (int)floor(microtime(true) * 1000);
     $isLive = abs($nowMs - $timestampMs) < 60000;
 
-    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
+    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
+    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
+
+    if ($isCurrency && $twelvedataKey !== '') {
+        $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
+        if ($isLive && $symbol !== '') {
+            try {
+                $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
+                if (is_numeric($livePrice) && $livePrice > 0) {
+                    $liveRounded = round((float)$livePrice, $decimals);
+                    $storedBase = (float)($asset['base_price'] ?? 0);
+                    if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.005) {
+                        try {
+                            db()->prepare(
+                                'UPDATE market_assets SET base_price=? WHERE id=? AND (base_price IS NULL OR ABS(base_price - ?) / GREATEST(ABS(base_price), 0.0001) > 0.002)'
+                            )->execute([$liveRounded, (int)($asset['id'] ?? 0), $liveRounded]);
+                        } catch (Throwable $ignored) {}
+                    }
+                    return $liveRounded;
+                }
+            } catch (Throwable $exception) {
+                // Fall through to reference math
+            }
+        }
+    } elseif (!$isCurrency && ($source === 'api' || $source === 'binance')) {
         $symbol = trim((string)($asset['api_symbol'] ?? $asset['symbol'] ?? ''));
         if ($isLive && $symbol !== '') {
             try {
                 $livePrice = fetch_market_price($symbol);
                 if (is_numeric($livePrice) && $livePrice > 0) {
                     $liveRounded = round((float)$livePrice, $decimals);
-                    // Auto-sync base_price to stay current — updates at most once per 60s per asset
                     $storedBase = (float)($asset['base_price'] ?? 0);
                     if ($storedBase <= 0 || abs($liveRounded - $storedBase) / max($storedBase, 0.0001) > 0.03) {
                         try {
@@ -495,12 +518,21 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
     }
 
-    $binanceKlines = [];
+    $realKlines = [];
+    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
+    $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
 
-    // Fetch real Binance klines if asset is configured for Binance / API
-    if (!market_is_currency($asset) && !$binanceKlines && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+    if ($isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
         try {
-            // Determine base Binance interval seconds to compute required kline count accurately
+            $neededCount = max(20, min(5000, $count));
+            $realKlines = fetch_twelvedata_candles($apiSymbol, $intervalSeconds, $neededCount, $endMs, $twelvedataKey);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());
+        }
+    }
+
+    if (empty($realKlines) && !$isCurrency && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+        try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
             elseif ($intervalSeconds <= 600) $baseSec = 300;
@@ -512,21 +544,25 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
             $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
             $neededBinanceKlines = max(10, min(10000, $count * $klinesPerCandle));
-            $binanceKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
+            $realKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
+        }
+    }
 
-            if (!empty($binanceKlines)) {
-                // Build a minute lookup map for Binance klines indexed by openTime (ms)
-                $bMap = [];
-                foreach ($binanceKlines as $k) {
-                    $bOpenTime = (int)$k['openTime'];
-                    $bMap[$bOpenTime] = [
-                        'open' => (float)$k['open'],
-                        'high' => (float)$k['high'],
-                        'low' => (float)$k['low'],
-                        'close' => (float)$k['close'],
-                        'closeTime' => (int)$k['closeTime'],
-                    ];
-                }
+    if (!empty($realKlines)) {
+        // Build a minute lookup map for real klines indexed by openTime (ms)
+        $bMap = [];
+        foreach ($realKlines as $k) {
+            $bOpenTime = (int)$k['openTime'];
+            $bMap[$bOpenTime] = [
+                'open' => (float)$k['open'],
+                'high' => (float)$k['high'],
+                'low' => (float)$k['low'],
+                'close' => (float)$k['close'],
+                'closeTime' => (int)$k['closeTime'],
+            ];
+        }
 
                 $sortedTimes = array_keys($bMap);
                 sort($sortedTimes);
@@ -757,10 +793,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
                 return $candles;
             }
-        } catch (Throwable $e) {
-            error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
-        }
-    }
 
     // Fallback generator if API is unavailable, symbol not on Binance, or internal asset
 
@@ -862,12 +894,22 @@ function market_reference_price(array $asset): float
     if (isset($asset['price']) && is_numeric($asset['price']) && (float)$asset['price'] > 0) {
         return (float)$asset['price'];
     }
-    if (!market_is_currency($asset) && isset($asset['source_price']) && is_numeric($asset['source_price']) && (float)$asset['source_price'] > 0) {
-        return (float)$asset['source_price'];
-    }
-
     $source = $asset['price_source'] ?? 'internal';
-    if (!market_is_currency($asset) && ($source === 'api' || $source === 'binance')) {
+    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
+    if ($isCurrency) {
+        $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
+        if ($twelvedataKey !== '') {
+            $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
+            if ($symbol !== '') {
+                try {
+                    $livePrice = fetch_twelvedata_price($symbol, $twelvedataKey);
+                    if (is_numeric($livePrice) && $livePrice > 0) {
+                        return (float)$livePrice;
+                    }
+                } catch (Throwable $exception) {}
+            }
+        }
+    } elseif ($source === 'api' || $source === 'binance') {
         $symbol = trim((string)($asset['api_symbol'] ?: $asset['symbol']));
         if ($symbol !== '') {
             try {
