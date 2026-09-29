@@ -553,15 +553,15 @@
   function getBinanceStreamSymbol(sym) {
     var clean = String(sym || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
     clean = clean.replace(/OTC$/, '');
-    var map = {
-      // Forex / Currencies
-      'EURUSD': 'eurusdt',
-      'EURUSDT': 'eurusdt',
-      'GBPUSD': 'gbpusdt',
-      'GBPUSDT': 'gbpusdt',
-      'AUDUSD': 'audusdt',
-      'AUDUSDT': 'audusdt',
 
+    var assetObj = findAsset(clean);
+    var category = assetObj && assetObj.category ? String(assetObj.category).toLowerCase() : '';
+    // IMPORTANT: Currencies use the Free Forex API engine and should NEVER connect to Binance crypto streams (eurusdt, etc.)
+    if (category === 'currencies' || isCurrencyAsset(assetObj)) return '';
+    var isForexSym = /^(EUR|GBP|USD|AUD|NZD|CAD|CHF|JPY){2}$/.test(clean);
+    if (isForexSym) return '';
+
+    var map = {
       // Crypto
       'BTCUSD': 'btcusdt',
       'BTCUSDT': 'btcusdt',
@@ -778,6 +778,7 @@
     broadcastBinary('quotes/stream', quote);
   }
 
+  var targetLivePrice = 0;
   var restDriftOffset = 0;
   var lastRestDriftTime = 0;
 
@@ -789,7 +790,7 @@
       // Market is closed: freeze quote completely at close price
       return;
     }
-    // If real WebSocket ticks are actively streaming from Binance, avoid synthetic quotes
+    // If real WebSocket ticks are actively streaming from Binance (for crypto/commodities/stocks), avoid synthetic quotes
     if (binanceWs && binanceWs.readyState === 1 && (Date.now() - lastBinanceTickMs) < 3000) {
       restDriftOffset = 0;
       return;
@@ -799,9 +800,18 @@
     var minStep = Math.pow(10, -dec);
     var nowMs = Date.now();
 
+    // Smoothly step currentLivePrice towards targetLivePrice (from Free Forex API)
+    // Clamping to a maximum of 0.6 pips per tick prevents any sudden straight candle jumps
+    if (targetLivePrice > 0 && Math.abs(currentLivePrice - targetLivePrice) > (minStep * 0.05)) {
+      var priceDiff = targetLivePrice - currentLivePrice;
+      var maxStep = minStep * 0.6;
+      var stepAmount = Math.sign(priceDiff) * Math.min(Math.abs(priceDiff) * 0.08, maxStep);
+      currentLivePrice = currentLivePrice + stepAmount;
+    }
+
     // Natural sub-pip micro-walk with mean reversion so REST-backed currencies
     // form organic candles without drawing flat straight horizontal lines or jumping wildly.
-    if (nowMs - lastRestDriftTime >= 180) {
+    if (nowMs - lastRestDriftTime >= 150) {
       lastRestDriftTime = nowMs;
       var maxDrift = dec >= 4 ? (minStep * 1.5) : (minStep * 0.8);
       var step = (Math.random() - 0.49) * (minStep * 0.35);
@@ -1703,7 +1713,12 @@
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
       var price = number(asset.price, 0);
-      if (price > 0) currentLivePrice = price;
+      if (price > 0) {
+        targetLivePrice = price;
+        if (!currentLivePrice || Math.abs(currentLivePrice - price) / Math.max(price, 0.0001) > 0.05) {
+          currentLivePrice = price;
+        }
+      }
 
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       snapshot.candles = apiCandles;
@@ -2110,7 +2125,10 @@
       syncServerTime(serverTime);
       var selected = marketSnapshot.asset || {};
       var assetPrice = number(selected.price, 0);
-      if (assetPrice > 0) currentLivePrice = assetPrice;
+      if (assetPrice > 0) {
+        currentLivePrice = assetPrice;
+        targetLivePrice = assetPrice;
+      }
       activeSymbol = plainSymbol(selected.symbol || 'EURUSD');
       activeSocketSymbol = socketSymbol(activeSymbol);
       connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
@@ -2196,7 +2214,10 @@
         if (cachedStoreSnap && Array.isArray(cachedStoreSnap.candles) && cachedStoreSnap.candles.length > 0) {
           marketSnapshot = cachedStoreSnap;
           var csAsset = cachedStoreSnap.asset || {};
-          if (number(csAsset.price, 0) > 0) currentLivePrice = number(csAsset.price, 0);
+          if (number(csAsset.price, 0) > 0) {
+            currentLivePrice = number(csAsset.price, 0);
+            targetLivePrice = currentLivePrice;
+          }
           tickPriceOffset = 0;
           tickMomentum = 0;
         } else {
@@ -2228,12 +2249,16 @@
         lastEmittedQuoteSec = 0;
         var newInstAsset = findAsset(activeSymbol);
         currentLivePrice = newInstAsset ? number(newInstAsset.price || newInstAsset.base_price, 0) : 0;
+        targetLivePrice = currentLivePrice;
 
         var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
           marketSnapshot = cachedInstSnap;
           var ciAsset = cachedInstSnap.asset || {};
-          if (number(ciAsset.price, 0) > 0) currentLivePrice = number(ciAsset.price, 0);
+          if (number(ciAsset.price, 0) > 0) {
+            currentLivePrice = number(ciAsset.price, 0);
+            targetLivePrice = currentLivePrice;
+          }
           tickPriceOffset = 0;
           tickMomentum = 0;
         } else {
@@ -2265,12 +2290,16 @@
         lastEmittedQuoteSec = 0;
         var newHistAsset = findAsset(activeSymbol);
         currentLivePrice = newHistAsset ? number(newHistAsset.price || newHistAsset.base_price, 0) : 0;
+        targetLivePrice = currentLivePrice;
 
         var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length > 0) {
           marketSnapshot = cachedSnap;
           var cAsset = cachedSnap.asset || {};
-          if (number(cAsset.price, 0) > 0) currentLivePrice = number(cAsset.price, 0);
+          if (number(cAsset.price, 0) > 0) {
+            currentLivePrice = number(cAsset.price, 0);
+            targetLivePrice = currentLivePrice;
+          }
           tickPriceOffset = 0;
           tickMomentum = 0;
           socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));

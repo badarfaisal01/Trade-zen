@@ -226,6 +226,113 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     throw new RuntimeException('Twelve Data price request failed for ' . $symbol);
 }
 
+function fetch_free_forex_rates(): array
+{
+    static $memoryRates = [];
+    static $memoryTime = 0.0;
+    $now = microtime(true);
+
+    if (!empty($memoryRates) && ($now - $memoryTime) < 3.0) {
+        return $memoryRates;
+    }
+
+    $cacheDir = dirname(__DIR__) . '/storage/cache/market';
+    $cacheFile = $cacheDir . '/free_forex_rates.json';
+
+    if (file_exists($cacheFile)) {
+        $mtime = (float)@filemtime($cacheFile);
+        if (($now - $mtime) < 3.0) {
+            $raw = @file_get_contents($cacheFile);
+            if ($raw) {
+                $decoded = json_decode($raw, true);
+                if (is_array($decoded) && !empty($decoded)) {
+                    $memoryRates = $decoded;
+                    $memoryTime = $now;
+                    return $decoded;
+                }
+            }
+        }
+    }
+
+    $endpoints = [
+        'https://open.er-api.com/v6/latest/USD',
+        'https://api.frankfurter.app/latest?from=USD'
+    ];
+
+    if (function_exists('curl_init')) {
+        foreach ($endpoints as $url) {
+            $ch = curl_init($url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_FOLLOWLOCATION, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_USERAGENT, 'TradingApp/1.0');
+            $res = curl_exec($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_close($ch);
+
+            if ($httpCode === 200 && is_string($res)) {
+                $data = json_decode($res, true);
+                $rates = $data['rates'] ?? [];
+                if (is_array($rates) && !empty($rates)) {
+                    $rates['USD'] = 1.0;
+                    $memoryRates = $rates;
+                    $memoryTime = $now;
+                    if (!is_dir($cacheDir)) @mkdir($cacheDir, 0755, true);
+                    @file_put_contents($cacheFile, json_encode($rates), LOCK_EX);
+                    return $rates;
+                }
+            }
+        }
+    }
+
+    if (file_exists($cacheFile)) {
+        $raw = @file_get_contents($cacheFile);
+        if ($raw) {
+            $decoded = json_decode($raw, true);
+            if (is_array($decoded) && !empty($decoded)) {
+                $memoryRates = $decoded;
+                $memoryTime = $now;
+                return $decoded;
+            }
+        }
+    }
+
+    return $memoryRates;
+}
+
+function fetch_free_forex_price(string $symbol): float
+{
+    $cleanSym = normalize_market_api_symbol($symbol);
+    if (strlen($cleanSym) < 6) {
+        return 0.0;
+    }
+
+    $base = substr($cleanSym, 0, 3);
+    $quote = substr($cleanSym, 3, 3);
+
+    $rates = fetch_free_forex_rates();
+    if (!empty($rates)) {
+        if ($base === 'USD' && isset($rates[$quote]) && (float)$rates[$quote] > 0) {
+            return (float)$rates[$quote];
+        }
+        if ($quote === 'USD' && isset($rates[$base]) && (float)$rates[$base] > 0) {
+            return 1.0 / (float)$rates[$base];
+        }
+        if (isset($rates[$base], $rates[$quote]) && (float)$rates[$base] > 0) {
+            return (float)$rates[$quote] / (float)$rates[$base];
+        }
+    }
+
+    // Direct Yahoo Finance Forex single quote fallback if pair is uncommon
+    if (function_exists('fetch_yahoo_forex_price')) {
+        return fetch_yahoo_forex_price($cleanSym);
+    }
+
+    return 0.0;
+}
+
 function yahoo_forex_symbol(string $symbol): string
 {
     $clean = normalize_market_api_symbol($symbol);
@@ -1213,30 +1320,23 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
-    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'];
-    if (in_array($normalized, $forexSymbols, true)) {
-        // 1. Try Twelve Data
-        if (!empty(env('TWELVEDATA_API_KEY'))) {
-            try {
-                $forexPrice = fetch_twelvedata_price($normalized);
-                if ($forexPrice > 0) return $forexPrice;
-            } catch (Throwable $e) {}
-        }
+    $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'AUDNZD', 'CADCHF', 'CADJPY', 'CHFJPY', 'EURAUD', 'EURCAD', 'EURCHF', 'EURNZD', 'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPNZD', 'NZDCAD', 'NZDCHF', 'NZDJPY'];
+    $isForex = in_array($normalized, $forexSymbols, true) || (strlen($normalized) === 6 && preg_match('/^[A-Z]{6}$/', $normalized));
 
-        // 2. Try Yahoo Finance real-time forex
+    if ($isForex) {
+        // 1. Primary: Free Forex API (open-source ECB / central bank rates)
+        try {
+            $freeForexPrice = fetch_free_forex_price($normalized);
+            if ($freeForexPrice > 0) return $freeForexPrice;
+        } catch (Throwable $e) {}
+
+        // 2. Direct Yahoo Finance real-time forex quote fallback
         try {
             $yfPrice = fetch_yahoo_forex_price($normalized);
             if ($yfPrice > 0) return $yfPrice;
         } catch (Throwable $e) {}
 
-        // 3. Try Binance derived spot / EURUSDT
-        try {
-            $binanceSym = str_replace('USD', 'USDT', $normalized);
-            $bPrice = fetch_binance_price($binanceSym);
-            if ($bPrice > 0) return $bPrice;
-        } catch (Throwable $e) {}
-
-        // 4. Try Alpha Vantage
+        // 3. Optional Alpha Vantage fallback if configured
         if (!empty(env('ALPHAVANTAGE_API_KEY')) && function_exists('fetch_alphavantage_price')) {
             try {
                 $avPrice = fetch_alphavantage_price($normalized);
