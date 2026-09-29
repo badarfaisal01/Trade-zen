@@ -824,22 +824,20 @@ function fetch_metals_api_price(string $symbol, string $baseCurrency = 'USD', ?s
 function forex_crypto_backing_config(): array
 {
     return [
-        'EURUSD' => ['crypto' => 'ETHUSDT', 'base' => 1.0850, 'vol' => 0.20, 'dec' => 5],
-        'USDJPY' => ['crypto' => 'BTCUSDT', 'base' => 155.50, 'vol' => 0.16, 'dec' => 3],
-        'AUDUSD' => ['crypto' => 'ADAUSDT', 'base' => 0.6550, 'vol' => 0.22, 'dec' => 5],
-        'USDCAD' => ['crypto' => 'BNBUSDT', 'base' => 1.3950, 'vol' => 0.18, 'dec' => 5],
+        'EURUSD' => ['crypto' => 'ETHUSDT', 'base' => 1.0850, 'ref' => 2700.0, 'vol' => 0.20, 'dec' => 5],
+        'USDJPY' => ['crypto' => 'BTCUSDT', 'base' => 155.50, 'ref' => 84000.0, 'vol' => 0.16, 'dec' => 3],
+        'AUDUSD' => ['crypto' => 'ADAUSDT', 'base' => 0.6550, 'ref' => 0.6500, 'vol' => 0.22, 'dec' => 5],
+        'USDCAD' => ['crypto' => 'BNBUSDT', 'base' => 1.3950, 'ref' => 750.00, 'vol' => 0.18, 'dec' => 5],
     ];
 }
 
 /**
  * Transform liquid crypto klines into authentic, continuous forex candlestick price action
  */
-function transform_crypto_to_currency_klines(array $cryptoKlines, float $targetBase, float $volatility = 0.20, int $decimals = 5): array
+function transform_crypto_to_currency_klines(array $cryptoKlines, float $targetBase, float $refPrice, float $volatility = 0.20, int $decimals = 5): array
 {
     if (empty($cryptoKlines)) return [];
-
-    $anchor = (float)$cryptoKlines[0]['open'];
-    if ($anchor <= 0) $anchor = 1.0;
+    if ($refPrice <= 0) $refPrice = (float)($cryptoKlines[0]['open'] ?? 1.0);
 
     $minWick = pow(10, -$decimals) * 1.5;
     $out = [];
@@ -850,14 +848,14 @@ function transform_crypto_to_currency_klines(array $cryptoKlines, float $targetB
         $l = (float)$k['low'];
         $c = (float)$k['close'];
 
-        $scaledO = $targetBase * (1.0 + $volatility * (($o - $anchor) / $anchor));
-        $scaledC = $targetBase * (1.0 + $volatility * (($c - $anchor) / $anchor));
+        $scaledO = $targetBase * (1.0 + $volatility * (($o - $refPrice) / $refPrice));
+        $scaledC = $targetBase * (1.0 + $volatility * (($c - $refPrice) / $refPrice));
 
         $bodyTop = max($o, $c);
         $bodyBottom = min($o, $c);
 
-        $upperRatio = max(0.0, ($h - $bodyTop) / $anchor) * $volatility;
-        $lowerRatio = max(0.0, ($bodyBottom - $l) / $anchor) * $volatility;
+        $upperRatio = max(0.0, ($h - $bodyTop) / $refPrice) * $volatility;
+        $lowerRatio = max(0.0, ($bodyBottom - $l) / $refPrice) * $volatility;
 
         $scaledUpperWick = max($minWick, $targetBase * $upperRatio);
         $scaledLowerWick = max($minWick, $targetBase * $lowerRatio);
@@ -1018,24 +1016,12 @@ function fetch_binance_all_prices(): array
                     }
                 }
 
-                // Currency pairs powered by live liquid crypto feeds
+                // Currency pairs powered by live liquid crypto feeds (deterministic, anchor-free)
                 $forexConfigs = forex_crypto_backing_config();
                 foreach ($forexConfigs as $fSym => $cfg) {
                     $cPrice = $prices[$cfg['crypto']] ?? 0;
                     if ($cPrice > 0) {
-                        $anchorCacheFile = $cacheDir . '/anchor_' . $cfg['crypto'] . '.json';
-                        $anchor = 0.0;
-                        if (file_exists($anchorCacheFile)) {
-                            $aData = json_decode((string)@file_get_contents($anchorCacheFile), true);
-                            if (isset($aData['anchor'], $aData['time']) && ($now - (float)$aData['time']) < 86400) {
-                                $anchor = (float)$aData['anchor'];
-                            }
-                        }
-                        if ($anchor <= 0) {
-                            $anchor = (float)$cPrice;
-                            @file_put_contents($anchorCacheFile, json_encode(['anchor' => $anchor, 'time' => $now]));
-                        }
-                        $prices[$fSym] = round((float)($cfg['base'] * (1.0 + $cfg['vol'] * (($cPrice - $anchor) / $anchor))), $cfg['dec']);
+                        $prices[$fSym] = round((float)($cfg['base'] * (1.0 + $cfg['vol'] * (($cPrice - $cfg['ref']) / $cfg['ref']))), $cfg['dec']);
                     }
                 }
 
@@ -1098,15 +1084,7 @@ function fetch_binance_price(string $symbol): float
         $cfg = $forexConfigs[$normalized];
         $cryptoPrice = fetch_binance_price($cfg['crypto']);
         if ($cryptoPrice > 0) {
-            $cacheDir = dirname(__DIR__) . '/storage/cache/market';
-            $anchorCacheFile = $cacheDir . '/anchor_' . $cfg['crypto'] . '.json';
-            $anchor = 0.0;
-            if (file_exists($anchorCacheFile)) {
-                $aData = json_decode((string)@file_get_contents($anchorCacheFile), true);
-                if (isset($aData['anchor'])) $anchor = (float)$aData['anchor'];
-            }
-            if ($anchor <= 0) $anchor = $cryptoPrice;
-            return round((float)($cfg['base'] * (1.0 + $cfg['vol'] * (($cryptoPrice - $anchor) / $anchor))), $cfg['dec']);
+            return round((float)($cfg['base'] * (1.0 + $cfg['vol'] * (($cryptoPrice - $cfg['ref']) / $cfg['ref']))), $cfg['dec']);
         }
     }
 
@@ -1183,7 +1161,25 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $cfg = $forexConfigs[$normalized];
         $cryptoKlines = fetch_binance_klines($cfg['crypto'], $intervalSeconds, $count, $endTimeMs);
         if (!empty($cryptoKlines)) {
-            return transform_crypto_to_currency_klines($cryptoKlines, $cfg['base'], $cfg['vol'], $cfg['dec']);
+            return transform_crypto_to_currency_klines($cryptoKlines, $cfg['base'], $cfg['ref'], $cfg['vol'], $cfg['dec']);
+        }
+    }
+
+    if ($apiSymbol === 'XAGUSD') {
+        $paxgKlines = fetch_binance_klines('PAXGUSDT', $intervalSeconds, $count, $endTimeMs);
+        if (!empty($paxgKlines)) {
+            $silverKlines = [];
+            foreach ($paxgKlines as $p) {
+                $silverKlines[] = [
+                    'openTime'  => (int)$p['openTime'],
+                    'open'      => round((float)($p['open'] / 84.5), 3),
+                    'high'      => round((float)($p['high'] / 84.5), 3),
+                    'low'       => round((float)($p['low'] / 84.5), 3),
+                    'close'     => round((float)($p['close'] / 84.5), 3),
+                    'closeTime' => (int)$p['closeTime'],
+                ];
+            }
+            return $silverKlines;
         }
     }
 
