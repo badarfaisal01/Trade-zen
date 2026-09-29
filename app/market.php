@@ -22,9 +22,10 @@ function market_assets(bool $activeOnly = true): array
                 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','USDJPY','AUDUSD','USDCAD')");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD')");
             db()->exec("INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, price_source, api_symbol, sort_order, is_active, created_at, updated_at) VALUES
                 ('EURUSD', 'EUR/USD', 'Currencies', 1.0850, 5, 88.00, 0.00018000, 88401, 'binance', 'EURUSD', 10, 1, NOW(), NOW()),
+                ('GBPUSD', 'GBP/USD', 'Currencies', 1.3250, 5, 85.00, 0.00020000, 88402, 'binance', 'GBPUSD', 11, 1, NOW(), NOW()),
                 ('USDJPY', 'USD/JPY', 'Currencies', 155.50, 3, 85.00, 0.00025000, 88403, 'binance', 'USDJPY', 12, 1, NOW(), NOW()),
                 ('AUDUSD', 'AUD/USD', 'Currencies', 0.6550, 5, 82.00, 0.00018000, 88404, 'binance', 'AUDUSD', 13, 1, NOW(), NOW()),
                 ('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 5, 82.00, 0.00018000, 88405, 'binance', 'USDCAD', 14, 1, NOW(), NOW())

@@ -1626,24 +1626,8 @@
     if (history.length > 0) {
       var lastHistPrice = history[history.length - 1][1];
       if (lastHistPrice > 0) {
-        if (!currentLivePrice || Math.abs(currentLivePrice - lastHistPrice) / lastHistPrice > 0.002) {
-          currentLivePrice = lastHistPrice;
-        }
-      }
-    }
-
-    // Seamless connection: ensure the last history point touches current live price ONLY if this is an OPEN market
-    var isLiveStream = (!isClosed) && ((nowSec - previousStamp) <= (safePeriod * 2));
-    if (isLiveStream && history.length > 0 && currentLivePrice > 0) {
-      var lastHistPrice = history[history.length - 1][1];
-      var diffPct = Math.abs(currentLivePrice - lastHistPrice) / Math.max(lastHistPrice, 0.0001);
-      if (diffPct <= 0.0025 && previousStamp < nowSec) {
-        var finalStamp = Number(nowSec.toFixed(3));
-        if (finalStamp <= previousStamp) finalStamp = previousStamp + 0.001;
-        history.push([finalStamp, currentLivePrice, ++count]);
-        previousStamp = finalStamp;
-      } else {
         currentLivePrice = lastHistPrice;
+        targetLivePrice = lastHistPrice;
       }
     }
 
@@ -1712,16 +1696,18 @@
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
-      var price = number(asset.price, 0);
-      if (price > 0) {
-        targetLivePrice = price;
-        if (!currentLivePrice || Math.abs(currentLivePrice - price) / Math.max(price, 0.0001) > 0.05) {
-          currentLivePrice = price;
-        }
-      }
-
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       snapshot.candles = apiCandles;
+      if (apiCandles.length > 0) {
+        var lastC = number(apiCandles[apiCandles.length - 1].close, 0);
+        if (lastC > 0) {
+          currentLivePrice = lastC;
+          targetLivePrice = lastC;
+        }
+      } else if (price > 0) {
+        currentLivePrice = price;
+        targetLivePrice = price;
+      }
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
@@ -2247,21 +2233,21 @@
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
-        var newInstAsset = findAsset(activeSymbol);
-        currentLivePrice = newInstAsset ? number(newInstAsset.price || newInstAsset.base_price, 0) : 0;
-        targetLivePrice = currentLivePrice;
-
         var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
           marketSnapshot = cachedInstSnap;
           var ciAsset = cachedInstSnap.asset || {};
-          if (number(ciAsset.price, 0) > 0) {
-            currentLivePrice = number(ciAsset.price, 0);
-            targetLivePrice = currentLivePrice;
+          var lastInstC = cachedInstSnap.candles[cachedInstSnap.candles.length - 1];
+          var snapPrice = (lastInstC && number(lastInstC.close, 0) > 0) ? number(lastInstC.close, 0) : number(ciAsset.price, 0);
+          if (snapPrice > 0) {
+            currentLivePrice = snapPrice;
+            targetLivePrice = snapPrice;
           }
           tickPriceOffset = 0;
           tickMomentum = 0;
         } else {
+          currentLivePrice = 0;
+          targetLivePrice = 0;
           showChartLoader(true);
         }
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
@@ -2288,17 +2274,15 @@
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
-        var newHistAsset = findAsset(activeSymbol);
-        currentLivePrice = newHistAsset ? number(newHistAsset.price || newHistAsset.base_price, 0) : 0;
-        targetLivePrice = currentLivePrice;
-
         var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length > 0) {
           marketSnapshot = cachedSnap;
           var cAsset = cachedSnap.asset || {};
-          if (number(cAsset.price, 0) > 0) {
-            currentLivePrice = number(cAsset.price, 0);
-            targetLivePrice = currentLivePrice;
+          var lastHistC = cachedSnap.candles[cachedSnap.candles.length - 1];
+          var snapPrice = (lastHistC && number(lastHistC.close, 0) > 0) ? number(lastHistC.close, 0) : number(cAsset.price, 0);
+          if (snapPrice > 0) {
+            currentLivePrice = snapPrice;
+            targetLivePrice = snapPrice;
           }
           tickPriceOffset = 0;
           tickMomentum = 0;
@@ -2307,6 +2291,8 @@
           hideChartLoader();
           emitSmoothQuote();
         } else {
+          currentLivePrice = 0;
+          targetLivePrice = 0;
           showChartLoader(true);
         }
 

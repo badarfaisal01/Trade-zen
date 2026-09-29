@@ -825,9 +825,15 @@ function forex_crypto_backing_config(): array
 {
     return [
         'EURUSD' => ['crypto' => 'ETHUSDT', 'base' => 1.0850, 'ref' => 2700.0, 'vol' => 0.20, 'dec' => 5],
-        'USDJPY' => ['crypto' => 'BTCUSDT', 'base' => 155.50, 'ref' => 84000.0, 'vol' => 0.16, 'dec' => 3],
-        'AUDUSD' => ['crypto' => 'ADAUSDT', 'base' => 0.6550, 'ref' => 0.6500, 'vol' => 0.22, 'dec' => 5],
-        'USDCAD' => ['crypto' => 'BNBUSDT', 'base' => 1.3950, 'ref' => 750.00, 'vol' => 0.18, 'dec' => 5],
+        'GBPUSD' => ['crypto' => 'SOLUSDT', 'base' => 1.3250, 'ref' => 120.0,  'vol' => 0.16, 'dec' => 5],
+        'USDJPY' => ['crypto' => 'BTCUSDT', 'base' => 155.50, 'ref' => 84000.0,'vol' => 0.16, 'dec' => 3],
+        'AUDUSD' => ['crypto' => 'ADAUSDT', 'base' => 0.6550, 'ref' => 0.2450, 'vol' => 0.22, 'dec' => 5],
+        'USDCAD' => ['crypto' => 'BNBUSDT', 'base' => 1.3950, 'ref' => 755.00, 'vol' => 0.18, 'dec' => 5],
+        'USDCHF' => ['crypto' => 'AVAXUSDT','base' => 0.8850, 'ref' => 11.30,  'vol' => 0.17, 'dec' => 5],
+        'EURGBP' => ['crypto' => 'LINKUSDT','base' => 0.8550, 'ref' => 14.60,  'vol' => 0.16, 'dec' => 5],
+        'NZDUSD' => ['crypto' => 'DOTUSDT', 'base' => 0.5980, 'ref' => 1.190,  'vol' => 0.20, 'dec' => 5],
+        'EURJPY' => ['crypto' => 'ETHUSDT', 'base' => 168.50, 'ref' => 2700.0, 'vol' => 0.18, 'dec' => 3],
+        'GBPJPY' => ['crypto' => 'SOLUSDT', 'base' => 198.50, 'ref' => 120.0,  'vol' => 0.18, 'dec' => 3],
     ];
 }
 
@@ -1162,42 +1168,6 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         $cryptoKlines = fetch_binance_klines($cfg['crypto'], $intervalSeconds, $count, $endTimeMs);
         if (!empty($cryptoKlines)) {
             return transform_crypto_to_currency_klines($cryptoKlines, $cfg['base'], $cfg['ref'], $cfg['vol'], $cfg['dec']);
-        }
-    }
-
-    if ($apiSymbol === 'XAGUSD') {
-        $paxgKlines = fetch_binance_klines('PAXGUSDT', $intervalSeconds, $count, $endTimeMs);
-        if (!empty($paxgKlines)) {
-            $silverKlines = [];
-            foreach ($paxgKlines as $p) {
-                $silverKlines[] = [
-                    'openTime'  => (int)$p['openTime'],
-                    'open'      => round((float)($p['open'] / 84.5), 3),
-                    'high'      => round((float)($p['high'] / 84.5), 3),
-                    'low'       => round((float)($p['low'] / 84.5), 3),
-                    'close'     => round((float)($p['close'] / 84.5), 3),
-                    'closeTime' => (int)$p['closeTime'],
-                ];
-            }
-            return $silverKlines;
-        }
-    }
-
-    if ($apiSymbol === 'XAGUSD') {
-        $paxgKlines = fetch_binance_klines('PAXGUSDT', $intervalSeconds, $count, $endTimeMs);
-        if (!empty($paxgKlines)) {
-            $silverKlines = [];
-            foreach ($paxgKlines as $p) {
-                $silverKlines[] = [
-                    'openTime'  => (int)$p['openTime'],
-                    'open'      => round((float)($p['open'] / 84.5), 3),
-                    'high'      => round((float)($p['high'] / 84.5), 3),
-                    'low'       => round((float)($p['low'] / 84.5), 3),
-                    'close'     => round((float)($p['close'] / 84.5), 3),
-                    'closeTime' => (int)$p['closeTime'],
-                ];
-            }
-            return $silverKlines;
         }
     }
 
