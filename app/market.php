@@ -504,7 +504,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
 
-    if ($source === 'binance' && $apiSymbol !== '') {
+    if (!$isCurrency && $source === 'binance' && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
@@ -524,7 +524,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     }
 
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    if ($source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
+    if ($source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '' && !empty($twelvedataKey)) {
         try {
             if ($intervalSeconds <= 180) $tdBaseSec = 60;
             elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
@@ -545,6 +545,28 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
         } catch (Throwable $e) {
             error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
+        }
+    }
+
+    // Seamlessly anchor currency historical candles to the real-time Free Forex spot price
+    if ($isCurrency && !empty($realKlines)) {
+        $liveForexPrice = function_exists('fetch_free_forex_price') ? fetch_free_forex_price((string)($asset['symbol'] ?? '')) : 0.0;
+        if ($liveForexPrice <= 0 && function_exists('fetch_market_price')) {
+            $liveForexPrice = fetch_market_price((string)($asset['symbol'] ?? ''));
+        }
+        if ($liveForexPrice > 0) {
+            $lastK = end($realKlines);
+            $lastClose = (float)($lastK['close'] ?? 0);
+            if ($lastClose > 0) {
+                $alignOffset = $liveForexPrice - $lastClose;
+                foreach ($realKlines as &$rk) {
+                    $rk['open'] = (float)$rk['open'] + $alignOffset;
+                    $rk['high'] = (float)$rk['high'] + $alignOffset;
+                    $rk['low'] = (float)$rk['low'] + $alignOffset;
+                    $rk['close'] = (float)$rk['close'] + $alignOffset;
+                }
+                unset($rk);
+            }
         }
     }
 
