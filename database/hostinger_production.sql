@@ -594,14 +594,11 @@ INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_p
 ('TRXUSD', 'TRON / USD', 'Crypto', 0.18, 4, 84.00, 0.00350000, 88316, 'binance', 'TRXUSDT', 35, 1, NOW(), NOW()),
 ('SUIUSD', 'Sui / USD', 'Crypto', 3.20, 3, 84.00, 0.00480000, 88317, 'binance', 'SUIUSDT', 36, 1, NOW(), NOW()),
 ('APTUSD', 'Aptos / USD', 'Crypto', 11.50, 2, 84.00, 0.00450000, 88318, 'binance', 'APTUSDT', 37, 1, NOW(), NOW()),
-('EURUSD', 'EUR/USD', 'Currencies', 1.1590, 5, 88.00, 0.00150000, 88401, 'binance', 'EURUSDT', 40, 1, NOW(), NOW()),
-('GBPUSD', 'GBP/USD', 'Currencies', 1.1800, 5, 87.00, 0.00180000, 88402, 'binance', 'GBPUSDT', 41, 1, NOW(), NOW()),
-('JPYUSD', 'JPY/USD', 'Currencies', 0.00651, 6, 82.00, 0.00200000, 88403, 'binance', 'JPYUSD', 42, 1, NOW(), NOW()),
-('USDJPY', 'USD/JPY', 'Currencies', 153.50, 3, 82.00, 0.00200000, 88404, 'binance', 'USDJPY', 43, 1, NOW(), NOW()),
-('AUDUSD', 'AUD/USD', 'Currencies', 0.6550, 5, 85.00, 0.00180000, 88405, 'binance', 'AUDUSDT', 44, 1, NOW(), NOW()),
-('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 5, 85.00, 0.00180000, 88406, 'internal', 'USDCAD', 45, 1, NOW(), NOW()),
-('USDCHF', 'USD/CHF', 'Currencies', 0.8850, 5, 84.00, 0.00180000, 88407, 'internal', 'USDCHF', 46, 1, NOW(), NOW()),
-('EURGBP', 'EUR/GBP', 'Currencies', 0.8350, 5, 84.00, 0.00160000, 88408, 'internal', 'EURGBP', 47, 1, NOW(), NOW())
+('EURUSD', 'EUR/USD', 'Currencies', 1.0850, 5, 88.00, 0.00018000, 88401, 'binance', 'EURUSD', 10, 1, NOW(), NOW()),
+('GBPUSD', 'GBP/USD', 'Currencies', 1.3250, 5, 85.00, 0.00020000, 88402, 'binance', 'GBPUSD', 11, 1, NOW(), NOW()),
+('USDJPY', 'USD/JPY', 'Currencies', 155.50, 3, 85.00, 0.00025000, 88403, 'binance', 'USDJPY', 12, 1, NOW(), NOW()),
+('AUDUSD', 'AUD/USD', 'Currencies', 0.6550, 5, 82.00, 0.00018000, 88404, 'binance', 'AUDUSD', 13, 1, NOW(), NOW()),
+('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 5, 82.00, 0.00018000, 88405, 'binance', 'USDCAD', 14, 1, NOW(), NOW())
 
 ON DUPLICATE KEY UPDATE
     display_name = VALUES(display_name),
