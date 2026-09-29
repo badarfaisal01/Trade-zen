@@ -24,17 +24,17 @@ function market_assets(bool $activeOnly = true): array
 
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','EURGBP','NZDUSD','EURJPY','GBPJPY')");
             db()->exec("INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, price_source, api_symbol, sort_order, is_active, created_at, updated_at) VALUES
-                ('EURUSD', 'EUR/USD', 'Currencies', 1.1344, 4, 88.00, 0.00018000, 88401, 'binance', 'EURUSDT', 10, 1, NOW(), NOW()),
-                ('GBPUSD', 'GBP/USD', 'Currencies', 1.1800, 4, 85.00, 0.00020000, 88402, 'binance', 'GBPUSDT', 11, 1, NOW(), NOW()),
-                ('USDJPY', 'USD/JPY', 'Currencies', 157.20, 3, 85.00, 0.00025000, 88403, 'binance', 'USDJPY', 12, 1, NOW(), NOW()),
-                ('AUDUSD', 'AUD/USD', 'Currencies', 0.7250, 4, 82.00, 0.00018000, 88404, 'binance', 'AUDUSDT', 13, 1, NOW(), NOW()),
-                ('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 4, 82.00, 0.00018000, 88405, 'binance', 'USDCAD', 14, 1, NOW(), NOW()),
-                ('USDCHF', 'USD/CHF', 'Currencies', 0.8850, 4, 80.00, 0.00018000, 88406, 'binance', 'USDCHF', 15, 1, NOW(), NOW()),
-                ('EURGBP', 'EUR/GBP', 'Currencies', 0.9610, 4, 80.00, 0.00018000, 88407, 'binance', 'EURGBP', 16, 1, NOW(), NOW()),
-                ('NZDUSD', 'NZD/USD', 'Currencies', 0.5980, 4, 80.00, 0.00018000, 88408, 'binance', 'NZDUSD', 17, 1, NOW(), NOW()),
-                ('EURJPY', 'EUR/JPY', 'Currencies', 178.30, 3, 82.00, 0.00025000, 88409, 'binance', 'EURJPY', 18, 1, NOW(), NOW()),
-                ('GBPJPY', 'GBP/JPY', 'Currencies', 185.50, 3, 82.00, 0.00025000, 88410, 'binance', 'GBPJPY', 19, 1, NOW(), NOW())
-                ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Currencies', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, decimal_places=VALUES(decimal_places), payout_percent=VALUES(payout_percent), sort_order=VALUES(sort_order), updated_at=NOW()");
+                ('EURUSD', 'EUR/USD', 'Currencies', 1.0850, 5, 88.00, 0.00018000, 88401, 'binance', 'EURUSD', 10, 1, NOW(), NOW()),
+                ('GBPUSD', 'GBP/USD', 'Currencies', 1.2850, 5, 85.00, 0.00020000, 88402, 'binance', 'GBPUSD', 11, 1, NOW(), NOW()),
+                ('USDJPY', 'USD/JPY', 'Currencies', 155.50, 3, 85.00, 0.00025000, 88403, 'binance', 'USDJPY', 12, 1, NOW(), NOW()),
+                ('AUDUSD', 'AUD/USD', 'Currencies', 0.6550, 5, 82.00, 0.00018000, 88404, 'binance', 'AUDUSD', 13, 1, NOW(), NOW()),
+                ('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 5, 82.00, 0.00018000, 88405, 'binance', 'USDCAD', 14, 1, NOW(), NOW()),
+                ('USDCHF', 'USD/CHF', 'Currencies', 0.8850, 5, 80.00, 0.00018000, 88406, 'binance', 'USDCHF', 15, 1, NOW(), NOW()),
+                ('EURGBP', 'EUR/GBP', 'Currencies', 0.8550, 5, 80.00, 0.00018000, 88407, 'binance', 'EURGBP', 16, 1, NOW(), NOW()),
+                ('NZDUSD', 'NZD/USD', 'Currencies', 0.5980, 5, 80.00, 0.00018000, 88408, 'binance', 'NZDUSD', 17, 1, NOW(), NOW()),
+                ('EURJPY', 'EUR/JPY', 'Currencies', 168.50, 3, 82.00, 0.00025000, 88409, 'binance', 'EURJPY', 18, 1, NOW(), NOW()),
+                ('GBPJPY', 'GBP/JPY', 'Currencies', 198.50, 3, 82.00, 0.00025000, 88410, 'binance', 'GBPJPY', 19, 1, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Currencies', price_source='binance', api_symbol=VALUES(api_symbol), base_price=VALUES(base_price), is_active=1, decimal_places=VALUES(decimal_places), payout_percent=VALUES(payout_percent), sort_order=VALUES(sort_order), updated_at=NOW()");
         } catch (Throwable $e) {}
     }
 
@@ -658,28 +658,34 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         if ((float)$mk['low'] < $targetLow)   $targetLow  = (float)$mk['low'];
                     }
 
-                    // Enrich candle if flat (zero-wick or zero-body)
-                    $noiseClose = market_noise($seed + 41, $sec);
-                    $noiseWickH = abs(market_noise($seed + 73, $sec));
-                    $noiseWickL = abs(market_noise($seed + 97, $sec));
+                    if ($source === 'binance') {
+                        $cClose = round($targetClose, $decimals);
+                        $cHigh = round(max($cOpen, $cClose, $targetHigh), $decimals);
+                        $cLow = round(max($minStep, min($cOpen, $cClose, $targetLow)), $decimals);
+                    } else {
+                        // Enrich candle if flat (zero-wick or zero-body)
+                        $noiseClose = market_noise($seed + 41, $sec);
+                        $noiseWickH = abs(market_noise($seed + 73, $sec));
+                        $noiseWickL = abs(market_noise($seed + 97, $sec));
 
-                    $macroDelta = $targetClose - $cOpen;
-                    $microNoise = ($noiseClose * $minStep * ($isCurrency ? 0.75 : 1.2));
-                    $cCloseRaw = $cOpen + ($macroDelta * ($isCurrency ? 0.55 : 0.75)) + $microNoise;
+                        $macroDelta = $targetClose - $cOpen;
+                        $microNoise = ($noiseClose * $minStep * ($isCurrency ? 0.75 : 1.2));
+                        $cCloseRaw = $cOpen + ($macroDelta * ($isCurrency ? 0.55 : 0.75)) + $microNoise;
 
-                    $minBody = $minStep * ($isCurrency ? 0.35 : 0.6);
-                    if (abs($cCloseRaw - $cOpen) < $minBody) {
-                        $cCloseRaw = ($noiseClose >= 0) ? ($cOpen + $minBody) : ($cOpen - $minBody);
+                        $minBody = $minStep * ($isCurrency ? 0.35 : 0.6);
+                        if (abs($cCloseRaw - $cOpen) < $minBody) {
+                            $cCloseRaw = ($noiseClose >= 0) ? ($cOpen + $minBody) : ($cOpen - $minBody);
+                        }
+                        $cClose = round($cCloseRaw, $decimals);
+
+                        $bodySpan = abs($cClose - $cOpen);
+                        // Add clean, small, well-defined wicks
+                        $wickUp = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickH * $minStep * 0.4)));
+                        $wickDown = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickL * $minStep * 0.4)));
+
+                        $cHigh = round(max($cOpen, $cClose) + $wickUp, $decimals);
+                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickDown), $decimals);
                     }
-                    $cClose = round($cCloseRaw, $decimals);
-
-                    $bodySpan = abs($cClose - $cOpen);
-                    // Add clean, small, well-defined wicks
-                    $wickUp = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickH * $minStep * 0.4)));
-                    $wickDown = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickL * $minStep * 0.4)));
-
-                    $cHigh = round(max($cOpen, $cClose) + $wickUp, $decimals);
-                    $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickDown), $decimals);
                 } else {
                     // Bucket missing: continuous organic candle
                     $noiseVal = market_noise($seed, $sec);
