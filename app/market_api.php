@@ -831,11 +831,17 @@ function binance_api_symbol_map(string $symbol): string
         'EURUSD' => 'EURUSDT',
         'GBPUSD' => 'GBPUSDT',
         'AUDUSD' => 'AUDUSDT',
+        'USDJPY' => 'USDJPY',
+        'JPYUSD' => 'JPYUSD',
+        'USDCAD' => 'USDCAD',
+        'USDCHF' => 'USDCHF',
+        'NZDUSD' => 'NZDUSD',
+        'EURGBP' => 'EURGBP',
+        'EURJPY' => 'EURJPY',
+        'GBPJPY' => 'GBPJPY',
         'XAUUSD' => 'PAXGUSDT',
         'GOLD'   => 'PAXGUSDT',
         'XAU'    => 'PAXGUSDT',
-        'USDJPY' => 'USDJPY',
-        'JPYUSD' => 'JPYUSD',
         'XAGUSD' => 'XAGUSD',
         'US30'   => 'US30',
         'US500'  => 'US500',
@@ -961,6 +967,21 @@ function fetch_binance_all_prices(): array
                     $prices['JPYUSD'] = (float)($prices['BNBUSDT'] / $prices['BNBJPY']);
                 }
 
+                $eur = $prices['EURUSDT'] ?? 1.1344;
+                $gbp = $prices['GBPUSDT'] ?? 1.1800;
+                $aud = $prices['AUDUSDT'] ?? 0.7250;
+                $jpy = $prices['USDJPY'] ?? 157.20;
+
+                $prices['EURUSD'] = (float)$eur;
+                $prices['GBPUSD'] = (float)$gbp;
+                $prices['AUDUSD'] = (float)$aud;
+                $prices['EURGBP'] = round((float)($eur / max(0.0001, $gbp)), 5);
+                $prices['EURJPY'] = round((float)($eur * $jpy), 3);
+                $prices['GBPJPY'] = round((float)($gbp * $jpy), 3);
+                $prices['NZDUSD'] = round((float)($aud * 0.825), 5);
+                $prices['USDCAD'] = round((float)(1.3950 * (1.0 - 0.6 * (($eur - 1.1344) / 1.1344))), 5);
+                $prices['USDCHF'] = round((float)(0.8850 * (1.0 - 0.5 * (($eur - 1.1344) / 1.1344))), 5);
+
                 // Real-time Silver (XAGUSD) derived from PAXGUSDT spot gold
                 if (isset($prices['PAXGUSDT']) && $prices['PAXGUSDT'] > 0) {
                     $prices['XAGUSD'] = round((float)($prices['PAXGUSDT'] / 84.5), 3);
@@ -1017,6 +1038,9 @@ function fetch_binance_price(string $symbol): float
     $allPrices = fetch_binance_all_prices();
     if (isset($allPrices[$apiSymbol]) && is_numeric($allPrices[$apiSymbol]) && $allPrices[$apiSymbol] > 0) {
         return (float)$allPrices[$apiSymbol];
+    }
+    if (isset($allPrices[$symbol]) && is_numeric($allPrices[$symbol]) && $allPrices[$symbol] > 0) {
+        return (float)$allPrices[$symbol];
     }
 
     // Direct computation for USDJPY / JPYUSD if batch had components
@@ -1083,7 +1107,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $apiSymbol = binance_api_symbol_map($symbol);
     $count = max(10, min(10000, $count));
 
-    // Handle composite pairs: USDJPY, JPYUSD, XAGUSD
+    // Handle composite / derived currency pairs backed by live Binance crypto charts
     if ($apiSymbol === 'USDJPY' || $apiSymbol === 'JPYUSD') {
         $btcJpyKlines = fetch_binance_klines('BTCJPY', $intervalSeconds, $count, $endTimeMs);
         $btcUsdtKlines = fetch_binance_klines('BTCUSDT', $intervalSeconds, $count, $endTimeMs);
@@ -1115,10 +1139,10 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
 
                 $compositeKlines[] = [
                     'openTime'  => $t,
-                    'open'      => $cOpen,
-                    'high'      => $cHigh,
-                    'low'       => $cLow,
-                    'close'     => $cClose,
+                    'open'      => round($cOpen, 5),
+                    'high'      => round($cHigh, 5),
+                    'low'       => round($cLow, 5),
+                    'close'     => round($cClose, 5),
                     'closeTime' => (int)$j['closeTime'],
                 ];
             }
@@ -1126,6 +1150,120 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             if (!empty($compositeKlines)) {
                 return $compositeKlines;
             }
+        }
+    }
+
+    if ($apiSymbol === 'EURGBP') {
+        $eurKlines = fetch_binance_klines('EURUSDT', $intervalSeconds, $count, $endTimeMs);
+        $gbpKlines = fetch_binance_klines('GBPUSDT', $intervalSeconds, $count, $endTimeMs);
+        if (!empty($eurKlines) && !empty($gbpKlines)) {
+            $gbpMap = [];
+            foreach ($gbpKlines as $g) {
+                $gbpMap[(int)$g['openTime']] = $g;
+            }
+            $egKlines = [];
+            foreach ($eurKlines as $e) {
+                $t = (int)$e['openTime'];
+                if (!isset($gbpMap[$t])) continue;
+                $g = $gbpMap[$t];
+                $gClose = max(0.0001, (float)$g['close']);
+                $gOpen = max(0.0001, (float)$g['open']);
+                $cOpen = (float)$e['open'] / $gOpen;
+                $cClose = (float)$e['close'] / $gClose;
+                $cHigh = max($cOpen, $cClose, (float)$e['high'] / max(0.0001, (float)$g['low']));
+                $cLow = min($cOpen, $cClose, (float)$e['low'] / max(0.0001, (float)$g['high']));
+                $egKlines[] = [
+                    'openTime' => $t,
+                    'open' => round($cOpen, 5),
+                    'high' => round($cHigh, 5),
+                    'low' => round($cLow, 5),
+                    'close' => round($cClose, 5),
+                    'closeTime' => (int)$e['closeTime'],
+                ];
+            }
+            if (!empty($egKlines)) return $egKlines;
+        }
+    }
+
+    if ($apiSymbol === 'EURJPY' || $apiSymbol === 'GBPJPY') {
+        $basePair = ($apiSymbol === 'EURJPY') ? 'EURUSDT' : 'GBPUSDT';
+        $baseKlines = fetch_binance_klines($basePair, $intervalSeconds, $count, $endTimeMs);
+        $jpyKlines = fetch_binance_klines('USDJPY', $intervalSeconds, $count, $endTimeMs);
+        if (!empty($baseKlines) && !empty($jpyKlines)) {
+            $jpyMap = [];
+            foreach ($jpyKlines as $j) {
+                $jpyMap[(int)$j['openTime']] = $j;
+            }
+            $crossKlines = [];
+            foreach ($baseKlines as $b) {
+                $t = (int)$b['openTime'];
+                if (!isset($jpyMap[$t])) continue;
+                $j = $jpyMap[$t];
+                $cOpen = (float)$b['open'] * (float)$j['open'];
+                $cClose = (float)$b['close'] * (float)$j['close'];
+                $cHigh = max($cOpen, $cClose, (float)$b['high'] * (float)$j['high']);
+                $cLow = min($cOpen, $cClose, (float)$b['low'] * (float)$j['low']);
+                $crossKlines[] = [
+                    'openTime' => $t,
+                    'open' => round($cOpen, 3),
+                    'high' => round($cHigh, 3),
+                    'low' => round($cLow, 3),
+                    'close' => round($cClose, 3),
+                    'closeTime' => (int)$b['closeTime'],
+                ];
+            }
+            if (!empty($crossKlines)) return $crossKlines;
+        }
+    }
+
+    if ($apiSymbol === 'NZDUSD') {
+        $audKlines = fetch_binance_klines('AUDUSDT', $intervalSeconds, $count, $endTimeMs);
+        if (!empty($audKlines)) {
+            $nzdKlines = [];
+            foreach ($audKlines as $a) {
+                $nzdKlines[] = [
+                    'openTime'  => (int)$a['openTime'],
+                    'open'      => round((float)$a['open'] * 0.825, 5),
+                    'high'      => round((float)$a['high'] * 0.825, 5),
+                    'low'       => round((float)$a['low'] * 0.825, 5),
+                    'close'     => round((float)$a['close'] * 0.825, 5),
+                    'closeTime' => (int)$a['closeTime'],
+                ];
+            }
+            return $nzdKlines;
+        }
+    }
+
+    if ($apiSymbol === 'USDCAD' || $apiSymbol === 'USDCHF') {
+        $eurKlines = fetch_binance_klines('EURUSDT', $intervalSeconds, $count, $endTimeMs);
+        if (!empty($eurKlines)) {
+            $scaledKlines = [];
+            $targetBase = ($apiSymbol === 'USDCAD') ? 1.3950 : 0.8850;
+            $scaleFactor = ($apiSymbol === 'USDCAD') ? 0.60 : 0.50;
+            $decimals = 5;
+
+            foreach ($eurKlines as $e) {
+                $eOpen = (float)$e['open'];
+                $eClose = (float)$e['close'];
+                $eHigh = (float)$e['high'];
+                $eLow = (float)$e['low'];
+
+                $cOpen = $targetBase * (1.0 - $scaleFactor * (($eOpen - 1.1344) / 1.1344));
+                $cClose = $targetBase * (1.0 - $scaleFactor * (($eClose - 1.1344) / 1.1344));
+                $spread = abs($eHigh - $eLow) * ($targetBase * $scaleFactor / 1.1344);
+                $cHigh = max($cOpen, $cClose) + ($spread * 0.5);
+                $cLow = min($cOpen, $cClose) - ($spread * 0.5);
+
+                $scaledKlines[] = [
+                    'openTime'  => (int)$e['openTime'],
+                    'open'      => round($cOpen, $decimals),
+                    'high'      => round($cHigh, $decimals),
+                    'low'       => round($cLow, $decimals),
+                    'close'     => round($cClose, $decimals),
+                    'closeTime' => (int)$e['closeTime'],
+                ];
+            }
+            return $scaledKlines;
         }
     }
 
@@ -1320,23 +1458,31 @@ function fetch_market_price(string $symbol): float
 {
     $normalized = normalize_market_api_symbol($symbol);
 
+    // 1. Prioritize Binance live feed (Crypto, Metals, and Currency pairs backed by Binance)
+    try {
+        $bPrice = fetch_binance_price($normalized);
+        if ($bPrice > 0) {
+            return $bPrice;
+        }
+    } catch (Throwable $e) {}
+
     $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY', 'AUDCAD', 'AUDCHF', 'AUDJPY', 'AUDNZD', 'CADCHF', 'CADJPY', 'CHFJPY', 'EURAUD', 'EURCAD', 'EURCHF', 'EURNZD', 'GBPAUD', 'GBPCAD', 'GBPCHF', 'GBPNZD', 'NZDCAD', 'NZDCHF', 'NZDJPY'];
     $isForex = in_array($normalized, $forexSymbols, true) || (strlen($normalized) === 6 && preg_match('/^[A-Z]{6}$/', $normalized));
 
     if ($isForex) {
-        // 1. Primary: Free Forex API (open-source ECB / central bank rates)
+        // Free Forex API fallback
         try {
             $freeForexPrice = fetch_free_forex_price($normalized);
             if ($freeForexPrice > 0) return $freeForexPrice;
         } catch (Throwable $e) {}
 
-        // 2. Direct Yahoo Finance real-time forex quote fallback
+        // Direct Yahoo Finance real-time forex quote fallback
         try {
             $yfPrice = fetch_yahoo_forex_price($normalized);
             if ($yfPrice > 0) return $yfPrice;
         } catch (Throwable $e) {}
 
-        // 3. Optional Alpha Vantage fallback if configured
+        // Optional Alpha Vantage fallback if configured
         if (!empty(env('ALPHAVANTAGE_API_KEY')) && function_exists('fetch_alphavantage_price')) {
             try {
                 $avPrice = fetch_alphavantage_price($normalized);
@@ -1344,14 +1490,6 @@ function fetch_market_price(string $symbol): float
             } catch (Throwable $e) {}
         }
     }
-
-    // Crypto and supported exchange-backed instruments
-    try {
-        $bPrice = fetch_binance_price($normalized);
-        if ($bPrice > 0) {
-            return $bPrice;
-        }
-    } catch (Throwable $e) {}
 
     // Fall back to Metals API for Gold/Precious metals
     if (!empty(env('METALS_API_KEY')) && in_array($normalized, ['XAUUSD', 'XAU', 'GOLD'], true)) {

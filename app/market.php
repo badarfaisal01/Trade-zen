@@ -22,10 +22,19 @@ function market_assets(bool $activeOnly = true): array
                 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','AUDUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='EURUSDT', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='GBPUSDT', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='AUDUSDT', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD','USDCHF','EURGBP','NZDUSD','EURJPY','GBPJPY')");
+            db()->exec("INSERT INTO market_assets (symbol, display_name, category, base_price, decimal_places, payout_percent, volatility, market_seed, price_source, api_symbol, sort_order, is_active, created_at, updated_at) VALUES
+                ('EURUSD', 'EUR/USD', 'Currencies', 1.1344, 4, 88.00, 0.00018000, 88401, 'binance', 'EURUSDT', 10, 1, NOW(), NOW()),
+                ('GBPUSD', 'GBP/USD', 'Currencies', 1.1800, 4, 85.00, 0.00020000, 88402, 'binance', 'GBPUSDT', 11, 1, NOW(), NOW()),
+                ('USDJPY', 'USD/JPY', 'Currencies', 157.20, 3, 85.00, 0.00025000, 88403, 'binance', 'USDJPY', 12, 1, NOW(), NOW()),
+                ('AUDUSD', 'AUD/USD', 'Currencies', 0.7250, 4, 82.00, 0.00018000, 88404, 'binance', 'AUDUSDT', 13, 1, NOW(), NOW()),
+                ('USDCAD', 'USD/CAD', 'Currencies', 1.3950, 4, 82.00, 0.00018000, 88405, 'binance', 'USDCAD', 14, 1, NOW(), NOW()),
+                ('USDCHF', 'USD/CHF', 'Currencies', 0.8850, 4, 80.00, 0.00018000, 88406, 'binance', 'USDCHF', 15, 1, NOW(), NOW()),
+                ('EURGBP', 'EUR/GBP', 'Currencies', 0.9610, 4, 80.00, 0.00018000, 88407, 'binance', 'EURGBP', 16, 1, NOW(), NOW()),
+                ('NZDUSD', 'NZD/USD', 'Currencies', 0.5980, 4, 80.00, 0.00018000, 88408, 'binance', 'NZDUSD', 17, 1, NOW(), NOW()),
+                ('EURJPY', 'EUR/JPY', 'Currencies', 178.30, 3, 82.00, 0.00025000, 88409, 'binance', 'EURJPY', 18, 1, NOW(), NOW()),
+                ('GBPJPY', 'GBP/JPY', 'Currencies', 185.50, 3, 82.00, 0.00025000, 88410, 'binance', 'GBPJPY', 19, 1, NOW(), NOW())
+                ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Currencies', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, decimal_places=VALUES(decimal_places), payout_percent=VALUES(payout_percent), sort_order=VALUES(sort_order), updated_at=NOW()");
         } catch (Throwable $e) {}
     }
 
@@ -504,7 +513,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
 
-    if (!$isCurrency && $source === 'binance' && $apiSymbol !== '') {
+    if ($source === 'binance' && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
@@ -524,7 +533,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     }
 
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    if ($source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '' && !empty($twelvedataKey)) {
+    if (empty($realKlines) && $source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '' && !empty($twelvedataKey)) {
         try {
             if ($intervalSeconds <= 180) $tdBaseSec = 60;
             elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
@@ -540,7 +549,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         } catch (Throwable $e) {
             error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());
         }
-    } elseif ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
+    } elseif (empty($realKlines) && $isCurrency && function_exists('fetch_yahoo_forex_candles')) {
         try {
             $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
         } catch (Throwable $e) {
@@ -548,8 +557,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
     }
 
-    // Seamlessly anchor currency historical candles to the real-time Free Forex spot price
-    if ($isCurrency && !empty($realKlines)) {
+    // Seamlessly anchor non-binance currency historical candles to the real-time spot price
+    if ($isCurrency && !empty($realKlines) && $source !== 'binance') {
         $liveForexPrice = function_exists('fetch_free_forex_price') ? fetch_free_forex_price((string)($asset['symbol'] ?? '')) : 0.0;
         if ($liveForexPrice <= 0 && function_exists('fetch_market_price')) {
             $liveForexPrice = fetch_market_price((string)($asset['symbol'] ?? ''));
