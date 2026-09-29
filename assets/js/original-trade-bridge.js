@@ -51,8 +51,12 @@
 
       var step;
 
-      // Enforce ultra-dense step distance of 2 (or 0.0002, 0.002, 0.02, 0.2, 2, 5) for maximum price density
-      if (range <= 0.01) {
+      // Enforce ultra-dense step distance for maximum price density
+      if (range <= 0.002) {
+        step = 0.00005;
+      } else if (range <= 0.006) {
+        step = 0.0001;
+      } else if (range <= 0.015) {
         step = 0.0002;
       } else if (range <= 0.05) {
         step = 0.0005;

@@ -23,9 +23,9 @@ function market_assets(bool $activeOnly = true): array
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','AUDUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='EURUSDT', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='GBPUSDT', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='AUDUSDT', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='EURUSDT', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='GBPUSDT', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='AUDUSDT', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
         } catch (Throwable $e) {}
     }
 
@@ -556,37 +556,45 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $priceShift = $livePrice - $masterLastClose;
 
             $candles = [];
-            $prevClose = 0.0;
-            $idx = 0;
-
-            for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs, $idx++) {
-                $klineIdx = ($masterCount - $count) + $idx;
+            $targetPrices = [];
+            for ($i = 0; $i < $count; $i++) {
+                $klineIdx = ($masterCount - $count) + $i;
                 if ($klineIdx < 0) {
-                    $klineIdx = ($idx % $masterCount);
+                    $klineIdx = ($i % $masterCount);
                 } elseif ($klineIdx >= $masterCount) {
                     $klineIdx = $masterCount - 1;
                 }
+                $targetPrices[] = (float)$masterKlines[$klineIdx]['close'] + $priceShift;
+            }
 
-                $k = $masterKlines[$klineIdx];
-                $kOpen  = (float)$k['open'] + $priceShift;
-                $kHigh  = (float)$k['high'] + $priceShift;
-                $kLow   = (float)$k['low'] + $priceShift;
-                $kClose = (float)$k['close'] + $priceShift;
+            $firstTarget = $targetPrices[0] ?? $livePrice;
+            $prevClose = round($firstTarget, $decimals);
+            $idx = 0;
 
-                if ($t === $targetStartBucket || $prevClose <= 0) {
-                    $cOpen = round($kOpen, $decimals);
+            for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs, $idx++) {
+                $rawTarget = $targetPrices[$idx] ?? $livePrice;
+                $isLastCandle = ($t + $intervalMs) > $endMs || $idx === ($count - 1);
+
+                $cOpen = $prevClose;
+                if ($isLastCandle) {
+                    $cClose = round($livePrice, $decimals);
                 } else {
-                    $cOpen = $prevClose;
+                    $macroDiff = $rawTarget - $cOpen;
+                    // Compact, natural 5-decimal body movement
+                    $subMicro = sin($idx * 0.38 + 1.2) * ($minStep * 1.8) + cos($idx * 0.74) * ($minStep * 1.1);
+                    $cClose = round($cOpen + ($macroDiff * 0.35) + $subMicro, $decimals);
                 }
 
-                $cClose = round($kClose, $decimals);
-                $cHigh  = round(max($kHigh, $cOpen, $cClose), $decimals);
-                $cLow   = round(max($minStep, min($kLow, $cOpen, $cClose)), $decimals);
+                $body = abs($cClose - $cOpen);
 
-                if ($cHigh - $cLow < $minStep) {
-                    $cHigh = round($cHigh + $minStep * 0.5, $decimals);
-                    $cLow  = round(max($minStep, $cLow - $minStep * 0.5), $decimals);
-                }
+                // Small, elegant, subtle TradingView wicks (0.1 to 0.35 pips max)
+                $wickNoiseH = abs(sin($idx * 0.83 + 2.1));
+                $wickNoiseL = abs(cos($idx * 0.91 + 1.5));
+                $wickH = round(max($minStep * 0.6, min($minStep * 3.0, $body * 0.22 + $wickNoiseH * ($minStep * 1.4))), $decimals);
+                $wickL = round(max($minStep * 0.6, min($minStep * 3.0, $body * 0.22 + $wickNoiseL * ($minStep * 1.4))), $decimals);
+
+                $cHigh = round(max($cOpen, $cClose) + $wickH, $decimals);
+                $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickL), $decimals);
 
                 $prevClose = $cClose;
                 $isComplete = ($t + $intervalMs) <= $endMs;
