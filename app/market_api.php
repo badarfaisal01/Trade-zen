@@ -825,15 +825,9 @@ function forex_crypto_backing_config(): array
 {
     return [
         'EURUSD' => ['crypto' => 'ETHUSDT', 'base' => 1.0850, 'vol' => 0.20, 'dec' => 5],
-        'GBPUSD' => ['crypto' => 'SOLUSDT', 'base' => 1.2850, 'vol' => 0.18, 'dec' => 5],
         'USDJPY' => ['crypto' => 'BTCUSDT', 'base' => 155.50, 'vol' => 0.16, 'dec' => 3],
         'AUDUSD' => ['crypto' => 'ADAUSDT', 'base' => 0.6550, 'vol' => 0.22, 'dec' => 5],
         'USDCAD' => ['crypto' => 'BNBUSDT', 'base' => 1.3950, 'vol' => 0.18, 'dec' => 5],
-        'USDCHF' => ['crypto' => 'AVAXUSDT', 'base' => 0.8850, 'vol' => 0.17, 'dec' => 5],
-        'EURGBP' => ['crypto' => 'LINKUSDT', 'base' => 0.8550, 'vol' => 0.16, 'dec' => 5],
-        'NZDUSD' => ['crypto' => 'DOTUSDT',  'base' => 0.5980, 'vol' => 0.20, 'dec' => 5],
-        'EURJPY' => ['crypto' => 'ETHUSDT',  'base' => 168.50, 'vol' => 0.18, 'dec' => 3],
-        'GBPJPY' => ['crypto' => 'SOLUSDT',  'base' => 198.50, 'vol' => 0.18, 'dec' => 3],
     ];
 }
 
