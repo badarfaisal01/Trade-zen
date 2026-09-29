@@ -564,7 +564,14 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                 } elseif ($klineIdx >= $masterCount) {
                     $klineIdx = $masterCount - 1;
                 }
-                $targetPrices[] = (float)$masterKlines[$klineIdx]['close'] + $priceShift;
+                $rawP = (float)$masterKlines[$klineIdx]['close'] + $priceShift;
+                // Progressively blend over the last 15 candles straight into $livePrice for zero end-spike
+                $tailDist = ($count - 1) - $i;
+                if ($tailDist <= 15) {
+                    $blend = (15 - $tailDist) / 15.0;
+                    $rawP = ($rawP * (1.0 - $blend)) + ($livePrice * $blend);
+                }
+                $targetPrices[] = $rawP;
             }
 
             $firstTarget = $targetPrices[0] ?? $livePrice;
