@@ -1304,20 +1304,20 @@
         8: 900,    // Period_900 (15m)
         9: 1800,   // Period_1800 (30m)
         10: 3600,  // Period_3600 (1h)
-        11: 14400, // Period_14400 (4h)
-        12: 86400, // Period_86400 (1d)
+        11: 3600,  // Period_14400 (4h - fallback to 1h)
+        12: 3600,  // Period_86400 (1d - fallback to 1h)
         13: 120,   // Period_120 (2m)
         14: 180    // Period_180 (3m)
       };
       if (val in enumToSec) {
-        return enumToSec[val];
+        return Math.min(3600, enumToSec[val]);
       }
       if (val > 0) {
-        return Math.max(1, Math.min(86400, val));
+        return Math.max(1, Math.min(3600, val));
       }
     }
 
-    return Math.max(1, Math.min(86400, number(fallback, 60)));
+    return Math.max(1, Math.min(3600, number(fallback, 60)));
   }
 
   function extractSymbol(payload, fallback) {
@@ -2996,6 +2996,14 @@
       if (text.indexOf('(Closed') !== -1 || text.indexOf('Market Closed') !== -1 || text.indexOf('Closed:') !== -1) {
         row.setAttribute('data-closed', '1');
         row.setAttribute('title', 'Market is currently closed');
+      }
+    });
+
+    // Remove 4h and 1d timeframe options from UI
+    document.querySelectorAll('button, li, [role="button"], [role="option"], [class*="period"], [class*="timeframe"], [class*="item"], [class*="select"]').forEach(function (el) {
+      var txt = normalizedText(el).toLowerCase().trim();
+      if (txt === '4h' || txt === '1d' || txt === '4 h' || txt === '1 d' || txt === '4 hours' || txt === '1 day' || txt === '4hour' || txt === '1day' || el.getAttribute('data-value') === '11' || el.getAttribute('data-value') === '12' || el.getAttribute('data-period') === '14400' || el.getAttribute('data-period') === '86400') {
+        el.style.setProperty('display', 'none', 'important');
       }
     });
 

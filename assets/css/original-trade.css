@@ -337,10 +337,18 @@ div[class*="modal-content"] {
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     overscroll-behavior: contain !important;
-    padding-bottom: 60px !important;
-    z-index: 999990 !important;
-  }
-
+/* Hide 4h and 1d timeframe options from chart period selectors */
+[data-period="14400"],
+[data-period="86400"],
+[data-timeframe="14400"],
+[data-timeframe="86400"],
+[data-value="11"],
+[data-value="12"],
+button[data-period="14400"],
+button[data-period="86400"],
+li[data-period="14400"],
+li[data-period="86400"] {
+  display: none !important;
 }
 
 
