@@ -1696,6 +1696,7 @@
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
+      var price = number(asset.price, 0);
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       snapshot.candles = apiCandles;
       if (apiCandles.length > 0) {
