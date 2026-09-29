@@ -71,16 +71,20 @@ div[class*="TJbx1"] a img.original-custom-logo {
   visibility: hidden !important;
 }
 
-/* Responsive Y-Axis Price Scale Labels - 20+ Price Viewport Display */
+/* Responsive Y-Axis Price Scale Labels - Always visible and crisp on all screen sizes */
+.highcharts-yaxis-labels {
+  transform: none !important;
+  visibility: visible !important;
+  opacity: 1 !important;
+}
+
 .highcharts-yaxis-labels text {
-  text-anchor: end !important;
-  text-align: right !important;
   font-weight: 600 !important;
-  font-size: 9.5px !important;
+  font-size: 10px !important;
   fill: rgba(255, 255, 255, 0.90) !important;
   letter-spacing: -0.2px !important;
-  opacity: 1 !important;
   visibility: visible !important;
+  opacity: 1 !important;
 }
 
 .highcharts-yaxis-grid .highcharts-grid-line {
@@ -90,17 +94,14 @@ div[class*="TJbx1"] a img.original-custom-logo {
 
 @media (max-width: 800px) {
   .highcharts-yaxis-labels {
-    transform: translateX(42px) !important;
+    transform: none !important;
   }
   .highcharts-yaxis-labels text {
-    text-anchor: end !important;
-    text-align: right !important;
-    font-size: 8.5px !important;
+    font-size: 9px !important;
     font-weight: 600 !important;
     fill: rgba(255, 255, 255, 0.94) !important;
-    letter-spacing: -0.2px !important;
-    opacity: 1 !important;
     visibility: visible !important;
+    opacity: 1 !important;
   }
 }
 
