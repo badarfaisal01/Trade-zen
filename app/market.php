@@ -22,12 +22,10 @@ function market_assets(bool $activeOnly = true): array
                 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD')");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='EURUSD=X', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='GBPUSD=X', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=3, price_source='api', api_symbol='USDJPY=X', display_name='USD/JPY', payout_percent=85.00, volatility=0.00022 WHERE symbol='USDJPY'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='AUDUSD=X', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='USDCAD=X', display_name='USD/CAD', payout_percent=82.00, volatility=0.00018 WHERE symbol='USDCAD'");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','AUDUSD')");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='EURUSDT', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='GBPUSDT', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=4, price_source='binance', api_symbol='AUDUSDT', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
         } catch (Throwable $e) {}
     }
 
@@ -506,15 +504,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
 
-    if ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
-        try {
-            $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
-        } catch (Throwable $e) {
-            error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
-        }
-    }
-
-    if (empty($realKlines) && ($source === 'binance' || $source === 'api') && $apiSymbol !== '') {
+    if ($source === 'binance' && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 120) $baseSec = 60;
             elseif ($intervalSeconds <= 180) $baseSec = 180;
@@ -530,6 +520,12 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $realKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
+        }
+    } elseif ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
+        try {
+            $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
         }
     }
 
