@@ -676,6 +676,7 @@
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
+              lastBinanceTickMs = Date.now();
               if (hasOpenTradeForActiveSymbol()) {
                 return; // Active trade in progress under control: ignore external raw ticks
               }
@@ -705,6 +706,8 @@
       };
     } catch (e) {}
   }
+
+  var lastBinanceTickMs = 0;
 
   function syncServerTime(serverMs) {
     if (!isFinite(serverMs) || serverMs <= 0) return;
@@ -775,15 +778,12 @@
       // Market is closed: freeze quote completely at close price
       return;
     }
+    // If real WebSocket ticks are actively streaming from Binance, avoid synthetic quotes
+    if (binanceWs && binanceWs.readyState === 1 && (Date.now() - lastBinanceTickMs) < 3000) {
+      return;
+    }
     var dec = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
-    var minStep = Math.pow(10, -dec);
-
-    // Organic sub-pip micro-fluctuation so the active candle remains lively & animated
-    // even when the provider price is temporarily static, eliminating dead straight lines
-    var timeMs = Date.now();
-    var scale = dec >= 4 ? (minStep * 2.8) : (minStep * 0.75);
-    var microNoise = Math.sin(timeMs / 280.0) * scale + Math.cos(timeMs / 540.0) * (scale * 0.6) + Math.sin(timeMs / 120.0) * (scale * 0.35);
-    var livePriceToEmit = Number((currentLivePrice + microNoise).toFixed(dec));
+    var livePriceToEmit = Number(currentLivePrice.toFixed(dec));
 
     emitTick(livePriceToEmit, activeSocketSymbol);
   }
