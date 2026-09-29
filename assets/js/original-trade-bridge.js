@@ -756,6 +756,12 @@
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
     var tickPrice = Number(price.toFixed(decimals));
 
+    // Reject cross-contamination from a different symbol tab (e.g. Apple 213 vs EURUSD 1.13)
+    var expectedRefPrice = number(expectedAsset.price || expectedAsset.base_price, 0);
+    if (expectedRefPrice > 0 && Math.abs(tickPrice - expectedRefPrice) / expectedRefPrice > 0.45) {
+      return;
+    }
+
     // Smooth Rate-of-Change Limiter: prevent abnormal single-tick spikes or drops (max 0.1% or 10 pips per tick)
     var prevTick = lastEmittedTickPrices[targetSocket];
     if (prevTick > 0) {
@@ -2215,6 +2221,12 @@
       }
 
       if (instChanged) {
+        lastEmittedTickPrices = {};
+        restDriftOffset = 0;
+        lastEmittedQuoteSec = 0;
+        var newInstAsset = findAsset(activeSymbol);
+        currentLivePrice = newInstAsset ? number(newInstAsset.price || newInstAsset.base_price, 0) : 0;
+
         var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
           marketSnapshot = cachedInstSnap;
@@ -2246,6 +2258,11 @@
         if (hasHistPeriod) {
           activePeriod = reqPeriod;
         }
+        lastEmittedTickPrices = {};
+        restDriftOffset = 0;
+        lastEmittedQuoteSec = 0;
+        var newHistAsset = findAsset(activeSymbol);
+        currentLivePrice = newHistAsset ? number(newHistAsset.price || newHistAsset.base_price, 0) : 0;
 
         var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length > 0) {
