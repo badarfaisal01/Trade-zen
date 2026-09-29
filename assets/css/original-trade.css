@@ -72,16 +72,26 @@ div[class*="TJbx1"] a img.original-custom-logo {
 }
 
 /* Responsive Y-Axis Price Scale Labels - Always visible and crisp on all screen sizes */
+.highcharts-container,
+.highcharts-root,
+.highcharts-axis-labels,
+.highcharts-yaxis-labels {
+  overflow: visible !important;
+}
+
 .highcharts-yaxis-labels {
   transform: none !important;
+  display: block !important;
   visibility: visible !important;
   opacity: 1 !important;
 }
 
 .highcharts-yaxis-labels text {
+  display: block !important;
   font-weight: 600 !important;
   font-size: 10px !important;
-  fill: rgba(255, 255, 255, 0.90) !important;
+  fill: #d7deef !important;
+  color: #d7deef !important;
   letter-spacing: -0.2px !important;
   visibility: visible !important;
   opacity: 1 !important;
@@ -99,7 +109,8 @@ div[class*="TJbx1"] a img.original-custom-logo {
   .highcharts-yaxis-labels text {
     font-size: 9px !important;
     font-weight: 600 !important;
-    fill: rgba(255, 255, 255, 0.94) !important;
+    fill: #e1e7f5 !important;
+    color: #e1e7f5 !important;
     visibility: visible !important;
     opacity: 1 !important;
   }
