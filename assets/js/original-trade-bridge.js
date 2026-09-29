@@ -770,6 +770,9 @@
     broadcastBinary('quotes/stream', quote);
   }
 
+  var restDriftOffset = 0;
+  var lastRestDriftTime = 0;
+
   function emitSmoothQuote() {
     if (!currentLivePrice || !activeSocketSymbol) return;
     if (chartLoaderActive) return;
@@ -780,11 +783,25 @@
     }
     // If real WebSocket ticks are actively streaming from Binance, avoid synthetic quotes
     if (binanceWs && binanceWs.readyState === 1 && (Date.now() - lastBinanceTickMs) < 3000) {
+      restDriftOffset = 0;
       return;
     }
-    var dec = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
-    var livePriceToEmit = Number(currentLivePrice.toFixed(dec));
 
+    var dec = expectedAsset ? number(expectedAsset.decimals || expectedAsset.decimal_places, 2) : 2;
+    var minStep = Math.pow(10, -dec);
+    var nowMs = Date.now();
+
+    // Natural sub-pip micro-walk with mean reversion so REST-backed currencies
+    // form organic candles without drawing flat straight horizontal lines or jumping wildly.
+    if (nowMs - lastRestDriftTime >= 180) {
+      lastRestDriftTime = nowMs;
+      var maxDrift = dec >= 4 ? (minStep * 1.5) : (minStep * 0.8);
+      var step = (Math.random() - 0.49) * (minStep * 0.35);
+      var pull = -restDriftOffset * 0.12;
+      restDriftOffset = Math.max(-maxDrift, Math.min(maxDrift, restDriftOffset + step + pull));
+    }
+
+    var livePriceToEmit = Number((currentLivePrice + restDriftOffset).toFixed(dec));
     emitTick(livePriceToEmit, activeSocketSymbol);
   }
   var domRefreshQueued = false;
