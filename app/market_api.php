@@ -131,7 +131,7 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     $cacheKey = strtoupper($normalizedSymbol);
     $now = microtime(true);
 
-    if (isset($memoryCache[$cacheKey]) && ($now - $memoryCache[$cacheKey]['time']) < 30) {
+    if (isset($memoryCache[$cacheKey]) && ($now - $memoryCache[$cacheKey]['time']) < 5) {
         return $memoryCache[$cacheKey]['price'];
     }
 
@@ -140,7 +140,7 @@ function fetch_twelvedata_price(string $symbol, ?string $apiKey = null): float
     $diskCache = [];
     if (is_file($cacheFile)) {
         $diskCache = json_decode((string)@file_get_contents($cacheFile), true) ?: [];
-        if (isset($diskCache[$cacheKey]['price'], $diskCache[$cacheKey]['time']) && ($now - (float)$diskCache[$cacheKey]['time']) < 30) {
+        if (isset($diskCache[$cacheKey]['price'], $diskCache[$cacheKey]['time']) && ($now - (float)$diskCache[$cacheKey]['time']) < 5) {
             $memoryCache[$cacheKey] = $diskCache[$cacheKey];
             return (float)$diskCache[$cacheKey]['price'];
         }
@@ -1215,26 +1215,26 @@ function fetch_market_price(string $symbol): float
 
     $forexSymbols = ['EURUSD', 'GBPUSD', 'USDJPY', 'AUDUSD', 'USDCAD', 'USDCHF', 'NZDUSD', 'EURGBP', 'EURJPY', 'GBPJPY'];
     if (in_array($normalized, $forexSymbols, true)) {
-        // 1. Try Yahoo Finance real-time forex
-        try {
-            $yfPrice = fetch_yahoo_forex_price($normalized);
-            if ($yfPrice > 0) return $yfPrice;
-        } catch (Throwable $e) {}
-
-        // 2. Try Binance derived spot / EURUSDT
-        try {
-            $binanceSym = str_replace('USD', 'USDT', $normalized);
-            $bPrice = fetch_binance_price($binanceSym);
-            if ($bPrice > 0) return $bPrice;
-        } catch (Throwable $e) {}
-
-        // 3. Try Twelve Data
+        // 1. Try Twelve Data
         if (!empty(env('TWELVEDATA_API_KEY'))) {
             try {
                 $forexPrice = fetch_twelvedata_price($normalized);
                 if ($forexPrice > 0) return $forexPrice;
             } catch (Throwable $e) {}
         }
+
+        // 2. Try Yahoo Finance real-time forex
+        try {
+            $yfPrice = fetch_yahoo_forex_price($normalized);
+            if ($yfPrice > 0) return $yfPrice;
+        } catch (Throwable $e) {}
+
+        // 3. Try Binance derived spot / EURUSDT
+        try {
+            $binanceSym = str_replace('USD', 'USDT', $normalized);
+            $bPrice = fetch_binance_price($binanceSym);
+            if ($bPrice > 0) return $bPrice;
+        } catch (Throwable $e) {}
 
         // 4. Try Alpha Vantage
         if (!empty(env('ALPHAVANTAGE_API_KEY')) && function_exists('fetch_alphavantage_price')) {

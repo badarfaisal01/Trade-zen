@@ -22,10 +22,12 @@ function market_assets(bool $activeOnly = true): array
                 ON DUPLICATE KEY UPDATE display_name=VALUES(display_name), category='Commodities', price_source='binance', api_symbol=VALUES(api_symbol), is_active=1, sort_order=VALUES(sort_order), updated_at=NOW()");
             db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='commodities' OR LOWER(category)='commodity' OR category LIKE '%commodit%') AND symbol NOT IN ('XAUUSD','XAUTUSD')");
 
-            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','AUDUSD')");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='EURUSDT', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='GBPUSDT', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
-            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='binance', api_symbol='AUDUSDT', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
+            db()->exec("UPDATE market_assets SET is_active=0 WHERE (LOWER(category)='currencies' OR LOWER(category)='currency' OR category LIKE '%currenc%') AND symbol NOT IN ('EURUSD','GBPUSD','USDJPY','AUDUSD','USDCAD')");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='EUR/USD', display_name='EUR/USD', payout_percent=88.00, volatility=0.00018 WHERE symbol='EURUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='GBP/USD', display_name='GBP/USD', payout_percent=85.00, volatility=0.00020 WHERE symbol='GBPUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=3, price_source='api', api_symbol='USD/JPY', display_name='USD/JPY', payout_percent=85.00, volatility=0.00022 WHERE symbol='USDJPY'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='AUD/USD', display_name='AUD/USD', payout_percent=82.00, volatility=0.00018 WHERE symbol='AUDUSD'");
+            db()->exec("UPDATE market_assets SET is_active=1, decimal_places=5, price_source='api', api_symbol='USD/CAD', display_name='USD/CAD', payout_percent=82.00, volatility=0.00018 WHERE symbol='USDCAD'");
         } catch (Throwable $e) {}
     }
 
@@ -471,40 +473,6 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     return round($price, $decimals);
 }
 
-function currency_master_history(string $symbol, string $apiSymbol, int $count = 800): array
-{
-    static $cache = [];
-    $clean = strtoupper(str_replace(['/', '_', '-', ' '], '', $symbol));
-    if (isset($cache[$clean]) && count($cache[$clean]) >= 400) {
-        return $cache[$clean];
-    }
-
-    $dir = dirname(__DIR__) . '/storage/cache/market';
-    if (!is_dir($dir)) {
-        @mkdir($dir, 0777, true);
-    }
-    $file = $dir . '/currencies_master_history_' . $clean . '.json';
-    $candles = [];
-
-    if (file_exists($file)) {
-        $content = (string)@file_get_contents($file);
-        $decoded = json_decode($content, true);
-        if (is_array($decoded) && count($decoded) >= 400) {
-            $candles = $decoded;
-        }
-    }
-
-    if (empty($candles)) {
-        $candles = fetch_binance_klines($apiSymbol ?: ($clean . 'USDT'), 60, max(800, $count));
-        if (!empty($candles) && count($candles) >= 100) {
-            @file_put_contents($file, json_encode($candles, JSON_PRETTY_PRINT));
-        }
-    }
-
-    $cache[$clean] = $candles;
-    return $candles;
-}
-
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null, ?int $userId = null): array
 {
     $intervalSeconds = max(1, min(86400, $intervalSeconds));
@@ -535,104 +503,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
     }
 
-    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
-
-    if ($isCurrency) {
-        $masterKlines = currency_master_history((string)($asset['symbol'] ?? 'EURUSD'), $apiSymbol, 800);
-        if (!empty($masterKlines)) {
-            $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
-            $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
-
-            $masterCount = count($masterKlines);
-            $lastMasterKline = end($masterKlines);
-            $masterLastClose = (float)($lastMasterKline['close'] ?? 1.1370);
-
-            $livePrice = market_price_at($asset, $endMs, true, $effectiveUserId);
-            if ($livePrice <= 0) {
-                $livePrice = (float)($asset['base_price'] ?? $masterLastClose);
-            }
-
-            // Offset alignment so the latest historical candle close connects seamlessly to the live price
-            $priceShift = $livePrice - $masterLastClose;
-
-            $candles = [];
-            $targetPrices = [];
-            for ($i = 0; $i < $count; $i++) {
-                $klineIdx = ($masterCount - $count) + $i;
-                if ($klineIdx < 0) {
-                    $klineIdx = ($i % $masterCount);
-                } elseif ($klineIdx >= $masterCount) {
-                    $klineIdx = $masterCount - 1;
-                }
-                $rawP = (float)$masterKlines[$klineIdx]['close'] + $priceShift;
-                // Progressively blend over the last 15 candles straight into $livePrice for zero end-spike
-                $tailDist = ($count - 1) - $i;
-                if ($tailDist <= 15) {
-                    $blend = (15 - $tailDist) / 15.0;
-                    $rawP = ($rawP * (1.0 - $blend)) + ($livePrice * $blend);
-                }
-                $targetPrices[] = $rawP;
-            }
-
-            $firstTarget = $targetPrices[0] ?? $livePrice;
-            $prevClose = round($firstTarget, $decimals);
-            $idx = 0;
-
-            for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs, $idx++) {
-                $rawTarget = $targetPrices[$idx] ?? $livePrice;
-                $isLastCandle = ($t + $intervalMs) > $endMs || $idx === ($count - 1);
-
-                $cOpen = $prevClose;
-                if ($isLastCandle) {
-                    $cClose = round($livePrice, $decimals);
-                } else {
-                    $macroDiff = $rawTarget - $cOpen;
-                    // Compact, natural 5-decimal body movement
-                    $subMicro = sin($idx * 0.38 + 1.2) * ($minStep * 1.8) + cos($idx * 0.74) * ($minStep * 1.1);
-                    $cClose = round($cOpen + ($macroDiff * 0.35) + $subMicro, $decimals);
-                }
-
-                $body = abs($cClose - $cOpen);
-
-                // Small, elegant, subtle TradingView wicks (0.1 to 0.35 pips max)
-                $wickNoiseH = abs(sin($idx * 0.83 + 2.1));
-                $wickNoiseL = abs(cos($idx * 0.91 + 1.5));
-                $wickH = round(max($minStep * 0.6, min($minStep * 3.0, $body * 0.22 + $wickNoiseH * ($minStep * 1.4))), $decimals);
-                $wickL = round(max($minStep * 0.6, min($minStep * 3.0, $body * 0.22 + $wickNoiseL * ($minStep * 1.4))), $decimals);
-
-                $cHigh = round(max($cOpen, $cClose) + $wickH, $decimals);
-                $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickL), $decimals);
-
-                $prevClose = $cClose;
-                $isComplete = ($t + $intervalMs) <= $endMs;
-
-                $p1 = $cClose >= $cOpen ? $cLow : $cHigh;
-                $p2 = $cClose >= $cOpen ? $cHigh : $cLow;
-
-                $ticks = [
-                    [$t, $cOpen],
-                    [(int)($t + $intervalMs * 0.33), $p1],
-                    [(int)($t + $intervalMs * 0.67), $p2],
-                    [(int)min($t + $intervalMs - 1, $endMs), $cClose],
-                ];
-
-                $candles[] = [
-                    'time' => $t,
-                    'open' => $cOpen,
-                    'high' => $cHigh,
-                    'low' => $cLow,
-                    'close' => $cClose,
-                    'lastTickTime' => (int)min($t + $intervalMs - 1, $endMs),
-                    'complete' => $isComplete,
-                    'ticks' => $ticks,
-                ];
-            }
-
-            return $candles;
-        }
-    }
-
     $realKlines = [];
+    $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
 
     if ($source === 'binance' && $apiSymbol !== '') {
         try {
@@ -651,16 +523,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
         }
-    } elseif ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
-        try {
-            $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
-        } catch (Throwable $e) {
-            error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
-        }
     }
 
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
-    if ($source === 'api' && empty($realKlines) && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
+    if ($source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '') {
         try {
             if ($intervalSeconds <= 180) $tdBaseSec = 60;
             elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
@@ -675,6 +541,12 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $realKlines = fetch_twelvedata_candles($apiSymbol, $intervalSeconds, $neededCount, $endMs, $twelvedataKey);
         } catch (Throwable $e) {
             error_log('Failed to fetch Twelve Data candles for ' . $apiSymbol . ': ' . $e->getMessage());
+        }
+    } elseif ($isCurrency && function_exists('fetch_yahoo_forex_candles')) {
+        try {
+            $realKlines = fetch_yahoo_forex_candles((string)($asset['symbol'] ?? 'EURUSD'), $intervalSeconds, $count, $endMs);
+        } catch (Throwable $e) {
+            error_log('Failed to fetch Yahoo Forex candles for ' . $asset['symbol'] . ': ' . $e->getMessage());
         }
     }
 
