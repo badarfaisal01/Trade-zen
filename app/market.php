@@ -471,6 +471,40 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
     return round($price, $decimals);
 }
 
+function currency_master_history(string $symbol, string $apiSymbol, int $count = 800): array
+{
+    static $cache = [];
+    $clean = strtoupper(str_replace(['/', '_', '-', ' '], '', $symbol));
+    if (isset($cache[$clean]) && count($cache[$clean]) >= 400) {
+        return $cache[$clean];
+    }
+
+    $dir = dirname(__DIR__) . '/storage/cache/market';
+    if (!is_dir($dir)) {
+        @mkdir($dir, 0777, true);
+    }
+    $file = $dir . '/currencies_master_history_' . $clean . '.json';
+    $candles = [];
+
+    if (file_exists($file)) {
+        $content = (string)@file_get_contents($file);
+        $decoded = json_decode($content, true);
+        if (is_array($decoded) && count($decoded) >= 400) {
+            $candles = $decoded;
+        }
+    }
+
+    if (empty($candles)) {
+        $candles = fetch_binance_klines($apiSymbol ?: ($clean . 'USDT'), 60, max(800, $count));
+        if (!empty($candles) && count($candles) >= 100) {
+            @file_put_contents($file, json_encode($candles, JSON_PRETTY_PRINT));
+        }
+    }
+
+    $cache[$clean] = $candles;
+    return $candles;
+}
+
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null, ?int $userId = null): array
 {
     $intervalSeconds = max(1, min(86400, $intervalSeconds));
@@ -501,8 +535,89 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         }
     }
 
-    $realKlines = [];
     $isCurrency = market_is_currency($asset) || strtolower((string)($asset['category'] ?? '')) === 'currencies';
+
+    if ($isCurrency) {
+        $masterKlines = currency_master_history((string)($asset['symbol'] ?? 'EURUSD'), $apiSymbol, 800);
+        if (!empty($masterKlines)) {
+            $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
+            $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
+
+            $masterCount = count($masterKlines);
+            $lastMasterKline = end($masterKlines);
+            $masterLastClose = (float)($lastMasterKline['close'] ?? 1.1370);
+
+            $livePrice = market_price_at($asset, $endMs, true, $effectiveUserId);
+            if ($livePrice <= 0) {
+                $livePrice = (float)($asset['base_price'] ?? $masterLastClose);
+            }
+
+            // Offset alignment so the latest historical candle close connects seamlessly to the live price
+            $priceShift = $livePrice - $masterLastClose;
+
+            $candles = [];
+            $prevClose = 0.0;
+            $idx = 0;
+
+            for ($t = $targetStartBucket; $t <= $targetEndBucket; $t += $intervalMs, $idx++) {
+                $klineIdx = ($masterCount - $count) + $idx;
+                if ($klineIdx < 0) {
+                    $klineIdx = ($idx % $masterCount);
+                } elseif ($klineIdx >= $masterCount) {
+                    $klineIdx = $masterCount - 1;
+                }
+
+                $k = $masterKlines[$klineIdx];
+                $kOpen  = (float)$k['open'] + $priceShift;
+                $kHigh  = (float)$k['high'] + $priceShift;
+                $kLow   = (float)$k['low'] + $priceShift;
+                $kClose = (float)$k['close'] + $priceShift;
+
+                if ($t === $targetStartBucket || $prevClose <= 0) {
+                    $cOpen = round($kOpen, $decimals);
+                } else {
+                    $cOpen = $prevClose;
+                }
+
+                $cClose = round($kClose, $decimals);
+                $cHigh  = round(max($kHigh, $cOpen, $cClose), $decimals);
+                $cLow   = round(max($minStep, min($kLow, $cOpen, $cClose)), $decimals);
+
+                if ($cHigh - $cLow < $minStep) {
+                    $cHigh = round($cHigh + $minStep * 0.5, $decimals);
+                    $cLow  = round(max($minStep, $cLow - $minStep * 0.5), $decimals);
+                }
+
+                $prevClose = $cClose;
+                $isComplete = ($t + $intervalMs) <= $endMs;
+
+                $p1 = $cClose >= $cOpen ? $cLow : $cHigh;
+                $p2 = $cClose >= $cOpen ? $cHigh : $cLow;
+
+                $ticks = [
+                    [$t, $cOpen],
+                    [(int)($t + $intervalMs * 0.33), $p1],
+                    [(int)($t + $intervalMs * 0.67), $p2],
+                    [(int)min($t + $intervalMs - 1, $endMs), $cClose],
+                ];
+
+                $candles[] = [
+                    'time' => $t,
+                    'open' => $cOpen,
+                    'high' => $cHigh,
+                    'low' => $cLow,
+                    'close' => $cClose,
+                    'lastTickTime' => (int)min($t + $intervalMs - 1, $endMs),
+                    'complete' => $isComplete,
+                    'ticks' => $ticks,
+                ];
+            }
+
+            return $candles;
+        }
+    }
+
+    $realKlines = [];
 
     if ($source === 'binance' && $apiSymbol !== '') {
         try {
