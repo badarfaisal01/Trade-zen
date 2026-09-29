@@ -643,18 +643,14 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $cClose = round($cCloseRaw, $decimals);
 
                     $bodySpan = abs($cClose - $cOpen);
-                    $baseWick = max($minStep * 0.8, min($minStep * 2.5, $bodySpan * 0.25 + ($minStep * 0.8)));
-                    $wickUp = $baseWick * (0.3 + $noiseWickH * 0.5);
-                    $wickDown = $baseWick * (0.3 + $noiseWickL * 0.5);
+                    $baseWick = max($minStep * 0.3, min($minStep * 1.0, $bodySpan * 0.15 + ($minStep * 0.3)));
+                    $wickUp = $baseWick * (0.2 + $noiseWickH * 0.35);
+                    $wickDown = $baseWick * (0.2 + $noiseWickL * 0.35);
 
-                    // Clamp wicks tightly so they are never large outlier spikes
-                    $maxAllowedHigh = max($cOpen, $cClose, $targetHigh) + $wickUp;
-                    $minAllowedLow  = min($cOpen, $cClose, $targetLow) - $wickDown;
-                    if ($isCurrency) {
-                        $maxWickLimit = max($minStep * 2.2, $bodySpan * 1.5 + ($minStep * 1.8));
-                        $maxAllowedHigh = min($maxAllowedHigh, max($cOpen, $cClose) + $maxWickLimit);
-                        $minAllowedLow  = max($minAllowedLow, min($cOpen, $cClose) - $maxWickLimit);
-                    }
+                    // Clamp wicks tightly so they are always small, sleek, and never large spikes
+                    $maxWickLimit = max($minStep * 0.6, min($minStep * 1.2, $bodySpan * 0.25 + $minStep * 0.4));
+                    $maxAllowedHigh = min(max($cOpen, $cClose) + $wickUp, max($cOpen, $cClose) + $maxWickLimit);
+                    $minAllowedLow  = max(min($cOpen, $cClose) - $wickDown, min($cOpen, $cClose) - $maxWickLimit);
 
                     $cHigh = round($maxAllowedHigh, $decimals);
                     $cLow  = round(max($minStep, $minAllowedLow), $decimals);
@@ -662,9 +658,9 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     // Bucket missing: continuous organic candle
                     $noiseVal = market_noise($seed, $sec);
                     $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.08)), $decimals);
-                    $minWick = max($minStep * 1.5, $cOpen * $volatility * 0.015);
-                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
-                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
+                    $minWick = max($minStep * 0.8, $cOpen * $volatility * 0.008);
+                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.2, $decimals);
+                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.2), $decimals);
                 }
             } else {
                 // Sub-minute candle (5s, 10s, 15s, 30s) - TradingView compact microstructure
@@ -709,23 +705,23 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                     $cClose = round($targetClose, $decimals);
 
                     $bodySpan = abs($cClose - $cOpen);
-                    $baseWick = max($minStep * 0.6, min($minStep * 1.8, $bodySpan * 0.20 + ($minStep * 0.6)));
-                    $wickUp = $baseWick * (0.25 + $wickNoiseH * 0.45);
-                    $wickDown = $baseWick * (0.25 + $wickNoiseL * 0.45);
+                    $baseWick = max($minStep * 0.25, min($minStep * 0.8, $bodySpan * 0.12 + ($minStep * 0.25)));
+                    $wickUp = $baseWick * (0.2 + $wickNoiseH * 0.3);
+                    $wickDown = $baseWick * (0.2 + $wickNoiseL * 0.3);
 
                     $cHigh = round(max($cOpen, $cClose) + $wickUp, $decimals);
                     $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickDown), $decimals);
                 } else {
                     $noiseVal = market_noise($seed, $sec);
                     $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.08)), $decimals);
-                    $minWick = max($minStep * 1.5, $cOpen * $volatility * 0.015);
-                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
-                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
+                    $minWick = max($minStep * 0.8, $cOpen * $volatility * 0.008);
+                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.2, $decimals);
+                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.2), $decimals);
                 }
             }
 
-            // Guarantee minimum wick span so no candle is a 1-pixel flat line
-            $minSpan = max($minStep * 1.5, $cOpen * ($isCurrency ? 0.000015 : ($volatility * 0.02)));
+            // Guarantee minimum candle span so no candle is a 0-pixel invisible line
+            $minSpan = max($minStep * 0.5, $cOpen * ($isCurrency ? 0.000008 : ($volatility * 0.01)));
             if (($cHigh - $cLow) < $minSpan) {
                 $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.5, $decimals);
                 $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.5), $decimals);
