@@ -1079,6 +1079,25 @@ function market_status(array $asset, ?int $nowMs = null): array
         stripos($displayName, 'Crypto') !== false
     );
 
+    // 1. If manually disabled/inactive in database, mark closed immediately
+    if (!$isActive) {
+        $updatedAt = !empty($asset['updated_at']) ? strtotime((string)$asset['updated_at']) : 0;
+        if ($updatedAt <= 0) {
+            $updatedAt = (int)floor($nowSec / 86400) * 86400;
+        }
+        $closedAtMs = $updatedAt * 1000;
+        $closedPrice = market_price_at($asset, $closedAtMs);
+        return [
+            'isOpen' => false,
+            'isOtc' => false,
+            'reason' => 'disabled',
+            'closedAt' => $closedAtMs,
+            'closedPrice' => $closedPrice,
+            'nextOpenAt' => null,
+            'statusText' => 'Market is Closed'
+        ];
+    }
+
     $isAlwaysOpen = (
         $isOtc ||
         $isCrypto ||
@@ -1099,25 +1118,6 @@ function market_status(array $asset, ?int $nowMs = null): array
             'closedPrice' => null,
             'nextOpenAt' => null,
             'statusText' => 'Market Open 24/7'
-        ];
-    }
-
-    // 1. Check if manually disabled/closed by admin (for non-crypto assets)
-    if (!$isActive) {
-        $updatedAt = !empty($asset['updated_at']) ? strtotime((string)$asset['updated_at']) : 0;
-        if ($updatedAt <= 0) {
-            $updatedAt = (int)floor($nowSec / 86400) * 86400;
-        }
-        $closedAtMs = $updatedAt * 1000;
-        $closedPrice = market_price_at($asset, $closedAtMs);
-        return [
-            'isOpen' => false,
-            'isOtc' => false,
-            'reason' => 'disabled',
-            'closedAt' => $closedAtMs,
-            'closedPrice' => $closedPrice,
-            'nextOpenAt' => null,
-            'statusText' => 'Market is Closed'
         ];
     }
 
