@@ -1381,7 +1381,7 @@
   function instrumentPayload(asset, index) {
     var active = isAssetActive(asset);
     var payout = active ? number(asset.payout, 0) : 0;
-    var timeframes = [5, 10, 15, 30, 60, 120, 180, 300].map(function (time) {
+    var timeframes = [5, 10, 15, 30, 60, 120, 180, 300, 600, 900, 1800, 3600].map(function (time) {
       return {time: time};
     });
     var display = String(asset.name || asset.symbol || 'Market');
@@ -1557,35 +1557,9 @@
     }
     var previousStamp = -Infinity;
     var previousPrice = NaN;
-    var totalCandles = candles.length;
 
-    candles.forEach(function (candle, cIndex) {
+    candles.forEach(function (candle) {
       var denseTicks = Array.isArray(candle.ticks) ? candle.ticks : [];
-
-      var candleStart = number(candle.time, 0) / 1000;
-      if (isFinite(previousStamp) && isFinite(previousPrice) && isFinite(candleStart)) {
-        var targetPrice = (denseTicks.length && Array.isArray(denseTicks[0]) && isFinite(number(denseTicks[0][1], NaN)))
-          ? number(denseTicks[0][1], previousPrice)
-          : number(candle.open, previousPrice);
-        var totalSpan = Math.max(0.001, candleStart - previousStamp);
-        var gapStartStamp = previousStamp;
-
-        var nextStamp = previousStamp + 0.001;
-        while (nextStamp + (safePeriod * 0.5) < candleStart) {
-          var syntheticEnd = Math.min(candleStart, nextStamp + safePeriod);
-          var syntheticOffsets = [0, (syntheticEnd - nextStamp) * 0.33, (syntheticEnd - nextStamp) * 0.67, syntheticEnd - nextStamp];
-          syntheticOffsets.forEach(function (offset) {
-            var syntheticStamp = Number((nextStamp + offset).toFixed(3));
-            if (syntheticStamp > previousStamp) {
-              previousStamp = syntheticStamp;
-              var progress = Math.min(1.0, Math.max(0.0, (previousStamp - gapStartStamp) / totalSpan));
-              var interpPrice = Number((previousPrice + (targetPrice - previousPrice) * progress).toFixed(number(currentAssetObj ? currentAssetObj.decimals : 2, 2)));
-              history.push([previousStamp, interpPrice, ++count]);
-            }
-          });
-          nextStamp += safePeriod;
-        }
-      }
 
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
@@ -1601,14 +1575,13 @@
         return;
       }
 
-      // Backward-compatible fallback for a cached/older API response.
       var start = number(candle.time, Date.now()) / 1000;
       var availableEnd = Math.min(
         number(candle.lastTickTime, number(candle.time, Date.now()) + (safePeriod * 1000) - 1) / 1000,
         maxHistorySec
       );
       var availableDuration = Math.max(0.003, availableEnd - start);
-      var offsets = [0, availableDuration * 0.28, availableDuration * 0.67, availableDuration];
+      var offsets = [0, availableDuration * 0.33, availableDuration * 0.67, availableDuration];
       var rising = number(candle.close, 0) >= number(candle.open, 0);
       var points = rising
         ? [candle.open, candle.low, candle.high, candle.close]
@@ -1668,7 +1641,7 @@
     if (marketRequestRunning) {
       if (!sendHistory) return Promise.resolve(marketSnapshot);
       return new Promise(function (resolve) {
-        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 180);
+        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 100);
       });
     }
     var cached = snapshotCache[activeSymbol + '_' + activePeriod];
@@ -1687,20 +1660,27 @@
       '&history=' + (sendHistory ? '1' : '0');
 
     return jsonRequest(endpoint).then(function (snapshot) {
-      if (snapshot && snapshot.asset && Array.isArray(snapshot.candles) && snapshot.candles.length) {
+      var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
+      if (snapshot && snapshot.asset && apiCandles.length > 0) {
         var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
         snapshotCache[cacheKey] = snapshot;
       }
+      
+      // If background quote poll (sendHistory=false) and candles not included, preserve existing candles
+      if (!sendHistory && marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0 && apiCandles.length === 0) {
+        snapshot.candles = marketSnapshot.candles;
+      }
+      
       marketSnapshot = snapshot;
-      if (symbolAtStart !== activeSymbol) return snapshot;
+      if (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod) return snapshot;
+      
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
       syncServerTime(serverTime);
       var price = number(asset.price, 0);
-      var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
-      snapshot.candles = apiCandles;
-      if (apiCandles.length > 0) {
-        var lastC = number(apiCandles[apiCandles.length - 1].close, 0);
+      snapshot.candles = apiCandles.length > 0 ? apiCandles : (snapshot.candles || []);
+      if (snapshot.candles.length > 0) {
+        var lastC = number(snapshot.candles[snapshot.candles.length - 1].close, 0);
         if (lastC > 0) {
           currentLivePrice = lastC;
           targetLivePrice = lastC;
@@ -1717,6 +1697,8 @@
         }
         broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
+        hideChartLoader();
+        emitSmoothQuote();
       }
       return snapshot;
     }).catch(function (error) {
@@ -2197,6 +2179,10 @@
       }
 
       if (storeChanged) {
+        lastEmittedTickPrices = {};
+        restDriftOffset = 0;
+        lastEmittedQuoteSec = 0;
+        showChartLoader(true);
         var cachedStoreSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedStoreSnap && Array.isArray(cachedStoreSnap.candles) && cachedStoreSnap.candles.length > 0) {
           marketSnapshot = cachedStoreSnap;
@@ -2207,8 +2193,12 @@
           }
           tickPriceOffset = 0;
           tickMomentum = 0;
+          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         } else {
-          showChartLoader(true);
+          marketSnapshot = null;
+          currentLivePrice = 0;
+          targetLivePrice = 0;
         }
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2234,6 +2224,7 @@
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
+        showChartLoader(true);
         var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
         if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
           marketSnapshot = cachedInstSnap;
@@ -2246,10 +2237,12 @@
           }
           tickPriceOffset = 0;
           tickMomentum = 0;
+          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
+          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         } else {
+          marketSnapshot = null;
           currentLivePrice = 0;
           targetLivePrice = 0;
-          showChartLoader(true);
         }
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2292,6 +2285,7 @@
           hideChartLoader();
           emitSmoothQuote();
         } else {
+          marketSnapshot = null;
           currentLivePrice = 0;
           targetLivePrice = 0;
           showChartLoader(true);
