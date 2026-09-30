@@ -945,7 +945,7 @@
     if (lowered === 'forex') return 'currencies';
     if (lowered === 'currency' || lowered === 'currencies') return 'currencies';
     if (lowered === 'crypto' || lowered === 'cryptocurrency') return 'crypto';
-    if (lowered === 'commodity' || lowered === 'commodities') return 'commodities';
+    if (lowered === 'commodity' || lowered === 'commodities' || lowered === 'metal' || lowered === 'metals' || lowered === 'gold') return 'commodities';
     if (lowered === 'stock' || lowered === 'stocks') return 'stocks';
     if (lowered === 'indices' || lowered === 'index') return 'indices';
     return lowered;
@@ -1372,7 +1372,7 @@
   function categoryName(category) {
     var key = String(category || '').toLowerCase();
     if (key.indexOf('crypto') !== -1) return 'cryptocurrency';
-    if (key.indexOf('commod') !== -1) return 'commodity';
+    if (key.indexOf('commod') !== -1 || key.indexOf('metal') !== -1 || key.indexOf('gold') !== -1) return 'commodity';
     if (key.indexOf('stock') !== -1) return 'stock';
     if (key.indexOf('indic') !== -1) return 'indices';
     return 'currency';
@@ -1418,7 +1418,9 @@
   }
 
   function instrumentsList() {
-    var assets = marketSnapshot && Array.isArray(marketSnapshot.assets) ? marketSnapshot.assets : [];
+    var assets = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length)
+      ? marketSnapshot.assets
+      : bootstrapAssets;
     return assets.map(instrumentPayload);
   }
 
