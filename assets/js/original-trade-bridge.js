@@ -679,6 +679,9 @@
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
               lastBinanceTickMs = Date.now();
+              if (chartLoaderActive) {
+                return; // Loading new chart timeframe / asset: do not leak raw ticks before history
+              }
               if (hasOpenTradeForActiveSymbol()) {
                 return; // Active trade in progress under control: ignore external raw ticks
               }
@@ -2185,23 +2188,9 @@
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
         showChartLoader(true);
-        var cachedStoreSnap = snapshotCache[activeSymbol + '_' + activePeriod];
-        if (cachedStoreSnap && Array.isArray(cachedStoreSnap.candles) && cachedStoreSnap.candles.length > 0) {
-          marketSnapshot = cachedStoreSnap;
-          var csAsset = cachedStoreSnap.asset || {};
-          if (number(csAsset.price, 0) > 0) {
-            currentLivePrice = number(csAsset.price, 0);
-            targetLivePrice = currentLivePrice;
-          }
-          tickPriceOffset = 0;
-          tickMomentum = 0;
-          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-        } else {
-          marketSnapshot = null;
-          currentLivePrice = 0;
-          targetLivePrice = 0;
-        }
+        marketSnapshot = null;
+        currentLivePrice = 0;
+        targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
 
@@ -2227,25 +2216,9 @@
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
         showChartLoader(true);
-        var cachedInstSnap = snapshotCache[activeSymbol + '_' + activePeriod];
-        if (cachedInstSnap && Array.isArray(cachedInstSnap.candles) && cachedInstSnap.candles.length > 0) {
-          marketSnapshot = cachedInstSnap;
-          var ciAsset = cachedInstSnap.asset || {};
-          var lastInstC = cachedInstSnap.candles[cachedInstSnap.candles.length - 1];
-          var snapPrice = (lastInstC && number(lastInstC.close, 0) > 0) ? number(lastInstC.close, 0) : number(ciAsset.price, 0);
-          if (snapPrice > 0) {
-            currentLivePrice = snapPrice;
-            targetLivePrice = snapPrice;
-          }
-          tickPriceOffset = 0;
-          tickMomentum = 0;
-          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-        } else {
-          marketSnapshot = null;
-          currentLivePrice = 0;
-          targetLivePrice = 0;
-        }
+        marketSnapshot = null;
+        currentLivePrice = 0;
+        targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
 
@@ -2270,28 +2243,10 @@
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
-        var cachedSnap = snapshotCache[activeSymbol + '_' + activePeriod];
-        if (cachedSnap && Array.isArray(cachedSnap.candles) && cachedSnap.candles.length > 0) {
-          marketSnapshot = cachedSnap;
-          var cAsset = cachedSnap.asset || {};
-          var lastHistC = cachedSnap.candles[cachedSnap.candles.length - 1];
-          var snapPrice = (lastHistC && number(lastHistC.close, 0) > 0) ? number(lastHistC.close, 0) : number(cAsset.price, 0);
-          if (snapPrice > 0) {
-            currentLivePrice = snapPrice;
-            targetLivePrice = snapPrice;
-          }
-          tickPriceOffset = 0;
-          tickMomentum = 0;
-          socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-          broadcastBinary('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
-          hideChartLoader();
-          emitSmoothQuote();
-        } else {
-          marketSnapshot = null;
-          currentLivePrice = 0;
-          targetLivePrice = 0;
-          showChartLoader(true);
-        }
+        showChartLoader(true);
+        marketSnapshot = null;
+        currentLivePrice = 0;
+        targetLivePrice = 0;
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
         refreshMarket(true, socket, chartHistoryCount);

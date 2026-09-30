@@ -768,10 +768,14 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $p1 = $cCloseR >= $cOpenR ? $cLowR : $cHighR;
             $p2 = $cCloseR >= $cOpenR ? $cHighR : $cLowR;
 
+            $dur = max(3, $cEnd - $t);
+            $t1 = $isComplete ? ($t + (int)round($intervalMs * 0.33)) : ($t + (int)round($dur * 0.33));
+            $t2 = $isComplete ? ($t + (int)round($intervalMs * 0.67)) : ($t + (int)round($dur * 0.67));
+
             $ticks = [
                 [$t, $cOpenR],
-                [$t + (int)round($intervalMs * 0.33), $p1],
-                [$t + (int)round($intervalMs * 0.67), $p2],
+                [$t1, $p1],
+                [$t2, $p2],
                 [$cEnd, $cCloseR],
             ];
 
