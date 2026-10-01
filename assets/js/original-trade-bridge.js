@@ -680,17 +680,23 @@
             if (rawPrice > 0) {
               lastBinanceTickMs = Date.now();
               if (chartLoaderActive) {
-                return; // Loading new chart timeframe / asset: do not leak raw ticks before history
-              }
-              if (hasOpenTradeForActiveSymbol()) {
-                return; // Active trade in progress under control: ignore external raw ticks
+                return;
               }
               var currAssetObj = findAsset(activeSymbol);
               if (!isAssetActive(currAssetObj)) {
                 return;
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals || currAssetObj.decimal_places, 2) : 2;
-              currentLivePrice = Number(rawPrice.toFixed(decimals));
+              
+              if (hasOpenTradeForActiveSymbol() && targetLivePrice > 0) {
+                var srcPrice = number(currAssetObj.source_price || currAssetObj.price, 0);
+                var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05)
+                  ? (targetLivePrice - srcPrice)
+                  : (targetLivePrice - rawPrice);
+                currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
+              } else {
+                currentLivePrice = Number(rawPrice.toFixed(decimals));
+              }
 
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
