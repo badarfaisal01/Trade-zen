@@ -56,7 +56,10 @@ function url(string $path = ''): string
 
 function asset_url(string $path): string
 {
-    return url('assets/' . ltrim($path, '/')) . '?v=' . rawurlencode((string)app_config('version'));
+    $cleanPath = ltrim($path, '/');
+    $fullPath = dirname(__DIR__) . '/assets/' . $cleanPath;
+    $ver = file_exists($fullPath) ? (string)filemtime($fullPath) : (string)app_config('version');
+    return url('assets/' . $cleanPath) . '?v=' . rawurlencode($ver);
 }
 
 function redirect(string $path): void

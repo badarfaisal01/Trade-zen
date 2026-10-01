@@ -239,10 +239,13 @@ function render_original_trade_page(array $user): void
 <?php foreach ($meta as $name => $content): ?>    <meta name="<?= e($name) ?>" content="<?= e($content) ?>">
 <?php endforeach; ?>    <title><?= e($platformName) ?> — Trading platform</title>
     <link rel="icon" href="<?= e(site_logo_url()) ?>">
-    <link rel="stylesheet" href="/trade-room/react/uikit.3cf3eedf78f32f7d0d9d.css">
-    <link rel="stylesheet" href="/trade-room/react/app.1e382d4238188d8c0401.css">
-    <link rel="stylesheet" href="/profile/css/custom.css">
 <?php
+$uikitCss = dirname(__DIR__) . '/trade-room/react/uikit.3cf3eedf78f32f7d0d9d.css';
+$uikitCssVer = file_exists($uikitCss) ? (string)filemtime($uikitCss) : '1';
+$appCss = dirname(__DIR__) . '/trade-room/react/app.1e382d4238188d8c0401.css';
+$appCssVer = file_exists($appCss) ? (string)filemtime($appCss) : '1';
+$customCss = dirname(__DIR__) . '/profile/css/custom.css';
+$customCssVer = file_exists($customCss) ? (string)filemtime($customCss) : '1';
 $cssFile = dirname(__DIR__) . '/assets/css/original-trade.css';
 $cssVer = file_exists($cssFile) ? (string)filemtime($cssFile) : (string)time();
 $bridgeFile = dirname(__DIR__) . '/assets/js/original-trade-bridge.js';
@@ -250,6 +253,9 @@ $bridgeVer = file_exists($bridgeFile) ? (string)filemtime($bridgeFile) : (string
 $runtimeFile = dirname(__DIR__) . '/trade-room/react/runtime.fa9ef21ed989beb8b8b7.js';
 $runtimeVer = file_exists($runtimeFile) ? (string)filemtime($runtimeFile) : (string)time();
 ?>
+    <link rel="stylesheet" href="/trade-room/react/uikit.3cf3eedf78f32f7d0d9d.css?v=<?= $uikitCssVer ?>">
+    <link rel="stylesheet" href="/trade-room/react/app.1e382d4238188d8c0401.css?v=<?= $appCssVer ?>">
+    <link rel="stylesheet" href="/profile/css/custom.css?v=<?= $customCssVer ?>">
     <link rel="stylesheet" href="/assets/css/original-trade.css?v=<?= $cssVer ?>&t=<?= time() ?>">
 </head>
 <body class="loading original-trade-page">
