@@ -29,8 +29,8 @@ echo "Testing with User 1 (ID {$user1Id}) and User 2 (ID {$user2Id})...\n\n";
 
 $assetId = (int)$asset['id'];
 $nowMs = (int)floor(microtime(true) * 1000);
-$openTime = date('Y-m-d H:i:s', (int)floor($nowMs / 1000) - 10);
-$expiryTime = date('Y-m-d H:i:s', (int)floor($nowMs / 1000) + 50);
+$openTime = date('Y-m-d H:i:s', (int)floor($nowMs / 1000) - 50);
+$expiryTime = date('Y-m-d H:i:s', (int)floor($nowMs / 1000) + 5);
 
 // Clean previous test control & test trades for these IDs
 db()->exec("DELETE FROM trades WHERE id = 999901");
@@ -49,7 +49,7 @@ if ($rawPriceGuest != $rawPriceUser2) {
 echo "   -> PASSED: Guest and User 2 receive identical unbiased market price.\n\n";
 
 // 2. Open an active controlled trade for User 1
-db()->prepare("INSERT INTO trades (id, user_id, asset_id, account_type, direction, amount, entry_price, payout_percent, status, opened_at, expires_at, created_at, updated_at) VALUES (999901, ?, ?, 'live', 'up', 100, 60000.00, 85, 'open', ?, ?, NOW(), NOW())")
+db()->prepare("INSERT INTO trades (id, user_id, asset_id, account_type, direction, amount, entry_price, payout_percent, status, opened_at, expires_at, created_at, updated_at) VALUES (999901, ?, ?, 'live', 'up', 100, 90000.00, 85, 'open', ?, ?, NOW(), NOW())")
     ->execute([$user1Id, $assetId, $openTime, $expiryTime]);
 
 // Insert admin control forcing WIN for User 1

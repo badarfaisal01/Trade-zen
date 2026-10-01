@@ -317,44 +317,59 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         $targetPrice = ($outcome === 'lost') ? ($entryPrice + $targetMargin) : ($entryPrice - $targetMargin);
     }
 
-    if (!$isDecaying) {
-        // Steering Curve Strategy:
-        // Keep price floating close to entry price with subtle natural oscillations for the first ~75% of the trade duration.
-        // In the final 25% (or last 8 seconds), steer smoothly and decisively just past entry price so the outcome is secured.
-        $elapsedMs = max(0, $timestampMs - $openedAtMs);
-        $remainingMs = max(0, $expiresAtMs - $timestampMs);
-        $rawProgress = min(1.0, max(0.0, $elapsedMs / (float)$durationMs));
+    // Natural real-time price without bias
+    $rawRealPrice = market_price_at($asset, $timestampMs, true, $userId);
+    if ($rawRealPrice <= 0) {
+        $rawRealPrice = $basePrice;
+    }
 
-        // Define steering window: final 8000ms or last 25% of trade, whichever is shorter
-        $steerWindowMs = min((float)$durationMs * 0.35, 8000.0);
-        $sec = $timestampMs / 1000.0;
+    if (!$isDecaying) {
+        // Steering Window: ONLY activate outcome guidance in the final 10-12 seconds (or last 30% for short durations)
+        // For the entire early and mid trade duration, allow 100% natural live market price movements.
+        $remainingMs = max(0, $expiresAtMs - $timestampMs);
+        $steerWindowMs = min(12000.0, max(4000.0, (float)$durationMs * 0.30));
 
         if ($remainingMs > $steerWindowMs) {
-            // Early/Mid trade: natural organic oscillation around entry price (+/- 2 ticks)
-            $earlyWave = sin($sec * 1.8) * ($tightMargin * 0.40);
-            $price = $entryPrice + $earlyWave;
-        } else {
-            // Final phase: smooth progress from current position to targetPrice
-            $steerElapsed = $steerWindowMs - $remainingMs;
-            $steerProgress = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
-            $smoothFactor = $steerProgress * $steerProgress * (3.0 - 2.0 * $steerProgress);
-
-            $earlyWaveAtSteerStart = sin(($expiresAtMs - $steerWindowMs) / 1000.0 * 1.8) * ($tightMargin * 0.40);
-            $startPrice = $entryPrice + $earlyWaveAtSteerStart;
-            $microFluctuation = sin($sec * 2.5) * ($tightMargin * 0.05 * (1.0 - $smoothFactor));
-
-            $price = $startPrice + (($targetPrice - $startPrice) * $smoothFactor) + $microFluctuation;
+            // Early / Mid trade: 100% natural live market price, zero synthetic flatline
+            return null;
         }
+
+        // Final 10-12s countdown: Check if real market is already satisfying the outcome
+        $isNaturalOutcomeMet = false;
+        if ($outcome === 'won') {
+            if ($trade['direction'] === 'up' && $rawRealPrice >= $targetPrice) {
+                $isNaturalOutcomeMet = true;
+            } elseif ($trade['direction'] === 'down' && $rawRealPrice <= $targetPrice) {
+                $isNaturalOutcomeMet = true;
+            }
+        } elseif ($outcome === 'lost') {
+            if ($trade['direction'] === 'up' && $rawRealPrice <= $targetPrice) {
+                $isNaturalOutcomeMet = true;
+            } elseif ($trade['direction'] === 'down' && $rawRealPrice >= $targetPrice) {
+                $isNaturalOutcomeMet = true;
+            }
+        }
+
+        if ($isNaturalOutcomeMet) {
+            return round($rawRealPrice, $decimals);
+        }
+
+        // Smooth cubic Hermite blend from the live market price to targetPrice across the final steer window
+        $steerElapsed = $steerWindowMs - $remainingMs;
+        $steerProgress = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
+        $smoothFactor = $steerProgress * $steerProgress * (3.0 - 2.0 * $steerProgress);
+
+        $microFluctuation = sin(($timestampMs / 1000.0) * 2.5) * ($targetMargin * 0.04 * (1.0 - $smoothFactor));
+        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor) + $microFluctuation;
 
         return round($price, $decimals);
     } else {
-        // Post-expiry decay window (0..4s): interpolate from targetPrice back to real market price
-        $rawRealApiPrice = market_price_at($asset, $timestampMs, true);
+        // Post-expiry decay window (0..3s): smoothly interpolate from targetPrice back to real live market price
         $elapsedPostMs = $timestampMs - $expiresAtMs;
-        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 4000.0));
+        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 3000.0));
         $smoothFactor = $rawPostProgress * $rawPostProgress * (3.0 - 2.0 * $rawPostProgress);
 
-        $price = $targetPrice + (($rawRealApiPrice - $targetPrice) * $smoothFactor);
+        $price = $targetPrice + (($rawRealPrice - $targetPrice) * $smoothFactor);
         return round($price, $decimals);
     }
 }
