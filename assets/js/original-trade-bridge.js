@@ -751,12 +751,12 @@
     var currentSec = (Date.now() + serverTimeOffset) / 1000;
 
     // Safety: prevent quote timestamp from lagging or drifting into future
-    if (lastEmittedQuoteSec > 0 && Math.abs(lastEmittedQuoteSec - currentSec) > 1.5) {
+    if (lastEmittedQuoteSec > 0 && Math.abs(lastEmittedQuoteSec - currentSec) > 2.0) {
       lastEmittedQuoteSec = currentSec;
     }
 
     if (currentSec <= lastEmittedQuoteSec) {
-      currentSec = lastEmittedQuoteSec + 0.001;
+      currentSec = lastEmittedQuoteSec + 0.05;
     }
     lastEmittedQuoteSec = Number(currentSec.toFixed(3));
     var tickPrice = Number(price.toFixed(decimals));
@@ -1569,7 +1569,8 @@
       if (denseTicks.length) {
         denseTicks.forEach(function (tick) {
           if (!Array.isArray(tick) || tick.length < 2) return;
-          var stamp = Math.min(maxHistorySec, number(tick[0], 0) / 1000);
+          var rawStamp = number(tick[0], 0) / 1000;
+          var stamp = isClosed ? Math.min(maxHistorySec, rawStamp) : rawStamp;
           var price = number(tick[1], NaN);
           if (!isFinite(stamp) || !isFinite(price)) return;
           if (stamp <= previousStamp) stamp = previousStamp + 0.001;
@@ -1581,10 +1582,8 @@
       }
 
       var start = number(candle.time, Date.now()) / 1000;
-      var availableEnd = Math.min(
-        number(candle.lastTickTime, number(candle.time, Date.now()) + (safePeriod * 1000) - 1) / 1000,
-        maxHistorySec
-      );
+      var candleEndSec = number(candle.lastTickTime, number(candle.time, Date.now()) + (safePeriod * 1000) - 1) / 1000;
+      var availableEnd = isClosed ? Math.min(candleEndSec, maxHistorySec) : candleEndSec;
       var availableDuration = Math.max(0.003, availableEnd - start);
       var offsets = [0, availableDuration * 0.33, availableDuration * 0.67, availableDuration];
       var rising = number(candle.close, 0) >= number(candle.open, 0);
@@ -1592,7 +1591,8 @@
         ? [candle.open, candle.low, candle.high, candle.close]
         : [candle.open, candle.high, candle.low, candle.close];
       points.forEach(function (price, index) {
-        var stamp = Math.min(maxHistorySec, start + offsets[index]);
+        var rawPointStamp = start + offsets[index];
+        var stamp = isClosed ? Math.min(maxHistorySec, rawPointStamp) : rawPointStamp;
         if (stamp <= previousStamp) stamp = previousStamp + 0.001;
         previousStamp = Number(stamp.toFixed(3));
         previousPrice = number(price, 0);
@@ -1617,9 +1617,7 @@
     }
 
     if (previousStamp > 0 && isFinite(previousStamp)) {
-      var nowSecCheck = (Date.now() + serverTimeOffset) / 1000;
-      var validStamp = Math.min(nowSecCheck, previousStamp);
-      lastEmittedQuoteSec = Math.max(lastEmittedQuoteSec, validStamp);
+      lastEmittedQuoteSec = previousStamp;
     }
 
     return {
