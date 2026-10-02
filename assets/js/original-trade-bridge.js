@@ -1805,22 +1805,25 @@
     });
   }
 
+  var currentMarketRequestId = 0;
+
   function refreshMarket(sendHistory, socket, customCount) {
     if (marketRequestRunning) {
       if (!sendHistory) return Promise.resolve(marketSnapshot);
       return new Promise(function (resolve) {
-        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 100);
+        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 80);
       });
     }
-    var cached = snapshotCache[activeSymbol + '_' + activePeriod];
+    var symbolAtStart = activeSymbol;
+    var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
+    var cached = snapshotCache[symbolAtStart + '_' + periodAtStart];
     var hasLoadedCandles = (cached && Array.isArray(cached.candles) && cached.candles.length > 0) ||
-                           (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol) === activeSymbol && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0);
+                           (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol) === symbolAtStart && number(marketSnapshot.period, 0) === periodAtStart && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0);
     if (sendHistory && !hasLoadedCandles) {
       showChartLoader(true);
     }
     marketRequestRunning = true;
-    var symbolAtStart = activeSymbol;
-    var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
+    var thisRequestId = ++currentMarketRequestId;
     var countToFetch = Math.max(400, Math.min(10000, number(customCount, chartHistoryCount)));
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
@@ -1828,14 +1831,20 @@
       '&history=' + (sendHistory ? '1' : '0');
 
     return jsonRequest(endpoint).then(function (snapshot) {
+      if (thisRequestId !== currentMarketRequestId && (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod)) {
+        return snapshot;
+      }
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
+      if (snapshot) {
+        snapshot.period = periodAtStart;
+      }
       if (snapshot && snapshot.asset && apiCandles.length > 0) {
         var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
         snapshotCache[cacheKey] = snapshot;
       }
       
-      // If background quote poll (sendHistory=false) and candles not included, preserve existing candles
-      if (!sendHistory && marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0 && apiCandles.length === 0) {
+      // If background quote poll (sendHistory=false) and candles not included, preserve existing candles only if period matches
+      if (!sendHistory && marketSnapshot && number(marketSnapshot.period, 0) === periodAtStart && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0 && apiCandles.length === 0) {
         snapshot.candles = marketSnapshot.candles;
       }
       
@@ -2579,9 +2588,10 @@
 
       var currentSnapSymbol = marketSnapshot && marketSnapshot.asset ? plainSymbol(marketSnapshot.asset.symbol) : '';
       var isMatchingSymbol = currentSnapSymbol === activeSymbol;
+      var isMatchingPeriod = marketSnapshot && number(marketSnapshot.period, 0) === activePeriod;
       var hasCandles = marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0;
 
-      if (hasCandles && isMatchingSymbol) {
+      if (hasCandles && isMatchingSymbol && isMatchingPeriod) {
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
@@ -2589,8 +2599,8 @@
       }
 
       var hasFullCandles = hasCandles && marketSnapshot.candles.length >= 200;
-      if (!marketSnapshot || !isMatchingSymbol || !hasFullCandles) {
-        refreshMarket(!hasCandles || !isMatchingSymbol, socket, chartHistoryCount);
+      if (!marketSnapshot || !isMatchingSymbol || !isMatchingPeriod || !hasFullCandles) {
+        refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket, chartHistoryCount);
       }
       return;
     }
