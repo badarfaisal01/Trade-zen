@@ -424,6 +424,7 @@
   var marketSnapshot = null;
   var tradeState = null;
   var activeSymbol = 'EURUSD';
+  var activeSocketSymbol = 'EURUSD_otc';
   var initialPeriod = 60;
   try {
     var storedP = parseInt(sessionStorage.getItem('55ak_last_timeframe') || localStorage.getItem('55ak_last_timeframe'), 10);
