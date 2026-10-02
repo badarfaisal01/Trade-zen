@@ -526,8 +526,8 @@
   }
 
 
-  function getActiveOrRecentTradeOffset(rawPrice, srcPrice) {
-    if (!tradeState || !Array.isArray(tradeState.trades)) return 0;
+  function getActiveOrRecentTradeLivePrice(rawPrice, decimals) {
+    if (!tradeState || !Array.isArray(tradeState.trades)) return rawPrice;
     var target = plainSymbol(activeSymbol);
     var now = Date.now();
     var soonestActiveTrade = null;
@@ -551,10 +551,11 @@
       }
     }
 
-    var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
-
     if (soonestActiveTrade && targetLivePrice > 0) {
-      return targetLivePrice - base;
+      var minStep = Math.pow(10, -decimals);
+      var rawFraction = (rawPrice % (minStep * 2)) - minStep;
+      var microJitter = Math.max(-minStep * 0.35, Math.min(minStep * 0.35, rawFraction * 0.2));
+      return Number((targetLivePrice + microJitter).toFixed(decimals));
     }
 
     if (recentSettledTrade && targetLivePrice > 0) {
@@ -562,11 +563,14 @@
       var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
       var norm = 1.0 - (elapsedPost / 4000.0);
       var smoothDecay = norm * norm * (3.0 - 2.0 * norm);
-      var fullOffset = targetLivePrice - base;
-      return fullOffset * smoothDecay;
+      var minStep = Math.pow(10, -decimals);
+      var rawFraction = (rawPrice % (minStep * 2)) - minStep;
+      var microJitter = Math.max(-minStep * 0.35, Math.min(minStep * 0.35, rawFraction * 0.2)) * smoothDecay;
+      var controlledPrice = targetLivePrice + microJitter;
+      return Number((rawPrice + ((controlledPrice - rawPrice) * smoothDecay)).toFixed(decimals));
     }
 
-    return 0;
+    return rawPrice;
   }
 
   function isAssetActive(asset) {
@@ -718,10 +722,7 @@
                 return;
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals || currAssetObj.decimal_places, 2) : 2;
-              
-              var srcPrice = number(currAssetObj.source_price || currAssetObj.price, 0);
-              var tradeOffset = getActiveOrRecentTradeOffset(rawPrice, srcPrice);
-              currentLivePrice = Number((rawPrice + tradeOffset).toFixed(decimals));
+              currentLivePrice = getActiveOrRecentTradeLivePrice(rawPrice, decimals);
 
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
@@ -824,8 +825,28 @@
       // Market is closed: freeze quote completely at close price
       return;
     }
-    // If real WebSocket ticks are actively streaming from Binance (for crypto/commodities/stocks), avoid synthetic quotes
-    if (binanceWs && binanceWs.readyState === 1 && (Date.now() - lastBinanceTickMs) < 3000) {
+
+    var hasActiveOrRecentTrade = false;
+    if (tradeState && Array.isArray(tradeState.trades)) {
+      var target = plainSymbol(activeSymbol);
+      var now = Date.now();
+      for (var i = 0; i < tradeState.trades.length; i++) {
+        var tr = tradeState.trades[i];
+        if (!tr || plainSymbol(tr.symbol) !== target) continue;
+        if (tr.status === 'open') {
+          hasActiveOrRecentTrade = true;
+          break;
+        }
+        var sMs = tr.settledAt ? number(tr.settledAt, 0) : (tr.expiresAt ? number(tr.expiresAt, 0) : 0);
+        if (sMs > 0 && (now - sMs) < 4000) {
+          hasActiveOrRecentTrade = true;
+          break;
+        }
+      }
+    }
+
+    // If real WebSocket ticks are actively streaming from Binance (for crypto/commodities/stocks) and no active trade is being steered, avoid synthetic quotes
+    if (!hasActiveOrRecentTrade && binanceWs && binanceWs.readyState === 1 && (Date.now() - lastBinanceTickMs) < 3000) {
       restDriftOffset = 0;
       return;
     }
@@ -834,12 +855,11 @@
     var minStep = Math.pow(10, -dec);
     var nowMs = Date.now();
 
-    // Smoothly step currentLivePrice towards targetLivePrice (from Free Forex API)
-    // Clamping to a maximum of 0.6 pips per tick prevents any sudden straight candle jumps
+    // Smoothly step currentLivePrice towards targetLivePrice (from controlled API or Free Forex API)
     if (targetLivePrice > 0 && Math.abs(currentLivePrice - targetLivePrice) > (minStep * 0.05)) {
       var priceDiff = targetLivePrice - currentLivePrice;
-      var maxStep = minStep * 0.6;
-      var stepAmount = Math.sign(priceDiff) * Math.min(Math.abs(priceDiff) * 0.08, maxStep);
+      var maxStep = minStep * 1.5;
+      var stepAmount = Math.sign(priceDiff) * Math.min(Math.abs(priceDiff) * 0.25, maxStep);
       currentLivePrice = currentLivePrice + stepAmount;
     }
 
@@ -2049,6 +2069,7 @@
       broadcastBinary('orders/opened/list', openDeals());
       showNotice(trade.duplicate ? 'This trade was already recorded.' : 'Trade opened successfully.', trade.duplicate ? 'info' : 'success');
       window.setTimeout(function () { refreshState(true); }, 250);
+      refreshMarket(false, null);
       return trade;
     }).catch(function (error) {
       lastTradeError = String(error && error.message || 'Trade request failed.');
