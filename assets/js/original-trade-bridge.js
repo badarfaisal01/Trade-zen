@@ -551,23 +551,56 @@
       }
     }
 
-    if (soonestActiveTrade && targetLivePrice > 0) {
-      var minStep = Math.pow(10, -decimals);
-      var rawFraction = (rawPrice % (minStep * 2)) - minStep;
-      var microJitter = Math.max(-minStep * 0.35, Math.min(minStep * 0.35, rawFraction * 0.2));
-      return Number((targetLivePrice + microJitter).toFixed(decimals));
+    if (!soonestActiveTrade && !recentSettledTrade) {
+      return rawPrice;
     }
 
-    if (recentSettledTrade && targetLivePrice > 0) {
+    var minStep = Math.pow(10, -decimals);
+
+    if (soonestActiveTrade) {
+      var opMs = number(soonestActiveTrade.openedAt, now - 60000);
+      var exMs = number(soonestActiveTrade.expiresAt, now + 60000);
+      var durMs = Math.max(1000, exMs - opMs);
+      var steerWinMs = Math.min(15000, Math.max(5000, durMs * 0.30));
+      var remMs = Math.max(0, exMs - now);
+      var entryPrice = number(soonestActiveTrade.entryPrice || soonestActiveTrade.entry_price, rawPrice);
+      var tightMargin = Math.max(minStep * 2.0, entryPrice * 0.00015);
+
+      // Pass-through live Binance market delta relative to entry
+      var rawDelta = rawPrice - entryPrice;
+
+      if (remMs > steerWinMs) {
+        // Early/Mid trade: lively natural movement responding to live Binance ticks + organic tension oscillation around entry
+        var sec = now / 1000.0;
+        var osc = Math.sin(sec * 2.2) * (tightMargin * 0.35);
+        var livePrice = entryPrice + (rawDelta * 0.4) + osc;
+        return Number(livePrice.toFixed(decimals));
+      }
+
+      // Final countdown steering window (10-15s):
+      // Smoothly transition towards targetLivePrice (or calculated targetPrice) while maintaining live micro-ticks
+      var steerElapsed = steerWinMs - remMs;
+      var steerNorm = Math.min(1.0, Math.max(0.0, steerElapsed / steerWinMs));
+      var smoothFactor = steerNorm * steerNorm * (3.0 - 2.0 * steerNorm); // 0.0 -> 1.0
+
+      var effectiveTarget = (targetLivePrice > 0) ? targetLivePrice : entryPrice;
+      var sec = now / 1000.0;
+      var microWave = Math.sin(sec * 3.5) * (tightMargin * 0.08 * (1.0 - smoothFactor));
+      var liveMicro = (rawDelta * (1.0 - smoothFactor) * 0.2);
+      
+      var midPrice = entryPrice + (rawDelta * 0.4 * (1.0 - smoothFactor));
+      var livePrice = midPrice + ((effectiveTarget - midPrice) * smoothFactor) + microWave + liveMicro;
+      return Number(livePrice.toFixed(decimals));
+    }
+
+    if (recentSettledTrade) {
       var settledTime = recentSettledTrade.settledAt ? number(recentSettledTrade.settledAt, 0) : number(recentSettledTrade.expiresAt, 0);
       var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
-      var norm = 1.0 - (elapsedPost / 4000.0);
-      var smoothDecay = norm * norm * (3.0 - 2.0 * norm);
-      var minStep = Math.pow(10, -decimals);
-      var rawFraction = (rawPrice % (minStep * 2)) - minStep;
-      var microJitter = Math.max(-minStep * 0.35, Math.min(minStep * 0.35, rawFraction * 0.2)) * smoothDecay;
-      var controlledPrice = targetLivePrice + microJitter;
-      return Number((rawPrice + ((controlledPrice - rawPrice) * smoothDecay)).toFixed(decimals));
+      var norm = elapsedPost / 4000.0;
+      var smoothDecay = norm * norm * (3.0 - 2.0 * norm); // 0.0 -> 1.0
+      var effectiveTarget = (targetLivePrice > 0) ? targetLivePrice : rawPrice;
+      var livePrice = effectiveTarget + ((rawPrice - effectiveTarget) * smoothDecay);
+      return Number(livePrice.toFixed(decimals));
     }
 
     return rawPrice;
