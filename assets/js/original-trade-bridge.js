@@ -505,6 +505,7 @@
   }
   var firstState = true;
   var previousOpenIds = {};
+  var settledNotifiedIds = {};
   var lastStateSignature = '';
   var lastHistoryBroadcastAt = 0;
 
@@ -1838,8 +1839,35 @@
 
       if (!firstState) {
         trades.forEach(function (trade) {
-          if (trade.status !== 'open' && previousOpenIds[String(trade.id)]) {
-            broadcastBinary('s_orders/close', {deals: [mapTrade(trade)]});
+          var tradeId = String(trade.id);
+          if (trade.status !== 'open' && (previousOpenIds[tradeId] || !settledNotifiedIds[tradeId])) {
+            settledNotifiedIds[tradeId] = true;
+            delete previousOpenIds[tradeId];
+
+            var deal = mapTrade(trade);
+            broadcastBinary('s_orders/close', {deals: [deal]});
+
+            var sym = trade.name || trade.symbol || (deal.asset ? deal.asset.replace('#', '') : 'Trade');
+            var isWin = trade.status === 'won';
+            var isDraw = trade.status === 'draw';
+            var profitLoss = number(trade.profitLoss !== undefined ? trade.profitLoss : trade.profit, 0);
+            var amount = number(trade.amount, 0);
+            var curr = currencySymbol(user.currency);
+
+            if (isWin) {
+              var winAmount = profitLoss > 0 ? profitLoss : (amount * number(trade.payout || 85, 85) / 100);
+              showNotice('Trade Won! +' + curr + winAmount.toFixed(2) + ' profit on ' + sym, 'success', 5000);
+            } else if (isDraw) {
+              showNotice('Trade Draw. Stake refunded (' + curr + amount.toFixed(2) + ') on ' + sym, 'info', 4000);
+            } else {
+              showNotice('Trade Lost. -' + curr + amount.toFixed(2) + ' on ' + sym, 'error', 4500);
+            }
+          }
+        });
+      } else {
+        trades.forEach(function (trade) {
+          if (trade.status !== 'open') {
+            settledNotifiedIds[String(trade.id)] = true;
           }
         });
       }
@@ -2100,6 +2128,7 @@
       tradeState.accountType = user.accountType;
       tradeState.trades = (tradeState.trades || []).filter(function (item) { return item.id !== trade.id; });
       tradeState.trades.unshift(trade);
+      previousOpenIds[String(trade.id)] = true;
       var deal = mapTrade(trade, request.requestId);
       if (trade.status === 'open' && !announcedClientRequests[clientRequestId]) {
         announcedClientRequests[clientRequestId] = Date.now();
@@ -2112,6 +2141,14 @@
       showNotice(trade.duplicate ? 'This trade was already recorded.' : 'Trade opened successfully.', trade.duplicate ? 'info' : 'success');
       window.setTimeout(function () { refreshState(true); }, 250);
       refreshMarket(false, null);
+
+      var exMs = number(trade.expiresAt, Date.now() + 60000);
+      var delayMs = Math.max(100, (exMs - Date.now()) + 250);
+      window.setTimeout(function () {
+        refreshState(true);
+        refreshMarket(false, null);
+      }, delayMs);
+
       return trade;
     }).catch(function (error) {
       lastTradeError = String(error && error.message || 'Trade request failed.');
