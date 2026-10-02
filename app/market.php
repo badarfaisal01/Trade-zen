@@ -1368,9 +1368,11 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     } else {
         $targetEndMs = $status['closedAt'];
     }
+    $naturalPrice = $status['isOpen'] ? market_price_at($asset, $nowMs, true, $effectiveUserId) : (float)$status['closedPrice'];
     $targetPrice = $status['isOpen'] ? market_price_at($asset, $nowMs, false, $effectiveUserId) : (float)$status['closedPrice'];
     $assetWithTarget = array_merge($asset, [
         'closed_price' => $status['closedPrice'],
+        'natural_price' => $naturalPrice,
         'target_price' => $targetPrice,
         'price' => $targetPrice,
     ]);
@@ -1405,6 +1407,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
     }
 
     $assetPayload = market_asset_payload($asset, $nowMs);
+    $assetPayload['natural_price'] = $naturalPrice;
     if (!$status['isOpen']) {
         $officialClosedP = (float)$status['closedPrice'];
         $assetPayload['price'] = $officialClosedP;

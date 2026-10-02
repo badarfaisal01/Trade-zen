@@ -442,6 +442,7 @@
   var lastEmittedTimeSeconds = 0;
   var lastEmittedQuoteSec = 0;
   var currentLivePrice = 0;
+  var naturalLivePrice = 0;
   var tickPriceOffset = 0;
   var tickMomentum = 0;
   var tickNumber = 1;
@@ -778,6 +779,7 @@
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
+              naturalLivePrice = rawPrice;
               lastBinanceTickMs = Date.now();
               if (chartLoaderActive) {
                 return;
@@ -939,7 +941,7 @@
       currentLivePrice = currentLivePrice + stepAmount;
     }
 
-    var baseRaw = (targetLivePrice > 0 && !hasActiveOrRecentTrade) ? targetLivePrice : currentLivePrice;
+    var baseRaw = naturalLivePrice > 0 ? naturalLivePrice : currentLivePrice;
     var rawPrice = Number((baseRaw + restDriftOffset).toFixed(dec));
 
     // ALWAYS apply active/recent trade calculation to the emitted price
@@ -1041,6 +1043,7 @@
     activeSocketSymbol = socketSymbol(activeSymbol);
     if (number(initialOpenAsset.price, 0) > 0) {
       currentLivePrice = number(initialOpenAsset.price, 0);
+      naturalLivePrice = currentLivePrice;
     }
   } else if (defaultSymbolMeta) {
     activeSymbol = plainSymbol(defaultSymbolMeta);
@@ -1060,9 +1063,15 @@
     if (number(embAsset.price, 0) > 0) {
       currentLivePrice = number(embAsset.price, 0);
     }
+    if (number(embAsset.natural_price, 0) > 0) {
+      naturalLivePrice = number(embAsset.natural_price, 0);
+    }
   }
   if (!currentLivePrice || currentLivePrice <= 0) {
     currentLivePrice = 1.16130;
+  }
+  if (!naturalLivePrice || naturalLivePrice <= 0) {
+    naturalLivePrice = currentLivePrice;
   }
 
   function normalizeModalCategory(category) {
@@ -1848,6 +1857,12 @@
         currentLivePrice = price;
         targetLivePrice = price;
       }
+      var naturalPrice = number(asset.natural_price, 0);
+      if (naturalPrice > 0) {
+        naturalLivePrice = naturalPrice;
+      } else if (!naturalLivePrice && price > 0) {
+        naturalLivePrice = price;
+      }
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
@@ -2480,6 +2495,7 @@
         showChartLoader(true);
         marketSnapshot = null;
         currentLivePrice = 0;
+        naturalLivePrice = 0;
         targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2508,6 +2524,7 @@
         showChartLoader(true);
         marketSnapshot = null;
         currentLivePrice = 0;
+        naturalLivePrice = 0;
         targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
       }
@@ -2536,6 +2553,7 @@
         showChartLoader(true);
         marketSnapshot = null;
         currentLivePrice = 0;
+        naturalLivePrice = 0;
         targetLivePrice = 0;
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
