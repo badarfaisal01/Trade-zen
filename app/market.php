@@ -397,12 +397,12 @@ function get_active_trade_price_bias(array $asset, int $timestampMs, ?int $userI
     return max(-$maxBias, min($maxBias, $bias));
 }
 
-function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false, ?int $userId = null): float
+function market_price_at(array $asset, int $timestampMs, bool $withoutBias = false, ?int $userId = null, bool $fresh = false): float
 {
     $decimals = max(0, min(8, (int)($asset['decimal_places'] ?? 2)));
 
     if (!$withoutBias) {
-        $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs, $userId);
+        $controlledPrice = get_active_trade_controlled_price($asset, $timestampMs, $userId, $fresh);
         if ($controlledPrice !== null) {
             return round($controlledPrice, $decimals);
         }

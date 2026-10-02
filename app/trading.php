@@ -139,6 +139,7 @@ function settle_open_trades(int $userId): int
             }
 
             $asset = [
+                'id' => (int)$trade['asset_id'],
                 'symbol' => $trade['symbol'], 'display_name' => $trade['display_name'], 'base_price' => $trade['base_price'],
                 'decimal_places' => $trade['decimal_places'], 'volatility' => $trade['volatility'], 'market_seed' => $trade['market_seed'],
                 'price_source' => $trade['price_source'], 'api_symbol' => $trade['api_symbol'], 'source_price' => $trade['source_price'],
@@ -147,7 +148,7 @@ function settle_open_trades(int $userId): int
             // second-level precision). The settlement always anchors to this fixed
             // timestamp so the result is idempotent and cannot change on a retry.
             $expiryMs = (int)strtotime((string)$trade['expires_at']) * 1000;
-            $closePrice = market_price_at($asset, $expiryMs, false, (int)$trade['user_id']);
+            $closePrice = market_price_at($asset, $expiryMs, false, (int)$trade['user_id'], true);
             $entryPrice = (float)$trade['entry_price'];
             $tick = pow(10, -(int)$trade['decimal_places']);
             $difference = $closePrice - $entryPrice;
@@ -375,9 +376,11 @@ function place_trade(int $userId, string $symbol, string $direction, float $amou
         $ledger = $pdo->prepare('INSERT INTO wallet_transactions (user_id, account_type, transaction_type, amount, balance_before, balance_after, reference_type, reference_id, description, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NOW())');
         $ledger->execute([$userId, $accountType, 'trade_stake', -$amount, $before, $after, 'trade', $tradeId, $asset['display_name'] . ' ' . strtoupper($direction) . ' trade']);
 
+        $targetClosePrice = market_price_at($asset, $expiresAtTimestamp * 1000, false, $userId);
+
         return [
             'id' => $publicId, 'symbol' => $asset['symbol'], 'name' => $asset['display_name'], 'direction' => $direction,
-            'amount' => $amount, 'payout' => $effectivePayout, 'entryPrice' => $entryPrice,
+            'amount' => $amount, 'payout' => $effectivePayout, 'entryPrice' => $entryPrice, 'targetClosePrice' => $targetClosePrice,
             'openedAt' => $now * 1000, 'expiresAt' => $expiresAtTimestamp * 1000, 'duration' => $durationSeconds, 'status' => 'open',
             'balance' => $after, 'balanceBefore' => $before, 'balanceAfter' => $after, 'stakeDebited' => $amount,
             'accountType' => $accountType, 'isDemo' => $accountType === 'demo',
@@ -487,10 +490,10 @@ function user_trade_state(int $userId, int $recentLimit = 15): array
     settle_open_trades($userId);
     $accountType = trade_account_type();
 
-    $stmt = db()->prepare("SELECT t.public_id,t.account_type,a.symbol,a.display_name,a.decimal_places,t.direction,t.amount,t.payout_percent,t.entry_price,t.close_price,t.opened_at,t.expires_at,t.settled_at,t.status,t.profit_loss FROM trades t JOIN market_assets a ON a.id = t.asset_id WHERE t.user_id = ? AND t.account_type = ? ORDER BY t.id DESC LIMIT " . max(1, min(50, $recentLimit)));
+    $stmt = db()->prepare("SELECT t.public_id,t.user_id,t.asset_id,t.account_type,a.symbol,a.display_name,a.decimal_places,t.direction,t.amount,t.payout_percent,t.entry_price,t.close_price,t.opened_at,t.expires_at,t.settled_at,t.status,t.profit_loss FROM trades t JOIN market_assets a ON a.id = t.asset_id WHERE t.user_id = ? AND t.account_type = ? ORDER BY t.id DESC LIMIT " . max(1, min(50, $recentLimit)));
     $stmt->execute([$userId, $accountType]);
     $trades = [];
-    foreach ($stmt->fetchAll() as $row) {
+    foreach ($stmt->fetchAll(PDO::FETCH_ASSOC) as $row) {
         $trades[] = trade_payload($row);
     }
 
@@ -498,7 +501,7 @@ function user_trade_state(int $userId, int $recentLimit = 15): array
     if (!$user && $userId > 0) {
         $userStmt = db()->prepare('SELECT * FROM users WHERE id = ? LIMIT 1');
         $userStmt->execute([$userId]);
-        $user = $userStmt->fetch() ?: [];
+        $user = $userStmt->fetch(PDO::FETCH_ASSOC) ?: [];
     }
     $liveBalance = (float)($user['demo_balance'] ?? 0);
     $demoBalance = (float)($user['demo_trade_balance'] ?? 0);
@@ -519,10 +522,23 @@ function trade_payload(array $row): array
     $accountType = ($row['account_type'] ?? 'live') === 'demo' ? 'demo' : 'live';
     $openedAt = strtotime((string)$row['opened_at']) * 1000;
     $expiresAt = strtotime((string)$row['expires_at']) * 1000;
+    $targetClosePrice = null;
+    $userId = (int)($row['user_id'] ?? ($_SESSION['user_id'] ?? 0));
+    if ($row['status'] === 'open' && $userId > 0) {
+        $asset = [
+            'id' => (int)($row['asset_id'] ?? 0),
+            'symbol' => (string)($row['symbol'] ?? ''),
+            'display_name' => (string)($row['display_name'] ?? ''),
+            'decimal_places' => (int)($row['decimal_places'] ?? 2),
+            'base_price' => (float)($row['entry_price'] ?? 0),
+        ];
+        $targetClosePrice = market_price_at($asset, $expiresAt, false, $userId);
+    }
     return [
         'id' => $row['public_id'], 'symbol' => $row['symbol'], 'name' => $row['display_name'], 'decimals' => (int)$row['decimal_places'],
         'direction' => $row['direction'], 'amount' => (float)$row['amount'], 'payout' => (float)$row['payout_percent'],
         'entryPrice' => (float)$row['entry_price'], 'closePrice' => $row['close_price'] === null ? null : (float)$row['close_price'],
+        'targetClosePrice' => $targetClosePrice,
         'openedAt' => $openedAt, 'expiresAt' => $expiresAt,
         'duration' => max(1, (int)round(($expiresAt - $openedAt) / 1000)),
         'settledAt' => $row['settled_at'] ? strtotime((string)$row['settled_at']) * 1000 : null,

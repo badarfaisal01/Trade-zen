@@ -578,18 +578,27 @@
       }
 
       // Final countdown steering window (10-15s):
-      // Smoothly transition towards targetLivePrice (or calculated targetPrice) while maintaining live micro-ticks
+      // Smoothly steer from mid-trade price directly into exact targetClose price
       var steerElapsed = steerWinMs - remMs;
       var steerNorm = Math.min(1.0, Math.max(0.0, steerElapsed / steerWinMs));
       var smoothFactor = steerNorm * steerNorm * (3.0 - 2.0 * steerNorm); // 0.0 -> 1.0
 
-      var effectiveTarget = (targetLivePrice > 0) ? targetLivePrice : entryPrice;
+      var targetClose = number(soonestActiveTrade.targetClosePrice, 0);
+      if (targetClose <= 0) {
+        if (targetLivePrice > 0) {
+          targetClose = targetLivePrice;
+        } else {
+          var isUp = soonestActiveTrade.direction === 'up';
+          targetClose = isUp ? (entryPrice - tightMargin) : (entryPrice + tightMargin);
+        }
+      }
+
       var sec = now / 1000.0;
       var microWave = Math.sin(sec * 3.5) * (tightMargin * 0.08 * (1.0 - smoothFactor));
       var liveMicro = (rawDelta * (1.0 - smoothFactor) * 0.2);
       
       var midPrice = entryPrice + (rawDelta * 0.4 * (1.0 - smoothFactor));
-      var livePrice = midPrice + ((effectiveTarget - midPrice) * smoothFactor) + microWave + liveMicro;
+      var livePrice = midPrice + ((targetClose - midPrice) * smoothFactor) + microWave + liveMicro;
       return Number(livePrice.toFixed(decimals));
     }
 
@@ -598,8 +607,8 @@
       var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
       var norm = elapsedPost / 4000.0;
       var smoothDecay = norm * norm * (3.0 - 2.0 * norm); // 0.0 -> 1.0
-      var effectiveTarget = (targetLivePrice > 0) ? targetLivePrice : rawPrice;
-      var livePrice = effectiveTarget + ((rawPrice - effectiveTarget) * smoothDecay);
+      var settledClose = number(recentSettledTrade.closePrice || recentSettledTrade.targetClosePrice || targetLivePrice, rawPrice);
+      var livePrice = settledClose + ((rawPrice - settledClose) * smoothDecay);
       return Number(livePrice.toFixed(decimals));
     }
 
