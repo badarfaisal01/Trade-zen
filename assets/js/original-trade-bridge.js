@@ -424,8 +424,12 @@
   var marketSnapshot = null;
   var tradeState = null;
   var activeSymbol = 'EURUSD';
-  var activeSocketSymbol = 'EURUSD_otc';
-  var activePeriod = 60;
+  var initialPeriod = 60;
+  try {
+    var storedP = parseInt(sessionStorage.getItem('55ak_last_timeframe') || localStorage.getItem('55ak_last_timeframe'), 10);
+    if (!isNaN(storedP) && storedP >= 5 && storedP <= 86400) initialPeriod = storedP;
+  } catch (e) {}
+  var activePeriod = initialPeriod;
   var allowedTradeDurations = parseDurationList(meta('trade-allowed-durations', '5,10,15,30,60,120,300'));
   var selectedTradeDuration = nearestDuration(number(meta('trade-default-duration', '60'), 60));
   var chartHistoryCount = Math.max(400, Math.min(3000, Math.floor(number(meta('trade-chart-history-count', '800'), 800))));
@@ -1607,10 +1611,36 @@
     return 10;
   }
 
+  function getZoomForPeriod(periodEnum) {
+    var defaultZoomMap = {
+      0: 0,
+      1: 10,
+      2: 19,
+      3: 38,
+      4: 80,
+      13: 158,
+      14: 237,
+      6: 400,
+      7: 500,
+      8: 600,
+      9: 700,
+      10: 800
+    };
+    var z = defaultZoomMap[periodEnum] !== undefined ? defaultZoomMap[periodEnum] : 80;
+    return {
+      0: z,
+      1: z,
+      2: z,
+      3: z,
+      4: z
+    };
+  }
+
   function graphSettings() {
     var asset = marketSnapshot && marketSnapshot.asset ? marketSnapshot.asset : {symbol: activeSymbol, price: 0};
     var startingAmount = Math.max(user.minAmount, Math.min(user.maxAmount, 10));
     var periodEnum = secToChartPeriodEnum(activePeriod);
+    var zoomObj = getZoomForPeriod(periodEnum);
     return [{
       chart_id: 'graph',
       settings: JSON.stringify({
@@ -1631,7 +1661,8 @@
         dealValue: startingAmount,
         dealPercentValue: 1,
         dealPercentValueStr: '1%',
-        gridOpacity: 8
+        gridOpacity: 8,
+        zoom: zoomObj
       })
     }];
   }
@@ -2525,6 +2556,7 @@
       activeSocketSymbol = socketSymbol(activeSymbol);
       if (hasChartPeriod) {
         activePeriod = reqPerStore;
+        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
       }
 
       if (storeChanged) {
@@ -2555,6 +2587,7 @@
       activeSocketSymbol = socketSymbol(activeSymbol);
       if (hasInstPeriod) {
         activePeriod = reqPer;
+        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
       }
 
       if (instChanged) {
@@ -2587,6 +2620,7 @@
         activeSocketSymbol = socketSymbol(activeSymbol);
         if (hasHistPeriod) {
           activePeriod = reqPeriod;
+          try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
         }
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
