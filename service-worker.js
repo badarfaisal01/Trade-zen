@@ -1,4 +1,4 @@
-const CACHE = '55ak-trade-original-ui-v4-6-8';
+const CACHE = '55ak-trade-original-ui-v4-6-9';
 const CORE = [
   '/assets/css/original-trade.css',
   '/assets/css/account.css',
