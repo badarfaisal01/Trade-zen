@@ -1896,10 +1896,6 @@
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
-        if (socket && typeof socket.binaryEvent === 'function') {
-          socket.binaryEvent('settings/list', graphSettings());
-          socket.binaryEvent('history/list/v2', hPayload);
-        }
         broadcastBinary('settings/list', graphSettings());
         broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
@@ -2615,6 +2611,7 @@
       var hasCandles = marketSnapshot && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0;
 
       if (hasCandles && isMatchingSymbol && isMatchingPeriod) {
+        socket.binaryEvent('settings/list', graphSettings());
         socket.binaryEvent('history/list/v2', historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
