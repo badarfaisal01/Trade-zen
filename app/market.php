@@ -323,44 +323,31 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         $rawRealPrice = $basePrice;
     }
 
+    $sec = $timestampMs / 1000.0;
+
     if (!$isDecaying) {
-        // Steering Window: ONLY activate outcome guidance in the final 10-12 seconds (or last 30% for short durations)
-        // For the entire early and mid trade duration, allow 100% natural live market price movements.
+        $elapsedMs = max(0, $timestampMs - $openedAtMs);
         $remainingMs = max(0, $expiresAtMs - $timestampMs);
-        $steerWindowMs = min(12000.0, max(4000.0, (float)$durationMs * 0.30));
+        $steerWindowMs = min(15000.0, max(5000.0, (float)$durationMs * 0.30));
 
         if ($remainingMs > $steerWindowMs) {
-            // Early / Mid trade: 100% natural live market price, zero synthetic flatline
-            return null;
+            // Early / Mid trade: natural price action + organic market tension oscillations around trade
+            $rawProgress = min(1.0, max(0.0, $elapsedMs / (float)$durationMs));
+            $earlyProgress = min(1.0, $elapsedMs / max(1.0, (float)$durationMs - $steerWindowMs));
+            $oscillation = sin($sec * 2.2) * ($targetMargin * 0.25 * (1.0 - $earlyProgress * 0.3));
+            $steerWeight = pow($rawProgress, 1.8) * 0.25;
+            $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $steerWeight) + $oscillation;
+
+            return round($price, $decimals);
         }
 
-        // Final 10-12s countdown: Check if real market is already satisfying the outcome
-        $isNaturalOutcomeMet = false;
-        if ($outcome === 'won') {
-            if ($trade['direction'] === 'up' && $rawRealPrice >= $targetPrice) {
-                $isNaturalOutcomeMet = true;
-            } elseif ($trade['direction'] === 'down' && $rawRealPrice <= $targetPrice) {
-                $isNaturalOutcomeMet = true;
-            }
-        } elseif ($outcome === 'lost') {
-            if ($trade['direction'] === 'up' && $rawRealPrice <= $targetPrice) {
-                $isNaturalOutcomeMet = true;
-            } elseif ($trade['direction'] === 'down' && $rawRealPrice >= $targetPrice) {
-                $isNaturalOutcomeMet = true;
-            }
-        }
-
-        if ($isNaturalOutcomeMet) {
-            return round($rawRealPrice, $decimals);
-        }
-
-        // Smooth cubic Hermite blend from the live market price to targetPrice across the final steer window
+        // Final 10-15s countdown: decisive smooth transition to target outcome price
         $steerElapsed = $steerWindowMs - $remainingMs;
-        $steerProgress = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
-        $smoothFactor = $steerProgress * $steerProgress * (3.0 - 2.0 * $steerProgress);
-
-        $microFluctuation = sin(($timestampMs / 1000.0) * 2.5) * ($targetMargin * 0.04 * (1.0 - $smoothFactor));
-        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor) + $microFluctuation;
+        $steerNorm = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
+        // Smooth Hermite progression (0.25 -> 1.0)
+        $smoothFactor = 0.25 + (0.75 * ($steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm)));
+        $micro = sin($sec * 2.8) * ($targetMargin * 0.08 * (1.0 - $steerNorm));
+        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor) + $micro;
 
         return round($price, $decimals);
     } else {

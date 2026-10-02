@@ -41,30 +41,30 @@ $tradeId = (int)db()->lastInsertId();
 
 echo "Placed 60s UP trade #{$tradeId} with Entry Price: {$naturalEntryPrice} (Rule: 0% Win Rate => Must Lose)\n\n";
 
-// 1. Check price at t = 10s (50s remaining -> outside 12s steering window)
+// 1. Check price at t = 10s (50s remaining -> organic oscillation around entry)
 $t10Ms = ($nowSec + 10) * 1000;
 $priceAt10 = market_price_at($asset, $t10Ms, false, $userId);
 $naturalPriceAt10 = market_price_at($asset, $t10Ms, true, $userId);
 echo "Time = +10s (50s remaining):\n";
 echo "  Natural Live Price: {$naturalPriceAt10}\n";
 echo "  Controlled Price:   {$priceAt10}\n";
-if ($priceAt10 === $naturalPriceAt10) {
-    echo "  -> SUCCESS: Price is 100% natural, NOT stuck or clamped!\n\n";
+if (abs($priceAt10 - $naturalEntryPrice) <= 0.00030) {
+    echo "  -> SUCCESS: Natural organic oscillation hovering near trade entry!\n\n";
 } else {
-    echo "  -> FAILED: Price is altered early!\n\n";
+    echo "  -> FAILED: Price jumped unnaturally!\n\n";
 }
 
-// 2. Check price at t = 30s (30s remaining -> outside 12s steering window)
+// 2. Check price at t = 30s (30s remaining -> organic oscillation hovering near trade entry)
 $t30Ms = ($nowSec + 30) * 1000;
 $priceAt30 = market_price_at($asset, $t30Ms, false, $userId);
 $naturalPriceAt30 = market_price_at($asset, $t30Ms, true, $userId);
 echo "Time = +30s (30s remaining):\n";
 echo "  Natural Live Price: {$naturalPriceAt30}\n";
 echo "  Controlled Price:   {$priceAt30}\n";
-if ($priceAt30 === $naturalPriceAt30) {
-    echo "  -> SUCCESS: Price is 100% natural, market is moving freely!\n\n";
+if (abs($priceAt30 - $naturalEntryPrice) <= 0.00035) {
+    echo "  -> SUCCESS: Price is moving organically with trade oscillation!\n\n";
 } else {
-    echo "  -> FAILED: Price is altered early!\n\n";
+    echo "  -> FAILED: Price jumped unnaturally!\n\n";
 }
 
 // 3. Check price at t = 52s (8s remaining -> inside 12s steering window)
