@@ -1302,9 +1302,21 @@
     }, requestOptions.headers || {});
 
     return nativeFetch(url, requestOptions).then(function (response) {
-      return response.json().catch(function () {
-        throw new Error('The server returned an invalid response.');
-      }).then(function (payload) {
+      return response.text().then(function (rawText) {
+        var payload = null;
+        try {
+          payload = JSON.parse(rawText);
+        } catch (e) {
+          console.warn('[TradeBridge] Non-JSON response from ' + url + ' (HTTP ' + response.status + '):', rawText);
+          if (response.status === 401) {
+            scheduleSignInOnce();
+            throw new Error('Sign in is required.');
+          }
+          if (response.status === 419) {
+            throw new Error('Security token expired. Please refresh the page.');
+          }
+          throw new Error('The server returned an invalid response (HTTP ' + response.status + ').');
+        }
         if (response.status === 401) scheduleSignInOnce();
         if (!response.ok || !payload || payload.ok === false) {
           var requestError = new Error(payload && payload.message ? payload.message : 'The request failed.');
@@ -2206,7 +2218,8 @@
       account: user.accountType,
       requestId: clientRequestId,
       entryPrice: currentLivePrice,
-      price: currentLivePrice
+      price: currentLivePrice,
+      _csrf: user.csrf
     };
 
     var currentAssetObj = findAsset(data.symbol || activeSymbol);

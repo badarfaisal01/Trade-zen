@@ -9,7 +9,7 @@ if (!is_post()) {
 }
 
 verify_csrf();
-if (!session_rate_limit('trade:' . (int)$user['id'], 20, 60)) {
+if (!session_rate_limit('trade:' . (int)$user['id'], 60, 60)) {
     json_response(['ok' => false, 'message' => 'Too many trade requests. Wait a moment and try again.'], 429);
 }
 
@@ -63,4 +63,6 @@ try {
         ], 409);
     }
     json_response(['ok' => false, 'message' => $message], 409);
+} catch (Throwable $exception) {
+    json_response(['ok' => false, 'message' => $exception->getMessage()], 500);
 }

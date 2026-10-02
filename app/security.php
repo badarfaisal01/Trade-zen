@@ -180,12 +180,19 @@ function csrf_token(): string
 function verify_csrf(?string $token = null): void
 {
     if ($token === null) {
-        $token = (string)($_POST['_csrf'] ?? ($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ''));
+        $headers = function_exists('getallheaders') ? getallheaders() : [];
+        $headerToken = (string)($_SERVER['HTTP_X_CSRF_TOKEN'] ?? ($headers['X-CSRF-TOKEN'] ?? ($headers['X-Csrf-Token'] ?? ($headers['x-csrf-token'] ?? ''))));
+        $bodyToken = (string)($_POST['_csrf'] ?? '');
+        if ($bodyToken === '') {
+            $data = request_data();
+            $bodyToken = (string)($data['_csrf'] ?? ($data['csrf'] ?? ''));
+        }
+        $token = $bodyToken !== '' ? $bodyToken : $headerToken;
     }
 
     if ($token === '' || !hash_equals(csrf_token(), $token)) {
         if (request_expects_json()) {
-            json_response(['ok' => false, 'message' => 'Security token expired. Refresh the page and try again.'], 419);
+            json_response(['ok' => false, 'message' => 'Security token expired. Refresh the page and try again.', 'code' => 'CSRF_EXPIRED'], 419);
         }
         http_response_code(419);
         exit('Security token expired. Refresh the page and try again.');

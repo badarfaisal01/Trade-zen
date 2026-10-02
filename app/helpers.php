@@ -72,7 +72,9 @@ function request_expects_json(): bool
 {
     $accept = strtolower((string)($_SERVER['HTTP_ACCEPT'] ?? ''));
     $contentType = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
-    return strpos($accept, 'application/json') !== false || strpos($contentType, 'application/json') !== false || strpos((string)($_SERVER['SCRIPT_NAME'] ?? ''), '/api/') !== false;
+    $script = (string)($_SERVER['SCRIPT_NAME'] ?? '');
+    $uri = (string)($_SERVER['REQUEST_URI'] ?? '');
+    return strpos($accept, 'application/json') !== false || strpos($contentType, 'application/json') !== false || strpos($script, '/api/') !== false || strpos($uri, '/api/') !== false;
 }
 
 function json_response(array $payload, int $status = 200): void
@@ -86,10 +88,12 @@ function json_response(array $payload, int $status = 200): void
 
 function request_data(): array
 {
-    $contentType = strtolower((string)($_SERVER['CONTENT_TYPE'] ?? ''));
-    if (strpos($contentType, 'application/json') !== false) {
-        $decoded = json_decode((string)file_get_contents('php://input'), true);
-        return is_array($decoded) ? $decoded : [];
+    $raw = (string)file_get_contents('php://input');
+    if ($raw !== '') {
+        $decoded = json_decode($raw, true);
+        if (is_array($decoded)) {
+            return $decoded;
+        }
     }
 
     return $_POST;
