@@ -21,32 +21,35 @@ function original_trade_settings(array $user): array
     $assets = market_assets(false);
     $byCategory = [];
     foreach ($assets as $asset) {
-        $category = (string)($asset['category'] ?? 'forex');
-        if (!isset($byCategory[$category])) {
-            $byCategory[$category] = [];
+        $rawCat = (string)($asset['category'] ?? 'Currencies');
+        $catLower = strtolower(trim($rawCat));
+        if ($catLower === 'forex' || $catLower === 'currency' || $catLower === 'currencies') $catKey = 'currencies';
+        elseif ($catLower === 'crypto' || $catLower === 'cryptocurrency') $catKey = 'crypto';
+        elseif ($catLower === 'commodity' || $catLower === 'commodities' || $catLower === 'metal' || $catLower === 'metals' || $catLower === 'gold') $catKey = 'commodities';
+        elseif ($catLower === 'stock' || $catLower === 'stocks') $catKey = 'stocks';
+        elseif ($catLower === 'indices' || $catLower === 'index') $catKey = 'indices';
+        else $catKey = $catLower;
+
+        if (!isset($byCategory[$catKey])) {
+            $byCategory[$catKey] = [
+                'id' => $catKey,
+                'title' => ucfirst($catKey),
+                'type' => 'market_list',
+                'items' => []
+            ];
         }
-        $byCategory[$category][] = $asset;
-    }
-    $modals = [];
-    foreach ($byCategory as $category => $categoryAssets) {
-        $modals[] = [
-            'id' => $category,
-            'title' => ucfirst($category),
-            'type' => 'market_list',
-            'items' => array_map(static function(array $asset): array {
-                $isActive = (bool)($asset['is_active'] ?? true);
-                return [
-                    'symbol' => (string)$asset['symbol'],
-                    'name' => (string)$asset['display_name'],
-                    'category' => (string)$asset['category'],
-                    'payout' => $isActive ? (float)$asset['payout_percent'] : 0.0,
-                    'volatility' => (float)$asset['volatility'],
-                    'active' => $isActive,
-                    'is_open' => $isActive,
-                ];
-            }, $categoryAssets),
+        $isActive = (bool)($asset['is_active'] ?? true);
+        $byCategory[$catKey]['items'][] = [
+            'symbol' => (string)$asset['symbol'],
+            'name' => (string)$asset['display_name'],
+            'category' => $rawCat,
+            'payout' => $isActive ? (float)$asset['payout_percent'] : 0.0,
+            'volatility' => (float)$asset['volatility'],
+            'active' => $isActive,
+            'is_open' => $isActive,
         ];
     }
+    $modals = array_values($byCategory);
 
     return [
         'fpjsDomain' => null,

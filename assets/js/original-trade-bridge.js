@@ -1547,6 +1547,8 @@
       }
     }
 
+    var dayChange = number(asset.changePercent !== undefined ? asset.changePercent : (asset.day_change !== undefined ? asset.day_change : 0.12), 0.12);
+
     return [
       index + 1,
       socketSymbol(asset.symbol),
@@ -1554,9 +1556,21 @@
       categoryName(asset.category),
       number(asset.decimals, 5),
       payout,
-      1, 0, 60, 1, 1, 1, true, null, true,
+      1,
+      0,
+      60,
+      isOtc ? 1 : 0,
+      0,
+      0,
+      true,
+      null,
+      active ? true : false,
       timeframes,
-      null, 0.12, payout, payout, false,
+      null,
+      dayChange,
+      payout,
+      payout,
+      false,
       0.05, 0.12, 0.25, 1.2, 0.8, 0.12
     ];
   }
