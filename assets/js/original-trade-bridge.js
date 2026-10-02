@@ -1591,9 +1591,26 @@
     return assets.map(instrumentPayload);
   }
 
+  function secToChartPeriodEnum(sec) {
+    var s = number(sec, 60);
+    if (s <= 5) return 0;
+    if (s <= 10) return 1;
+    if (s <= 15) return 2;
+    if (s <= 30) return 3;
+    if (s <= 60) return 4;
+    if (s <= 120) return 13;
+    if (s <= 180) return 14;
+    if (s <= 300) return 6;
+    if (s <= 600) return 7;
+    if (s <= 900) return 8;
+    if (s <= 1800) return 9;
+    return 10;
+  }
+
   function graphSettings() {
     var asset = marketSnapshot && marketSnapshot.asset ? marketSnapshot.asset : {symbol: activeSymbol, price: 0};
     var startingAmount = Math.max(user.minAmount, Math.min(user.maxAmount, 10));
+    var periodEnum = secToChartPeriodEnum(activePeriod);
     return [{
       chart_id: 'graph',
       settings: JSON.stringify({
@@ -1603,6 +1620,10 @@
         isFastAmountOption: false,
         isIndicatorsMinimized: false,
         isIndicatorsShowing: true,
+        chartPeriod: periodEnum,
+        chartPeriodRaw: periodEnum,
+        timeframe: activePeriod,
+        period: activePeriod,
         currentExpirationTime: 0,
         currentAsset: {symbol: socketSymbol(asset.symbol), price: number(asset.price, 0), obj: {}},
         isAutoScrolling: 1,
@@ -1876,8 +1897,10 @@
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
         if (socket && typeof socket.binaryEvent === 'function') {
+          socket.binaryEvent('settings/list', graphSettings());
           socket.binaryEvent('history/list/v2', hPayload);
         }
+        broadcastBinary('settings/list', graphSettings());
         broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
         hideChartLoader();

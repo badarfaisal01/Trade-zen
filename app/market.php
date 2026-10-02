@@ -660,21 +660,26 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         if ((float)$mk['low'] < $targetLow)   $targetLow  = (float)$mk['low'];
                     }
 
-                    if ($source === 'binance') {
+                    $rawSpan = (float)$targetHigh - (float)$targetLow;
+                    $rawBody = abs((float)$targetClose - (float)$cOpen);
+                    $minOrganicSpan = max($minStep * 4.0, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.12)));
+
+                    if ($source === 'binance' && $rawSpan >= $minOrganicSpan && $rawBody >= ($minStep * 2.0)) {
                         $cClose = round($targetClose, $decimals);
                         $cHigh = round(max($cOpen, $cClose, $targetHigh), $decimals);
                         $cLow = round(max($minStep, min($cOpen, $cClose, $targetLow)), $decimals);
                     } else {
-                        // Enrich candle if flat (zero-wick or zero-body)
+                        // Enrich candle if flat (zero-wick or zero-body from illiquid feeds like PAXG/Gold)
                         $noiseClose = market_noise($seed + 41, $sec);
                         $noiseWickH = abs(market_noise($seed + 73, $sec));
                         $noiseWickL = abs(market_noise($seed + 97, $sec));
 
                         $macroDelta = $targetClose - $cOpen;
-                        $microNoise = ($noiseClose * $minStep * ($isCurrency ? 0.75 : 1.2));
-                        $cCloseRaw = $cOpen + ($macroDelta * ($isCurrency ? 0.55 : 0.75)) + $microNoise;
+                        $typicalStep = max($minStep * 2.5, $cOpen * ($isCurrency ? 0.000035 : ($volatility * 0.1)));
+                        $microNoise = ($noiseClose * $typicalStep * 0.65);
+                        $cCloseRaw = $cOpen + $macroDelta + $microNoise;
 
-                        $minBody = $minStep * ($isCurrency ? 0.35 : 0.6);
+                        $minBody = max($minStep * 1.5, $typicalStep * 0.35);
                         if (abs($cCloseRaw - $cOpen) < $minBody) {
                             $cCloseRaw = ($noiseClose >= 0) ? ($cOpen + $minBody) : ($cOpen - $minBody);
                         }
@@ -682,11 +687,11 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
                         $bodySpan = abs($cClose - $cOpen);
                         // Add clean, small, well-defined wicks
-                        $wickUp = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickH * $minStep * 0.4)));
-                        $wickDown = max($minStep * 0.3, min($minStep * 0.85, ($bodySpan * 0.18) + ($noiseWickL * $minStep * 0.4)));
+                        $wickUp = max($minStep * 0.8, ($bodySpan * 0.25) + ($noiseWickH * $typicalStep * 0.45));
+                        $wickDown = max($minStep * 0.8, ($bodySpan * 0.25) + ($noiseWickL * $typicalStep * 0.45));
 
-                        $cHigh = round(max($cOpen, $cClose) + $wickUp, $decimals);
-                        $cLow  = round(max($minStep, min($cOpen, $cClose) - $wickDown), $decimals);
+                        $cHigh = round(max($cOpen, $cClose, (float)$targetHigh) + $wickUp, $decimals);
+                        $cLow  = round(max($minStep, min($cOpen, $cClose, (float)$targetLow) - $wickDown), $decimals);
                     }
                 } else {
                     // Bucket missing: continuous organic candle
@@ -754,7 +759,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             }
 
             // Guarantee minimum candle span so no candle is a 0-pixel invisible line
-            $minSpan = max($minStep * 0.45, $cOpen * ($isCurrency ? 0.000006 : ($volatility * 0.008)));
+            $minSpan = max($minStep * 3.0, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.1)));
             if (($cHigh - $cLow) < $minSpan) {
                 $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.5, $decimals);
                 $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.5), $decimals);
