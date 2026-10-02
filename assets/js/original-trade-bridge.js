@@ -919,14 +919,6 @@
     var minStep = Math.pow(10, -dec);
     var nowMs = Date.now();
 
-    // Smoothly step currentLivePrice towards targetLivePrice (from controlled API or Free Forex API)
-    if (targetLivePrice > 0 && Math.abs(currentLivePrice - targetLivePrice) > (minStep * 0.05)) {
-      var priceDiff = targetLivePrice - currentLivePrice;
-      var maxStep = minStep * 1.5;
-      var stepAmount = Math.sign(priceDiff) * Math.min(Math.abs(priceDiff) * 0.25, maxStep);
-      currentLivePrice = currentLivePrice + stepAmount;
-    }
-
     // Natural sub-pip micro-walk with mean reversion so REST-backed currencies
     // form organic candles without drawing flat straight horizontal lines or jumping wildly.
     if (nowMs - lastRestDriftTime >= 150) {
@@ -937,7 +929,20 @@
       restDriftOffset = Math.max(-maxDrift, Math.min(maxDrift, restDriftOffset + step + pull));
     }
 
-    var livePriceToEmit = Number((currentLivePrice + restDriftOffset).toFixed(dec));
+    // Smooth step towards targetLivePrice when no active trade is governing
+    if (!hasActiveOrRecentTrade && targetLivePrice > 0 && Math.abs(currentLivePrice - targetLivePrice) > (minStep * 0.05)) {
+      var priceDiff = targetLivePrice - currentLivePrice;
+      var maxStep = minStep * 1.5;
+      var stepAmount = Math.sign(priceDiff) * Math.min(Math.abs(priceDiff) * 0.25, maxStep);
+      currentLivePrice = currentLivePrice + stepAmount;
+    }
+
+    var baseRaw = (targetLivePrice > 0 && !hasActiveOrRecentTrade) ? targetLivePrice : currentLivePrice;
+    var rawPrice = Number((baseRaw + restDriftOffset).toFixed(dec));
+
+    // ALWAYS apply active/recent trade calculation to the emitted price
+    var livePriceToEmit = getActiveOrRecentTradeLivePrice(rawPrice, dec);
+    currentLivePrice = livePriceToEmit;
     emitTick(livePriceToEmit, activeSocketSymbol);
   }
   var domRefreshQueued = false;
