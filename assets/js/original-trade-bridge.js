@@ -526,16 +526,44 @@
   }
 
 
-  function hasOpenTradeForActiveSymbol() {
-    if (!tradeState || !Array.isArray(tradeState.trades)) return false;
+  function getActiveOrRecentTradeOffset(rawPrice, srcPrice) {
+    if (!tradeState || !Array.isArray(tradeState.trades)) return 0;
     var target = plainSymbol(activeSymbol);
+    var now = Date.now();
+    var activeTrade = null;
+    var recentSettledTrade = null;
+
     for (var i = 0; i < tradeState.trades.length; i++) {
       var t = tradeState.trades[i];
-      if (t && t.status === 'open' && plainSymbol(t.symbol) === target) {
-        return true;
+      if (!t || plainSymbol(t.symbol) !== target) continue;
+      if (t.status === 'open') {
+        activeTrade = t;
+        break;
+      }
+      var settledMs = t.settledAt ? number(t.settledAt, 0) : (t.expiresAt ? number(t.expiresAt, 0) : 0);
+      if (settledMs > 0 && (now - settledMs) < 4000) {
+        if (!recentSettledTrade || settledMs > (recentSettledTrade.settledAt || recentSettledTrade.expiresAt || 0)) {
+          recentSettledTrade = t;
+        }
       }
     }
-    return false;
+
+    if (activeTrade && targetLivePrice > 0) {
+      var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
+      return targetLivePrice - base;
+    }
+
+    if (recentSettledTrade && targetLivePrice > 0) {
+      var settledTime = recentSettledTrade.settledAt ? number(recentSettledTrade.settledAt, 0) : number(recentSettledTrade.expiresAt, 0);
+      var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
+      var norm = 1.0 - (elapsedPost / 4000.0);
+      var smoothDecay = norm * norm * (3.0 - 2.0 * norm);
+      var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
+      var fullOffset = targetLivePrice - base;
+      return fullOffset * smoothDecay;
+    }
+
+    return 0;
   }
 
   function isAssetActive(asset) {
@@ -688,15 +716,9 @@
               }
               var decimals = currAssetObj ? number(currAssetObj.decimals || currAssetObj.decimal_places, 2) : 2;
               
-              if (hasOpenTradeForActiveSymbol() && targetLivePrice > 0) {
-                var srcPrice = number(currAssetObj.source_price || currAssetObj.price, 0);
-                var offset = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05)
-                  ? (targetLivePrice - srcPrice)
-                  : (targetLivePrice - rawPrice);
-                currentLivePrice = Number((rawPrice + offset).toFixed(decimals));
-              } else {
-                currentLivePrice = Number(rawPrice.toFixed(decimals));
-              }
+              var srcPrice = number(currAssetObj.source_price || currAssetObj.price, 0);
+              var tradeOffset = getActiveOrRecentTradeOffset(rawPrice, srcPrice);
+              currentLivePrice = Number((rawPrice + tradeOffset).toFixed(decimals));
 
               tickPriceOffset = 0;
               emitTick(currentLivePrice, activeSocketSymbol);
