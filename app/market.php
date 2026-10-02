@@ -347,12 +347,13 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
             return null;
         }
 
-        // Final 10-12s countdown: decisive smooth transition along Hermite curve to target outcome price
+        // Final 10-12s countdown: decisive smooth transition along Hermite curve with natural dynamic oscillation
         $steerElapsed = $steerWindowMs - $remainingMs;
         $steerNorm = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
         // Smooth Hermite progression (0.0 -> 1.0)
         $smoothFactor = $steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm);
-        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor);
+        $micro = (sin($sec / 1.6) * 0.7 + sin($sec / 3.2) * 0.3) * ($targetMargin * 0.08 * (1.0 - $smoothFactor));
+        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor) + $micro;
 
         return round($price, $decimals);
     } else {

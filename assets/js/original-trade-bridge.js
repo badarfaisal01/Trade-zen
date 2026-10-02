@@ -619,7 +619,9 @@
         }
       }
 
-      var livePrice = startPrice + ((targetClose - startPrice) * smoothFactor);
+      var sec = now / 1000.0;
+      var dynamicOsc = (Math.sin(sec / 1.6) * 0.7 + Math.sin(sec / 3.2) * 0.3) * (tightMargin * 0.08 * (1.0 - smoothFactor));
+      var livePrice = startPrice + ((targetClose - startPrice) * smoothFactor) + dynamicOsc;
       return Number(livePrice.toFixed(decimals));
     }
 
