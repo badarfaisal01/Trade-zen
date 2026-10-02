@@ -594,16 +594,20 @@
       var tightMargin = Math.max(minStep * 2.0, entryPrice * 0.00015);
 
       var sec = now / 1000.0;
-      var smoothDelta = (rawPrice - entryPrice) * 0.15;
-      var gentleOsc = Math.sin(sec / 2.5) * (tightMargin * 0.22) + Math.sin(sec / 5.0) * (tightMargin * 0.12);
-      var midStartPrice = entryPrice + smoothDelta + gentleOsc;
+      var gentleOsc = Math.sin(sec / 2.5) * (tightMargin * 0.15) + Math.sin(sec / 5.0) * (tightMargin * 0.08);
 
       if (remMs > steerWinMs) {
-        // Early/Mid trade: natural, gentle price action around entry price
-        return Number(midStartPrice.toFixed(decimals));
+        // Early/Mid trade: natural, continuous price action with subtle organic wave
+        return Number((rawPrice + gentleOsc).toFixed(decimals));
       }
 
       // Final 10-12s steering countdown:
+      // Capture the exact starting price when entering the steering window so transition is 100% continuous
+      if (typeof currentTrade._steerStartPrice === 'undefined' || currentTrade._steerStartPrice === null) {
+        currentTrade._steerStartPrice = rawPrice;
+      }
+      var startPrice = number(currentTrade._steerStartPrice, rawPrice);
+
       var steerElapsed = steerWinMs - remMs;
       var steerNorm = Math.min(1.0, Math.max(0.0, steerElapsed / steerWinMs));
       var smoothFactor = steerNorm * steerNorm * (3.0 - 2.0 * steerNorm); // 0.0 -> 1.0
@@ -618,8 +622,8 @@
         }
       }
 
-      var microBreathing = Math.sin(sec / 1.5) * (tightMargin * 0.04 * (1.0 - smoothFactor));
-      var livePrice = midStartPrice + ((targetClose - midStartPrice) * smoothFactor) + microBreathing;
+      var microBreathing = Math.sin(sec / 1.5) * (tightMargin * 0.03 * (1.0 - smoothFactor));
+      var livePrice = startPrice + ((targetClose - startPrice) * smoothFactor) + microBreathing;
       return Number(livePrice.toFixed(decimals));
     }
 
@@ -1308,9 +1312,15 @@
 
     return nativeFetch(url, requestOptions).then(function (response) {
       return response.text().then(function (rawText) {
+        var cleanText = String(rawText || '').replace(/^\uFEFF/, '').trim();
+        var firstBrace = cleanText.indexOf('{');
+        var lastBrace = cleanText.lastIndexOf('}');
+        if (firstBrace !== -1 && lastBrace !== -1 && lastBrace >= firstBrace) {
+          cleanText = cleanText.slice(firstBrace, lastBrace + 1);
+        }
         var payload = null;
         try {
-          payload = JSON.parse(rawText);
+          payload = JSON.parse(cleanText);
         } catch (e) {
           console.warn('[TradeBridge] Non-JSON response from ' + url + ' (HTTP ' + response.status + '):', rawText);
           if (response.status === 401) {
