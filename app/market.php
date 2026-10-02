@@ -1378,10 +1378,17 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         }
     }
 
-    // Reconcile targetPrice with candle data: the last candle's close is the most
-    // reliable price because it comes directly from the real-time data provider
-    // (TwelveData time_series or Binance klines).
-    if ($status['isOpen'] && !empty($candles)) {
+    $hasControlledTrade = false;
+    if ($effectiveUserId > 0) {
+        $ctrlP = get_active_trade_controlled_price($asset, $nowMs, $effectiveUserId);
+        if ($ctrlP !== null) {
+            $hasControlledTrade = true;
+        }
+    }
+
+    // Reconcile targetPrice with candle data: if no active trade control, the last candle's
+    // close is used for public market feeds. When trade control is active, preserve targetPrice!
+    if ($status['isOpen'] && !empty($candles) && !$hasControlledTrade) {
         $lastCandleClose = (float)$candles[count($candles) - 1]['close'];
         if ($lastCandleClose > 0) {
             $divergence = abs($targetPrice - $lastCandleClose) / max($lastCandleClose, 0.0001);
@@ -1413,7 +1420,7 @@ function market_snapshot(string $symbol, int $intervalSeconds = 5, int $count = 
         $activeBucket = (int)(floor($targetEndMs / $intervalMs) * $intervalMs);
         $candleClose = (float)$candles[$lastIdx]['close'];
 
-        if ($candleClose > 0 && ($source === 'api' || $source === 'binance' || abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.0005)) {
+        if (!$hasControlledTrade && $candleClose > 0 && ($source === 'api' || $source === 'binance' || abs($targetPrice - $candleClose) / max($candleClose, 0.0001) > 0.0005)) {
             $targetPrice = $candleClose;
         }
 
