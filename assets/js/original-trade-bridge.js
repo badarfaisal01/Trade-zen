@@ -1839,8 +1839,8 @@
         snapshot.candles = marketSnapshot.candles;
       }
       
-      marketSnapshot = snapshot;
       if (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod) return snapshot;
+      marketSnapshot = snapshot;
       
       var asset = snapshot.asset || {};
       var serverTime = number(snapshot.serverTime, Date.now());
