@@ -555,7 +555,7 @@
       var durMs = Math.max(1000, exMs - opMs);
       var steerWinMs = Math.min(12000, Math.max(6000, durMs * 0.25));
 
-      if (t.status === 'open') {
+      if (t.status === 'open' && !settledNotifiedIds[String(t.id)]) {
         var remMs = exMs - now;
         if (remMs <= steerWinMs && remMs >= 0 && !steeringActiveTrade) {
           steeringActiveTrade = t;
@@ -575,8 +575,8 @@
 
     // Trade Priority:
     // 1. Trade in final 10-12s steering countdown (soonest to expire)
-    // 2. Soonest active trade in queue (if no settled decay)
-    var currentTrade = steeringActiveTrade || (!recentSettledTrade ? soonestActiveTrade : null);
+    // 2. Soonest active trade in queue
+    var currentTrade = steeringActiveTrade || soonestActiveTrade;
 
     if (!currentTrade && !recentSettledTrade) {
       return rawPrice;
@@ -881,6 +881,7 @@
   var lastRestDriftTime = 0;
 
   function emitSmoothQuote() {
+    checkTradeExpirations();
     if (!currentLivePrice || !activeSocketSymbol) return;
     if (chartLoaderActive) return;
     var expectedAsset = findAsset(activeSymbol);
@@ -1638,13 +1639,14 @@
     if (!list.length && tradeState && Array.isArray(tradeState.trades)) {
       list = tradeState.trades.filter(function (trade) { return trade.status === 'open'; });
     }
+    list = list.filter(function (trade) { return trade.status === 'open' && !settledNotifiedIds[String(trade.id)]; });
     return list.map(function (trade) { return mapTrade(trade); });
   }
 
   function closedDeals() {
     var list = tradeState && Array.isArray(tradeState.closedTrades) ? tradeState.closedTrades : [];
     if (!list.length && tradeState && Array.isArray(tradeState.trades)) {
-      list = tradeState.trades.filter(function (trade) { return trade.status !== 'open'; });
+      list = tradeState.trades.filter(function (trade) { return trade.status !== 'open' || settledNotifiedIds[String(trade.id)]; });
     }
     return list.map(function (trade) { return mapTrade(trade); });
   }
@@ -1837,6 +1839,94 @@
     });
   }
 
+  function checkTradeExpirations() {
+    if (!tradeState || !Array.isArray(tradeState.trades)) return;
+    var now = Date.now();
+    var hasSettledAny = false;
+
+    for (var i = 0; i < tradeState.trades.length; i++) {
+      var trade = tradeState.trades[i];
+      if (!trade) continue;
+      var tradeId = String(trade.id);
+      var exMs = number(trade.expiresAt, 0);
+
+      if (trade.status === 'open' && exMs > 0 && now >= exMs && !settledNotifiedIds[tradeId]) {
+        settledNotifiedIds[tradeId] = true;
+        delete previousOpenIds[tradeId];
+
+        var entryPrice = number(trade.entryPrice || trade.entry_price, 0);
+        var targetClose = number(trade.targetClosePrice, 0);
+        if (targetClose <= 0) {
+          targetClose = currentLivePrice > 0 ? currentLivePrice : entryPrice;
+        }
+        var direction = String(trade.direction || '').toLowerCase();
+        var isWin = false;
+        var isDraw = false;
+        if (direction === 'up' || direction === 'call') {
+          isWin = targetClose > entryPrice;
+          isDraw = targetClose === entryPrice;
+        } else if (direction === 'down' || direction === 'put') {
+          isWin = targetClose < entryPrice;
+          isDraw = targetClose === entryPrice;
+        }
+
+        var amount = number(trade.amount, 0);
+        var payout = number(trade.payout || 85, 85);
+        var winProfit = amount * (payout / 100);
+
+        trade.status = isWin ? 'won' : (isDraw ? 'draw' : 'lost');
+        trade.closePrice = targetClose;
+        trade.profitLoss = isWin ? winProfit : (isDraw ? 0 : -amount);
+        trade.profit = isWin ? (amount + winProfit) : (isDraw ? amount : 0);
+        trade.settledAt = exMs;
+
+        var isDemo = String(trade.accountType || user.accountType) === 'demo';
+        if (isWin) {
+          user.balance += (amount + winProfit);
+          if (isDemo) user.demoBalance += (amount + winProfit); else user.liveBalance += (amount + winProfit);
+        } else if (isDraw) {
+          user.balance += amount;
+          if (isDemo) user.demoBalance += amount; else user.liveBalance += amount;
+        }
+        window.settings.liveBalance = user.liveBalance.toFixed(8);
+        window.settings.demoBalance = user.demoBalance.toFixed(8);
+
+        if (Array.isArray(tradeState.openTrades)) {
+          tradeState.openTrades = tradeState.openTrades.filter(function (t) { return String(t.id) !== tradeId; });
+        }
+        if (Array.isArray(tradeState.closedTrades)) {
+          var alreadyInClosed = tradeState.closedTrades.some(function (t) { return String(t.id) === tradeId; });
+          if (!alreadyInClosed) {
+            tradeState.closedTrades.unshift(trade);
+          }
+        }
+
+        var deal = mapTrade(trade);
+        broadcastBinary('s_orders/close', {deals: [deal]});
+
+        var sym = trade.name || trade.symbol || (deal.asset ? deal.asset.replace('#', '') : 'Trade');
+        var curr = currencySymbol(user.currency);
+        if (isWin) {
+          showNotice('Trade Won! +' + curr + winProfit.toFixed(2) + ' profit on ' + sym, 'success', 5000);
+        } else if (isDraw) {
+          showNotice('Trade Draw. Stake refunded (' + curr + amount.toFixed(2) + ') on ' + sym, 'info', 4000);
+        } else {
+          showNotice('Trade Lost. -' + curr + amount.toFixed(2) + ' on ' + sym, 'error', 4500);
+        }
+
+        hasSettledAny = true;
+      }
+    }
+
+    if (hasSettledAny) {
+      broadcastBinary('orders/opened/list', openDeals());
+      broadcastBinary('orders/closed/list', closedDeals());
+      broadcastBinary('s_balance/list', balancePayload());
+      refreshState(true);
+      refreshMarket(false, null);
+    }
+  }
+
   function refreshState(forceLists) {
     if (stateRequestRunning) return Promise.resolve(tradeState);
     stateRequestRunning = true;
@@ -1855,7 +1945,11 @@
       var currentOpen = {};
       var trades = Array.isArray(state.trades) ? state.trades : (Array.isArray(state.openTrades) ? state.openTrades.concat(state.closedTrades || []) : []);
       trades.forEach(function (trade) {
-        if (trade.status === 'open') currentOpen[String(trade.id)] = true;
+        var tradeId = String(trade.id);
+        if (trade.status === 'open' && settledNotifiedIds[tradeId]) {
+          trade.status = trade.profitLoss > 0 ? 'won' : (trade.profitLoss === 0 ? 'draw' : 'lost');
+        }
+        if (trade.status === 'open') currentOpen[tradeId] = true;
       });
 
       if (!firstState) {
@@ -1961,20 +2055,8 @@
     }
     if (!expiryWatchTimer) {
       expiryWatchTimer = window.setInterval(function () {
-        if (!tradeState || !Array.isArray(tradeState.trades)) return;
-        var now = Date.now();
-        var hasDueTrade = false;
-        for (var i = 0; i < tradeState.trades.length; i++) {
-          var t = tradeState.trades[i];
-          if (t && t.status === 'open' && number(t.expiresAt, 0) > 0 && number(t.expiresAt, 0) <= now) {
-            hasDueTrade = true;
-            break;
-          }
-        }
-        if (hasDueTrade) {
-          refreshState(true);
-        }
-      }, 250);
+        checkTradeExpirations();
+      }, 100);
     }
     prewarmSnapshots();
   }
@@ -2181,8 +2263,9 @@
       refreshMarket(false, null);
 
       var exMs = number(trade.expiresAt, Date.now() + 60000);
-      var delayMs = Math.max(100, (exMs - Date.now()) + 250);
+      var delayMs = Math.max(10, exMs - Date.now());
       window.setTimeout(function () {
+        checkTradeExpirations();
         refreshState(true);
         refreshMarket(false, null);
       }, delayMs);

@@ -124,7 +124,7 @@ function get_user_trading_session(int $userId, ?int $assetId = null): ?array
 
 function settle_open_trades(int $userId): int
 {
-    $stmt = db()->prepare("SELECT t.id FROM trades t WHERE t.user_id = ? AND t.status = 'open' AND t.expires_at <= NOW() ORDER BY t.id ASC LIMIT 100");
+    $stmt = db()->prepare("SELECT t.id FROM trades t WHERE t.user_id = ? AND t.status = 'open' AND t.expires_at <= DATE_ADD(NOW(), INTERVAL 1 SECOND) ORDER BY t.id ASC LIMIT 100");
     $stmt->execute([$userId]);
     $ids = array_map('intval', array_column($stmt->fetchAll(), 'id'));
     $settled = 0;
