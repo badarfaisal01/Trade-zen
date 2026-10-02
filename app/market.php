@@ -340,32 +340,30 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
     if (!$isDecaying) {
         $elapsedMs = max(0, $timestampMs - $openedAtMs);
         $remainingMs = max(0, $expiresAtMs - $timestampMs);
-        $steerWindowMs = min(15000.0, max(5000.0, (float)$durationMs * 0.30));
+        $steerWindowMs = min(12000.0, max(6000.0, (float)$durationMs * 0.25));
+
+        $smoothDelta = ($rawRealPrice - $entryPrice) * 0.15;
+        $gentleOsc = sin($sec / 2.5) * ($targetMargin * 0.22) + sin($sec / 5.0) * ($targetMargin * 0.12);
+        $midStartPrice = $entryPrice + $smoothDelta + $gentleOsc;
 
         if ($remainingMs > $steerWindowMs) {
-            // Early / Mid trade: natural price action + organic market tension oscillations around trade
-            $rawProgress = min(1.0, max(0.0, $elapsedMs / (float)$durationMs));
-            $earlyProgress = min(1.0, $elapsedMs / max(1.0, (float)$durationMs - $steerWindowMs));
-            $oscillation = sin($sec * 2.2) * ($targetMargin * 0.25 * (1.0 - $earlyProgress * 0.3));
-            $steerWeight = pow($rawProgress, 1.8) * 0.25;
-            $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $steerWeight) + $oscillation;
-
-            return round($price, $decimals);
+            // Early / Mid trade: gentle organic price action around entry price
+            return round($midStartPrice, $decimals);
         }
 
-        // Final 10-15s countdown: decisive smooth transition to target outcome price
+        // Final 10-12s countdown: decisive smooth transition to target outcome price
         $steerElapsed = $steerWindowMs - $remainingMs;
         $steerNorm = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
-        // Smooth Hermite progression (0.25 -> 1.0)
-        $smoothFactor = 0.25 + (0.75 * ($steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm)));
-        $micro = sin($sec * 2.8) * ($targetMargin * 0.08 * (1.0 - $steerNorm));
-        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor) + $micro;
+        // Smooth Hermite progression (0.0 -> 1.0)
+        $smoothFactor = $steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm);
+        $micro = sin($sec / 1.5) * ($targetMargin * 0.04 * (1.0 - $smoothFactor));
+        $price = $midStartPrice + (($targetPrice - $midStartPrice) * $smoothFactor) + $micro;
 
         return round($price, $decimals);
     } else {
-        // Post-expiry decay window (0..3s): smoothly interpolate from targetPrice back to real live market price
+        // Post-expiry decay window (0..2.5s): smoothly interpolate from targetPrice back to real live market price
         $elapsedPostMs = $timestampMs - $expiresAtMs;
-        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 3000.0));
+        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 2500.0));
         $smoothFactor = $rawPostProgress * $rawPostProgress * (3.0 - 2.0 * $rawPostProgress);
 
         $price = $targetPrice + (($rawRealPrice - $targetPrice) * $smoothFactor);

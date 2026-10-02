@@ -532,19 +532,40 @@
     var target = plainSymbol(activeSymbol);
     var now = Date.now();
     var soonestActiveTrade = null;
+    var steeringActiveTrade = null;
     var recentSettledTrade = null;
 
+    // Filter matching open/recent trades
+    var matching = [];
     for (var i = 0; i < tradeState.trades.length; i++) {
       var t = tradeState.trades[i];
-      if (!t || plainSymbol(t.symbol) !== target) continue;
+      if (t && plainSymbol(t.symbol) === target) {
+        matching.push(t);
+      }
+    }
+    // Sort by expiresAt ASC so soonest trade is first
+    matching.sort(function (a, b) {
+      return number(a.expiresAt, 0) - number(b.expiresAt, 0);
+    });
+
+    for (var i = 0; i < matching.length; i++) {
+      var t = matching[i];
+      var exMs = number(t.expiresAt, 0);
+      var opMs = number(t.openedAt, exMs - 60000);
+      var durMs = Math.max(1000, exMs - opMs);
+      var steerWinMs = Math.min(12000, Math.max(6000, durMs * 0.25));
+
       if (t.status === 'open') {
-        var exMs = number(t.expiresAt, 0);
-        if (!soonestActiveTrade || (exMs > 0 && exMs < number(soonestActiveTrade.expiresAt, Infinity))) {
+        var remMs = exMs - now;
+        if (remMs <= steerWinMs && remMs >= 0 && !steeringActiveTrade) {
+          steeringActiveTrade = t;
+        }
+        if (!soonestActiveTrade) {
           soonestActiveTrade = t;
         }
       } else {
-        var settledMs = t.settledAt ? number(t.settledAt, 0) : (t.expiresAt ? number(t.expiresAt, 0) : 0);
-        if (settledMs > 0 && (now - settledMs) < 4000) {
+        var settledMs = t.settledAt ? number(t.settledAt, 0) : exMs;
+        if (settledMs > 0 && (now - settledMs) < 2500) {
           if (!recentSettledTrade || settledMs > (recentSettledTrade.settledAt || recentSettledTrade.expiresAt || 0)) {
             recentSettledTrade = t;
           }
@@ -552,61 +573,60 @@
       }
     }
 
-    if (!soonestActiveTrade && !recentSettledTrade) {
+    // Trade Priority:
+    // 1. Trade in final 10-12s steering countdown (soonest to expire)
+    // 2. Soonest active trade in queue (if no settled decay)
+    var currentTrade = steeringActiveTrade || (!recentSettledTrade ? soonestActiveTrade : null);
+
+    if (!currentTrade && !recentSettledTrade) {
       return rawPrice;
     }
 
     var minStep = Math.pow(10, -decimals);
 
-    if (soonestActiveTrade) {
-      var opMs = number(soonestActiveTrade.openedAt, now - 60000);
-      var exMs = number(soonestActiveTrade.expiresAt, now + 60000);
+    if (currentTrade) {
+      var opMs = number(currentTrade.openedAt, now - 60000);
+      var exMs = number(currentTrade.expiresAt, now + 60000);
       var durMs = Math.max(1000, exMs - opMs);
-      var steerWinMs = Math.min(15000, Math.max(5000, durMs * 0.30));
+      var steerWinMs = Math.min(12000, Math.max(6000, durMs * 0.25));
       var remMs = Math.max(0, exMs - now);
-      var entryPrice = number(soonestActiveTrade.entryPrice || soonestActiveTrade.entry_price, rawPrice);
+      var entryPrice = number(currentTrade.entryPrice || currentTrade.entry_price, rawPrice);
       var tightMargin = Math.max(minStep * 2.0, entryPrice * 0.00015);
 
-      // Pass-through live Binance market delta relative to entry
-      var rawDelta = rawPrice - entryPrice;
+      var sec = now / 1000.0;
+      var smoothDelta = (rawPrice - entryPrice) * 0.15;
+      var gentleOsc = Math.sin(sec / 2.5) * (tightMargin * 0.22) + Math.sin(sec / 5.0) * (tightMargin * 0.12);
+      var midStartPrice = entryPrice + smoothDelta + gentleOsc;
 
       if (remMs > steerWinMs) {
-        // Early/Mid trade: lively natural movement responding to live Binance ticks + organic tension oscillation around entry
-        var sec = now / 1000.0;
-        var osc = Math.sin(sec * 2.2) * (tightMargin * 0.35);
-        var livePrice = entryPrice + (rawDelta * 0.4) + osc;
-        return Number(livePrice.toFixed(decimals));
+        // Early/Mid trade: natural, gentle price action around entry price
+        return Number(midStartPrice.toFixed(decimals));
       }
 
-      // Final countdown steering window (10-15s):
-      // Smoothly steer from mid-trade price directly into exact targetClose price
+      // Final 10-12s steering countdown:
       var steerElapsed = steerWinMs - remMs;
       var steerNorm = Math.min(1.0, Math.max(0.0, steerElapsed / steerWinMs));
       var smoothFactor = steerNorm * steerNorm * (3.0 - 2.0 * steerNorm); // 0.0 -> 1.0
 
-      var targetClose = number(soonestActiveTrade.targetClosePrice, 0);
+      var targetClose = number(currentTrade.targetClosePrice, 0);
       if (targetClose <= 0) {
         if (targetLivePrice > 0) {
           targetClose = targetLivePrice;
         } else {
-          var isUp = soonestActiveTrade.direction === 'up';
+          var isUp = currentTrade.direction === 'up';
           targetClose = isUp ? (entryPrice - tightMargin) : (entryPrice + tightMargin);
         }
       }
 
-      var sec = now / 1000.0;
-      var microWave = Math.sin(sec * 3.5) * (tightMargin * 0.08 * (1.0 - smoothFactor));
-      var liveMicro = (rawDelta * (1.0 - smoothFactor) * 0.2);
-      
-      var midPrice = entryPrice + (rawDelta * 0.4 * (1.0 - smoothFactor));
-      var livePrice = midPrice + ((targetClose - midPrice) * smoothFactor) + microWave + liveMicro;
+      var microBreathing = Math.sin(sec / 1.5) * (tightMargin * 0.04 * (1.0 - smoothFactor));
+      var livePrice = midStartPrice + ((targetClose - midStartPrice) * smoothFactor) + microBreathing;
       return Number(livePrice.toFixed(decimals));
     }
 
     if (recentSettledTrade) {
       var settledTime = recentSettledTrade.settledAt ? number(recentSettledTrade.settledAt, 0) : number(recentSettledTrade.expiresAt, 0);
-      var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
-      var norm = elapsedPost / 4000.0;
+      var elapsedPost = Math.max(0, Math.min(2500, now - settledTime));
+      var norm = elapsedPost / 2500.0;
       var smoothDecay = norm * norm * (3.0 - 2.0 * norm); // 0.0 -> 1.0
       var settledClose = number(recentSettledTrade.closePrice || recentSettledTrade.targetClosePrice || targetLivePrice, rawPrice);
       var livePrice = settledClose + ((rawPrice - settledClose) * smoothDecay);
@@ -930,6 +950,7 @@
   var lastTradeError = '';
   var lastDrawingDeleteId = '';
   var fallbackTradeTimer = null;
+  var expiryWatchTimer = null;
   var pendingTradeIntent = null;
   var recentTradeIntent = null;
   var tradeRequestsInFlight = {};
@@ -1937,6 +1958,23 @@
     }
     if (!stateTimer) {
       stateTimer = window.setInterval(function () { refreshState(false); }, 1800);
+    }
+    if (!expiryWatchTimer) {
+      expiryWatchTimer = window.setInterval(function () {
+        if (!tradeState || !Array.isArray(tradeState.trades)) return;
+        var now = Date.now();
+        var hasDueTrade = false;
+        for (var i = 0; i < tradeState.trades.length; i++) {
+          var t = tradeState.trades[i];
+          if (t && t.status === 'open' && number(t.expiresAt, 0) > 0 && number(t.expiresAt, 0) <= now) {
+            hasDueTrade = true;
+            break;
+          }
+        }
+        if (hasDueTrade) {
+          refreshState(true);
+        }
+      }, 250);
     }
     prewarmSnapshots();
   }
