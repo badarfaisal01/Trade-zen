@@ -342,22 +342,17 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         $remainingMs = max(0, $expiresAtMs - $timestampMs);
         $steerWindowMs = min(12000.0, max(6000.0, (float)$durationMs * 0.25));
 
-        $smoothDelta = ($rawRealPrice - $entryPrice) * 0.15;
-        $gentleOsc = sin($sec / 2.5) * ($targetMargin * 0.22) + sin($sec / 5.0) * ($targetMargin * 0.12);
-        $midStartPrice = $entryPrice + $smoothDelta + $gentleOsc;
-
         if ($remainingMs > $steerWindowMs) {
-            // Early / Mid trade: gentle organic price action around entry price
-            return round($midStartPrice, $decimals);
+            // Early / Mid trade (before final 10-12s): natural pure market price with NO artificial oscillations
+            return null;
         }
 
-        // Final 10-12s countdown: decisive smooth transition to target outcome price
+        // Final 10-12s countdown: decisive smooth transition along Hermite curve to target outcome price
         $steerElapsed = $steerWindowMs - $remainingMs;
         $steerNorm = min(1.0, max(0.0, $steerElapsed / $steerWindowMs));
         // Smooth Hermite progression (0.0 -> 1.0)
         $smoothFactor = $steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm);
-        $micro = sin($sec / 1.5) * ($targetMargin * 0.04 * (1.0 - $smoothFactor));
-        $price = $midStartPrice + (($targetPrice - $midStartPrice) * $smoothFactor) + $micro;
+        $price = $rawRealPrice + (($targetPrice - $rawRealPrice) * $smoothFactor);
 
         return round($price, $decimals);
     } else {

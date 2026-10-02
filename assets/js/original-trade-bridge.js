@@ -593,12 +593,9 @@
       var entryPrice = number(currentTrade.entryPrice || currentTrade.entry_price, rawPrice);
       var tightMargin = Math.max(minStep * 2.0, entryPrice * 0.00015);
 
-      var sec = now / 1000.0;
-      var gentleOsc = Math.sin(sec / 2.5) * (tightMargin * 0.15) + Math.sin(sec / 5.0) * (tightMargin * 0.08);
-
       if (remMs > steerWinMs) {
-        // Early/Mid trade: natural, continuous price action with subtle organic wave
-        return Number((rawPrice + gentleOsc).toFixed(decimals));
+        // Early/Mid trade (before final 10-12s): pure natural live price without artificial oscillations
+        return rawPrice;
       }
 
       // Final 10-12s steering countdown:
@@ -622,8 +619,7 @@
         }
       }
 
-      var microBreathing = Math.sin(sec / 1.5) * (tightMargin * 0.03 * (1.0 - smoothFactor));
-      var livePrice = startPrice + ((targetClose - startPrice) * smoothFactor) + microBreathing;
+      var livePrice = startPrice + ((targetClose - startPrice) * smoothFactor);
       return Number(livePrice.toFixed(decimals));
     }
 

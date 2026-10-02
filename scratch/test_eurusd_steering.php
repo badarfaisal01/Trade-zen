@@ -4,38 +4,41 @@ declare(strict_types=1);
 require_once __DIR__ . '/../app/bootstrap.php';
 
 echo "=======================================================\n";
-echo " VERIFYING EURUSD LIVE STEERING & CLOSE COINCIDENCE    \n";
+echo " VERIFYING EURUSD NATURAL PRICE + FINAL 12s STEERING   \n";
 echo "=======================================================\n\n";
 
 $asset = market_asset('EURUSD');
 $entryPrice = 1.08798;
+$naturalPrice = 1.08798;
 $decimals = 5;
-$tightMargin = max(pow(10, -$decimals) * 2.0, $entryPrice * 0.00015); // ~0.00016
-$targetClose = 1.08766; // Expected loss target below entry
+$tightMargin = max(pow(10, -$decimals) * 2.0, $entryPrice * 0.00015);
+$targetClose = 1.08766; // Guaranteed Loss target
 
 $durationMs = 60000;
 $steerWinMs = 12000;
 
 echo "Entry: " . number_format($entryPrice, 5) . " | Target Close: " . number_format($targetClose, 5) . "\n\n";
 
+$steerStartPrice = null;
+
 for ($t = 0; $t <= 60; $t += 2) {
-    $nowSec = $t;
     $remMs = max(0, (60 - $t) * 1000);
-    $smoothDelta = 0.0;
-    $gentleOsc = sin($t / 2.5) * ($tightMargin * 0.22) + sin($t / 5.0) * ($tightMargin * 0.12);
-    $midStartPrice = $entryPrice + $smoothDelta + $gentleOsc;
+    // Natural price drifts slightly with organic market
+    $rawPrice = $naturalPrice;
 
     if ($remMs > $steerWinMs) {
-        $livePrice = round($midStartPrice, $decimals);
-        $phase = "Gentle Mid-Trade";
+        $livePrice = $rawPrice;
+        $phase = "Natural Market (0% steering, 0 synthetic oscillation)";
     } else {
+        if ($steerStartPrice === null) {
+            $steerStartPrice = $rawPrice;
+        }
         $steerElapsed = $steerWinMs - $remMs;
         $steerNorm = min(1.0, max(0.0, $steerElapsed / $steerWinMs));
         $smoothFactor = $steerNorm * $steerNorm * (3.0 - 2.0 * $steerNorm);
-        $microBreathing = sin($t / 1.5) * ($tightMargin * 0.04 * (1.0 - $smoothFactor));
-        $livePrice = round($midStartPrice + (($targetClose - $midStartPrice) * $smoothFactor) + $microBreathing, $decimals);
+        $livePrice = round($steerStartPrice + (($targetClose - $steerStartPrice) * $smoothFactor), $decimals);
         $pct = round($smoothFactor * 100);
-        $phase = "Steering ({$pct}%)";
+        $phase = "Steering Active ({$pct}%)";
     }
 
     $diff = $livePrice - $entryPrice;
@@ -44,10 +47,7 @@ for ($t = 0; $t <= 60; $t += 2) {
 }
 
 // Check final price at t=60
-$finalRem = 0;
-$steerNorm = 1.0;
-$smoothFactor = 1.0;
-$finalPrice = round($midStartPrice + (($targetClose - $midStartPrice) * $smoothFactor), $decimals);
+$finalPrice = round($steerStartPrice + (($targetClose - $steerStartPrice) * 1.0), $decimals);
 
 echo "\nFinal Graph Price at Expiry (t=60s): " . number_format($finalPrice, 5) . "\n";
 echo "Settled Target Close Price:          " . number_format($targetClose, 5) . "\n";
