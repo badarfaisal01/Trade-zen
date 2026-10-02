@@ -530,26 +530,30 @@
     if (!tradeState || !Array.isArray(tradeState.trades)) return 0;
     var target = plainSymbol(activeSymbol);
     var now = Date.now();
-    var activeTrade = null;
+    var soonestActiveTrade = null;
     var recentSettledTrade = null;
 
     for (var i = 0; i < tradeState.trades.length; i++) {
       var t = tradeState.trades[i];
       if (!t || plainSymbol(t.symbol) !== target) continue;
       if (t.status === 'open') {
-        activeTrade = t;
-        break;
-      }
-      var settledMs = t.settledAt ? number(t.settledAt, 0) : (t.expiresAt ? number(t.expiresAt, 0) : 0);
-      if (settledMs > 0 && (now - settledMs) < 4000) {
-        if (!recentSettledTrade || settledMs > (recentSettledTrade.settledAt || recentSettledTrade.expiresAt || 0)) {
-          recentSettledTrade = t;
+        var exMs = number(t.expiresAt, 0);
+        if (!soonestActiveTrade || (exMs > 0 && exMs < number(soonestActiveTrade.expiresAt, Infinity))) {
+          soonestActiveTrade = t;
+        }
+      } else {
+        var settledMs = t.settledAt ? number(t.settledAt, 0) : (t.expiresAt ? number(t.expiresAt, 0) : 0);
+        if (settledMs > 0 && (now - settledMs) < 4000) {
+          if (!recentSettledTrade || settledMs > (recentSettledTrade.settledAt || recentSettledTrade.expiresAt || 0)) {
+            recentSettledTrade = t;
+          }
         }
       }
     }
 
-    if (activeTrade && targetLivePrice > 0) {
-      var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
+    var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
+
+    if (soonestActiveTrade && targetLivePrice > 0) {
       return targetLivePrice - base;
     }
 
@@ -558,7 +562,6 @@
       var elapsedPost = Math.max(0, Math.min(4000, now - settledTime));
       var norm = 1.0 - (elapsedPost / 4000.0);
       var smoothDecay = norm * norm * (3.0 - 2.0 * norm);
-      var base = (srcPrice > 0 && Math.abs(rawPrice - srcPrice) / srcPrice < 0.05) ? srcPrice : rawPrice;
       var fullOffset = targetLivePrice - base;
       return fullOffset * smoothDecay;
     }

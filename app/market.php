@@ -251,24 +251,36 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         return null;
     }
 
-    $activeTrade = null;
     $decayTrade = null;
+    $steeringTrade = null;
+    $earliestActiveTrade = null;
 
     foreach ($matchingTrades as $t) {
         $opMs = (int)strtotime((string)$t['opened_at']) * 1000;
         $exMs = (int)strtotime((string)$t['expires_at']) * 1000;
+        $durMs = max(1000, $exMs - $opMs);
+        $steerWinMs = min(15000.0, max(5000.0, (float)$durMs * 0.30));
 
-        if ($timestampMs >= $opMs && $timestampMs <= $exMs) {
-            $activeTrade = $t;
-            break;
-        } elseif ($timestampMs > $exMs && $timestampMs <= $exMs + 4000) {
+        if ($timestampMs > $exMs && $timestampMs <= $exMs + 4000) {
             if ($decayTrade === null) {
                 $decayTrade = $t;
+            }
+        } elseif ($timestampMs >= $opMs && $timestampMs <= $exMs) {
+            $remMs = $exMs - $timestampMs;
+            if ($remMs <= $steerWinMs && $steeringTrade === null) {
+                $steeringTrade = $t;
+            }
+            if ($earliestActiveTrade === null) {
+                $earliestActiveTrade = $t;
             }
         }
     }
 
-    $trade = $activeTrade ?: $decayTrade;
+    // Priority Order:
+    // 1. Trade in final steering countdown (closing soonest)
+    // 2. Trade that just expired and is decaying (so its close outcome isn't interrupted)
+    // 3. Soonest active trade in queue
+    $trade = $steeringTrade ?: ($decayTrade ?: $earliestActiveTrade);
     if (!$trade) {
         return null;
     }
