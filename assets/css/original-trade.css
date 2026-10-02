@@ -349,6 +349,9 @@ div[class*="modal-content"] {
     overflow-y: auto !important;
     -webkit-overflow-scrolling: touch !important;
     overscroll-behavior: contain !important;
+  }
+}
+
 /* Hide 4h and 1d timeframe options from chart period selectors */
 [data-period="14400"],
 [data-period="86400"],
@@ -362,5 +365,6 @@ li[data-period="14400"],
 li[data-period="86400"] {
   display: none !important;
 }
+
 
 
