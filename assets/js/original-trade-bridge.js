@@ -1845,7 +1845,18 @@
     }
     marketRequestRunning = true;
     var thisRequestId = ++currentMarketRequestId;
-    var countToFetch = Math.max(400, Math.min(10000, number(customCount, chartHistoryCount)));
+    var targetCount = 220;
+    if (periodAtStart <= 15) targetCount = 300;
+    else if (periodAtStart <= 30) targetCount = 240;
+    else if (periodAtStart <= 60) targetCount = 180;
+    else if (periodAtStart <= 120) targetCount = 150;
+    else if (periodAtStart <= 180) targetCount = 130;
+    else if (periodAtStart <= 300) targetCount = 100;
+    else if (periodAtStart <= 600) targetCount = 80;
+    else if (periodAtStart <= 900) targetCount = 60;
+    else if (periodAtStart <= 1800) targetCount = 50;
+    else targetCount = 40;
+    var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
       '&count=' + encodeURIComponent(String(countToFetch)) +
@@ -2522,6 +2533,7 @@
         lastEmittedQuoteSec = 0;
         showChartLoader(true);
         marketSnapshot = null;
+        snapshotCache = {};
         currentLivePrice = 0;
         naturalLivePrice = 0;
         targetLivePrice = 0;
@@ -2551,6 +2563,7 @@
         lastEmittedQuoteSec = 0;
         showChartLoader(true);
         marketSnapshot = null;
+        snapshotCache = {};
         currentLivePrice = 0;
         naturalLivePrice = 0;
         targetLivePrice = 0;
@@ -2580,6 +2593,7 @@
         lastEmittedQuoteSec = 0;
         showChartLoader(true);
         marketSnapshot = null;
+        snapshotCache = {};
         currentLivePrice = 0;
         naturalLivePrice = 0;
         targetLivePrice = 0;
