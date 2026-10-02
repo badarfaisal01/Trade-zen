@@ -518,7 +518,8 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
     if ($source === 'binance' && $apiSymbol !== '') {
         try {
-            if ($intervalSeconds <= 300) $baseSec = 60;
+            if ($intervalSeconds <= 120) $baseSec = 60;
+            elseif ($intervalSeconds <= 180) $baseSec = 180;
             elseif ($intervalSeconds <= 600) $baseSec = 300;
             elseif ($intervalSeconds <= 900) $baseSec = 900;
             elseif ($intervalSeconds <= 1800) $baseSec = 1800;
@@ -537,7 +538,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
     $twelvedataKey = (string)env('TWELVEDATA_API_KEY', '');
     if (empty($realKlines) && $source === 'api' && $isCurrency && $twelvedataKey !== '' && $apiSymbol !== '' && !empty($twelvedataKey)) {
         try {
-            if ($intervalSeconds <= 300) $tdBaseSec = 60;
+            if ($intervalSeconds <= 180) $tdBaseSec = 60;
             elseif ($intervalSeconds <= 600) $tdBaseSec = 300;
             elseif ($intervalSeconds <= 900) $tdBaseSec = 900;
             elseif ($intervalSeconds <= 1800) $tdBaseSec = 1800;

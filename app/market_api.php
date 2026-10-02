@@ -1189,9 +1189,11 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         }
     }
 
-    // Map interval seconds to Binance interval string (1m base ensures gapless 1m, 2m, 3m, 5m aggregation)
-    if ($intervalSeconds <= 300) {
+    // Map interval seconds to native Binance interval string for instant sub-100ms responses
+    if ($intervalSeconds <= 120) {
         $binanceInterval = '1m';
+    } elseif ($intervalSeconds <= 180) {
+        $binanceInterval = '3m';
     } elseif ($intervalSeconds <= 600) {
         $binanceInterval = '5m';
     } elseif ($intervalSeconds <= 900) {
