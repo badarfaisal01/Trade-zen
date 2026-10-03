@@ -965,8 +965,8 @@ function fetch_binance_all_prices(): array
     static $memoryCacheTime = 0.0;
     $now = microtime(true);
 
-    // 1. Same-request in-memory cache (< 6.0s)
-    if ($memoryCache !== null && ($now - $memoryCacheTime) < 6.0) {
+    // 1. Same-request in-memory cache (< 3.0s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 3.0) {
         return $memoryCache;
     }
 
@@ -976,10 +976,10 @@ function fetch_binance_all_prices(): array
     }
     $cacheFile = $cacheDir . '/binance_prices.json';
 
-    // 2. Cross-request persistent disk cache (< 6.0s)
+    // 2. Cross-request persistent disk cache (< 3.0s)
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 6.0) {
+        if (($now - $mtime) < 3.0) {
             $raw = @file_get_contents($cacheFile);
             if ($raw) {
                 $decoded = json_decode($raw, true);
@@ -1254,16 +1254,16 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         }
     }
 
-    // Fetch in parallel batches (max 5 batches to cover up to 5000 klines)
+    // Fetch in batches (max 5 batches to cover up to 5000 klines)
     $neededBatches = max(1, min(5, (int)ceil($neededCount / 1000)));
     $allKlines = [];
-    $endMsRef = $endTimeMs !== null ? $endTimeMs : (int)(floor(microtime(true) * 1000));
+    $endTime = $endTimeMs !== null ? $endTimeMs : null;
 
     if ($neededBatches === 1) {
         foreach (binance_api_hosts() as $host) {
             $url = $host . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
-            if ($endTimeMs !== null) {
-                $url .= "&endTime=" . $endTimeMs;
+            if ($endTime !== null) {
+                $url .= "&endTime=" . $endTime;
             }
 
             $ch = curl_init();
@@ -1298,20 +1298,17 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             }
         }
     } else {
-        // Parallel multi-curl fetch for instant sub-200ms retrieval of 800-3000 klines
+        // Parallel multi-curl fetch for sub-second retrieval of 800-2000 klines
         $hosts = binance_api_hosts();
         $primaryHost = $hosts[0] ?? 'https://api.binance.com';
         $mh = curl_multi_init();
         $handles = [];
+        $nowMs = $endTimeMs !== null ? $endTimeMs : (int)floor(microtime(true) * 1000);
         $batchStepMs = 1000 * $baseSec * 1000;
 
         for ($batch = 0; $batch < $neededBatches; $batch++) {
-            $url = $primaryHost . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
-            if ($batch === 0) {
-                if ($endTimeMs !== null) $url .= "&endTime=" . $endTimeMs;
-            } else {
-                $url .= "&endTime=" . ($endMsRef - ($batch * $batchStepMs));
-            }
+            $batchEnd = $nowMs - ($batch * $batchStepMs);
+            $url = $primaryHost . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000&endTime=" . $batchEnd;
 
             $ch = curl_init();
             curl_setopt($ch, CURLOPT_URL, $url);
@@ -1326,15 +1323,21 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             $handles[$batch] = $ch;
         }
 
+        $running = null;
         do {
-            $status = curl_multi_exec($mh, $active);
-            if ($active) curl_multi_select($mh, 0.05);
-        } while ($active && $status == CURLM_OK);
+            $status = curl_multi_exec($mh, $running);
+            if ($running) {
+                curl_multi_select($mh, 0.05);
+            }
+        } while ($running > 0 && $status === CURLM_OK);
 
         $mergedByTime = [];
         foreach ($handles as $ch) {
             $response = curl_multi_getcontent($ch);
             $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+
             if ($httpCode === 200 && is_string($response)) {
                 $klines = json_decode($response, true);
                 if (is_array($klines)) {
@@ -1352,8 +1355,6 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
                     }
                 }
             }
-            curl_multi_remove_handle($mh, $ch);
-            curl_close($ch);
         }
         curl_multi_close($mh);
 
