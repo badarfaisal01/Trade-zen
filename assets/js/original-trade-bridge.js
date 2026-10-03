@@ -455,6 +455,8 @@
 
   var chartLoaderActive = false;
   var chartLoaderTimer = null;
+  var chartLoaderShowTimer = null;
+
   function showChartLoader(force) {
     try {
       var cached = snapshotCache[activeSymbol + '_' + activePeriod];
@@ -464,35 +466,42 @@
         hideChartLoader();
         return;
       }
-      chartLoaderActive = true;
-      var loader = document.getElementById('tradeChartLoader');
-      if (!loader) {
-        loader = document.createElement('div');
-        loader.id = 'tradeChartLoader';
-        loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.78);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.25s ease, visibility 0.25s ease;';
-        loader.innerHTML = '<div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:12px;"></div>' +
-                           '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;">Loading market chart...</span>' +
-                           '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
-      }
-      var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
-      if (parent && loader.parentElement !== parent) {
-        var compStyle = window.getComputedStyle(parent);
-        if (compStyle.position === 'static') {
-          parent.style.position = 'relative';
+      if (chartLoaderShowTimer) clearTimeout(chartLoaderShowTimer);
+      chartLoaderShowTimer = setTimeout(function () {
+        chartLoaderActive = true;
+        var loader = document.getElementById('tradeChartLoader');
+        if (!loader) {
+          loader = document.createElement('div');
+          loader.id = 'tradeChartLoader';
+          loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.65);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.2s ease, visibility 0.2s ease;';
+          loader.innerHTML = '<div style="width:32px;height:32px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:10px;"></div>' +
+                             '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;font-size:12px;">Loading chart...</span>' +
+                             '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
         }
-        parent.appendChild(loader);
-      }
-      loader.style.display = 'flex';
-      loader.style.visibility = 'visible';
-      loader.style.opacity = '1';
+        var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
+        if (parent && loader.parentElement !== parent) {
+          var compStyle = window.getComputedStyle(parent);
+          if (compStyle.position === 'static') {
+            parent.style.position = 'relative';
+          }
+          parent.appendChild(loader);
+        }
+        loader.style.display = 'flex';
+        loader.style.visibility = 'visible';
+        loader.style.opacity = '1';
 
-      if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
-      chartLoaderTimer = setTimeout(hideChartLoader, 3000);
+        if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
+        chartLoaderTimer = setTimeout(hideChartLoader, 2500);
+      }, force ? 60 : 250);
     } catch (e) {}
   }
 
   function hideChartLoader() {
     try {
+      if (chartLoaderShowTimer) {
+        clearTimeout(chartLoaderShowTimer);
+        chartLoaderShowTimer = null;
+      }
       chartLoaderActive = false;
       if (chartLoaderTimer) {
         clearTimeout(chartLoaderTimer);
@@ -506,7 +515,7 @@
             loader.style.display = 'none';
             loader.style.visibility = 'hidden';
           }
-        }, 250);
+        }, 180);
       }
     } catch (e) {}
   }
@@ -2582,9 +2591,13 @@
       } else if (payload.isAutoScrolling !== undefined) {
         activeAutoScrolling = number(payload.isAutoScrolling, 1);
       }
+
       var reqSymStore = extractSymbol(payload, activeSymbol);
-      var hasChartPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
-                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
+      // Strictly detect actual chart candlestick interval changes, not trade expiration durations
+      var hasChartPeriod = Boolean(
+        payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined ||
+        (savedSettings && (savedSettings.chartPeriod !== undefined || savedSettings.timeframe !== undefined)))
+      );
       var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
 
@@ -2598,9 +2611,6 @@
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
-        showChartLoader(true);
-        marketSnapshot = null;
-        snapshotCache = {};
         currentLivePrice = 0;
         naturalLivePrice = 0;
         targetLivePrice = 0;

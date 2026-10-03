@@ -528,7 +528,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             else $baseSec = 86400;
 
             $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
-            $neededBinanceKlines = max(10, min(10000, $count * $klinesPerCandle));
+            $neededBinanceKlines = max(10, min(1000, $count * $klinesPerCandle));
             $realKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());

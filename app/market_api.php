@@ -965,8 +965,8 @@ function fetch_binance_all_prices(): array
     static $memoryCacheTime = 0.0;
     $now = microtime(true);
 
-    // 1. Same-request in-memory cache (< 3.0s)
-    if ($memoryCache !== null && ($now - $memoryCacheTime) < 3.0) {
+    // 1. Same-request in-memory cache (< 10.0s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 10.0) {
         return $memoryCache;
     }
 
@@ -976,10 +976,10 @@ function fetch_binance_all_prices(): array
     }
     $cacheFile = $cacheDir . '/binance_prices.json';
 
-    // 2. Cross-request persistent disk cache (< 3.0s)
+    // 2. Cross-request persistent disk cache (< 10.0s)
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 3.0) {
+        if (($now - $mtime) < 10.0) {
             $raw = @file_get_contents($cacheFile);
             if ($raw) {
                 $decoded = json_decode($raw, true);
@@ -1222,8 +1222,7 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     else if ($binanceInterval === '4h') $baseSec = 14400;
     else if ($binanceInterval === '1d') $baseSec = 86400;
 
-    $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
-    $neededCount = min(10000, max(10, $count * $klinesPerCandle));
+    $neededCount = min(1000, max(10, $count));
 
     // 1. In-memory cache (< 15s) - return if cached count satisfies fetchable count
     if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $neededCount) {
