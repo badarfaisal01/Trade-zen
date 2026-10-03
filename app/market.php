@@ -231,7 +231,7 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
     if (!array_key_exists($cacheKey, $tradesCache)) {
         try {
             $timeStr = date('Y-m-d H:i:s', $sec);
-            $decayStartStr = date('Y-m-d H:i:s', max(0, $sec - 8));
+            $decayStartStr = date('Y-m-d H:i:s', max(0, $sec - 6));
             $stmt = db()->prepare(
                 "SELECT id, user_id, asset_id, direction, entry_price, opened_at, expires_at 
                  FROM trades 
@@ -261,7 +261,7 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
         $durMs = max(1000, $exMs - $opMs);
         $steerWinMs = min(15000.0, max(5000.0, (float)$durMs * 0.30));
 
-        if ($timestampMs > $exMs && $timestampMs <= $exMs + 6000) {
+        if ($timestampMs > $exMs && $timestampMs <= $exMs + 4000) {
             if ($decayTrade === null) {
                 $decayTrade = $t;
             }
@@ -289,7 +289,7 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
     $expiresAtMs = (int)strtotime((string)$trade['expires_at']) * 1000;
     $isDecaying = ($timestampMs > $expiresAtMs);
 
-    if ($timestampMs < $openedAtMs || $timestampMs > $expiresAtMs + 6000) {
+    if ($timestampMs < $openedAtMs || $timestampMs > $expiresAtMs + 4000) {
         return null;
     }
 
@@ -357,20 +357,13 @@ function get_active_trade_controlled_price(array $asset, int $timestampMs, ?int 
 
         return round($price, $decimals);
     } else {
-        // Post-expiry window:
-        // 0 to 3.0s: HOLD at exact targetPrice where trade was lost with subtle micro oscillation
-        // 3.0s to 5.5s: smoothly interpolate from targetPrice back to real live market price
+        // Post-expiry decay window (0..2.5s): smoothly interpolate from targetPrice back to real live market price
         $elapsedPostMs = $timestampMs - $expiresAtMs;
-        if ($elapsedPostMs <= 3000) {
-            $micro = sin($sec * 4.0) * ($tick * 0.15);
-            $price = $targetPrice + $micro;
-            return round($price, $decimals);
-        } else {
-            $rawPostProgress = min(1.0, max(0.0, ($elapsedPostMs - 3000) / 2500.0));
-            $smoothFactor = $rawPostProgress * $rawPostProgress * (3.0 - 2.0 * $rawPostProgress);
-            $price = $targetPrice + (($rawRealPrice - $targetPrice) * $smoothFactor);
-            return round($price, $decimals);
-        }
+        $rawPostProgress = min(1.0, max(0.0, $elapsedPostMs / 2500.0));
+        $smoothFactor = $rawPostProgress * $rawPostProgress * (3.0 - 2.0 * $rawPostProgress);
+
+        $price = $targetPrice + (($rawRealPrice - $targetPrice) * $smoothFactor);
+        return round($price, $decimals);
     }
 }
 
