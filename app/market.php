@@ -528,7 +528,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             else $baseSec = 86400;
 
             $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
-            $neededBinanceKlines = max(10, min(1000, $count * $klinesPerCandle));
+            $neededBinanceKlines = max(10, min(10000, $count * $klinesPerCandle));
             $realKlines = fetch_binance_klines($apiSymbol, $intervalSeconds, $neededBinanceKlines, $endMs);
         } catch (Throwable $e) {
             error_log('Failed to fetch Binance klines for ' . $apiSymbol . ': ' . $e->getMessage());
@@ -599,18 +599,6 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
         $sortedTimes = array_keys($bMap);
         sort($sortedTimes);
 
-        // Calculate offset so synthetic older candles seamlessly anchor to the oldest real kline open price
-        $preHistoryOffset = 0.0;
-        if (!empty($sortedTimes)) {
-            $firstRealOpen = (float)($bMap[$sortedTimes[0]]['open'] ?? 0);
-            if ($firstRealOpen > 0) {
-                $synAtFirst = market_price_at($asset, $sortedTimes[0], true);
-                if ($synAtFirst > 0) {
-                    $preHistoryOffset = $firstRealOpen - $synAtFirst;
-                }
-            }
-        }
-
         $targetEndBucket = (int)(floor($endMs / $intervalMs) * $intervalMs);
         $targetStartBucket = $targetEndBucket - (($count - 1) * $intervalMs);
 
@@ -638,7 +626,7 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
             $prevClose = (float)$bMap[$startKey]['open'];
         }
         if ($prevClose <= 0) {
-            $prevClose = market_price_at($asset, $targetStartBucket, true) + $preHistoryOffset;
+            $prevClose = market_price_at($asset, $targetStartBucket, true);
         }
 
         $candles = [];

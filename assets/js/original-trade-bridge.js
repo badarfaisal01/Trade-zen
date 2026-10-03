@@ -14,8 +14,7 @@
       var origGetContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function (type, options) {
         if (type === '2d') {
-          options = (typeof options === 'object' && options !== null) ? options : {};
-          options.willReadFrequently = true;
+          options = Object.assign({willReadFrequently: true}, options || {});
         }
         return origGetContext.call(this, type, options);
       };
@@ -455,8 +454,6 @@
 
   var chartLoaderActive = false;
   var chartLoaderTimer = null;
-  var chartLoaderShowTimer = null;
-
   function showChartLoader(force) {
     try {
       var cached = snapshotCache[activeSymbol + '_' + activePeriod];
@@ -466,42 +463,35 @@
         hideChartLoader();
         return;
       }
-      if (chartLoaderShowTimer) clearTimeout(chartLoaderShowTimer);
-      chartLoaderShowTimer = setTimeout(function () {
-        chartLoaderActive = true;
-        var loader = document.getElementById('tradeChartLoader');
-        if (!loader) {
-          loader = document.createElement('div');
-          loader.id = 'tradeChartLoader';
-          loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.65);backdrop-filter:blur(3px);-webkit-backdrop-filter:blur(3px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.2s ease, visibility 0.2s ease;';
-          loader.innerHTML = '<div style="width:32px;height:32px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:10px;"></div>' +
-                             '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;font-size:12px;">Loading chart...</span>' +
-                             '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+      chartLoaderActive = true;
+      var loader = document.getElementById('tradeChartLoader');
+      if (!loader) {
+        loader = document.createElement('div');
+        loader.id = 'tradeChartLoader';
+        loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.78);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.25s ease, visibility 0.25s ease;';
+        loader.innerHTML = '<div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:12px;"></div>' +
+                           '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;">Loading market chart...</span>' +
+                           '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+      }
+      var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
+      if (parent && loader.parentElement !== parent) {
+        var compStyle = window.getComputedStyle(parent);
+        if (compStyle.position === 'static') {
+          parent.style.position = 'relative';
         }
-        var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
-        if (parent && loader.parentElement !== parent) {
-          var compStyle = window.getComputedStyle(parent);
-          if (compStyle.position === 'static') {
-            parent.style.position = 'relative';
-          }
-          parent.appendChild(loader);
-        }
-        loader.style.display = 'flex';
-        loader.style.visibility = 'visible';
-        loader.style.opacity = '1';
+        parent.appendChild(loader);
+      }
+      loader.style.display = 'flex';
+      loader.style.visibility = 'visible';
+      loader.style.opacity = '1';
 
-        if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
-        chartLoaderTimer = setTimeout(hideChartLoader, 2500);
-      }, force ? 60 : 250);
+      if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
+      chartLoaderTimer = setTimeout(hideChartLoader, 3000);
     } catch (e) {}
   }
 
   function hideChartLoader() {
     try {
-      if (chartLoaderShowTimer) {
-        clearTimeout(chartLoaderShowTimer);
-        chartLoaderShowTimer = null;
-      }
       chartLoaderActive = false;
       if (chartLoaderTimer) {
         clearTimeout(chartLoaderTimer);
@@ -515,7 +505,7 @@
             loader.style.display = 'none';
             loader.style.visibility = 'hidden';
           }
-        }, 180);
+        }, 250);
       }
     } catch (e) {}
   }
@@ -1867,70 +1857,53 @@
     });
   }
 
-  var activeMarketPromise = null;
-  var activeMarketKey = '';
+  var currentMarketRequestId = 0;
 
-  function refreshMarket(sendHistory, targetSocket, customCount) {
-    var symbolAtStart = activeSymbol;
-    var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
-    var targetCount = chartHistoryCount;
-    var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
-    var cacheKey = symbolAtStart + '_' + periodAtStart;
-
-    // 1. Instant cache hit - deliver immediately with 0ms delay
-    var cached = snapshotCache[cacheKey];
-    if (cached && Array.isArray(cached.candles) && cached.candles.length > 0) {
-      marketSnapshot = cached;
-      marketSnapshot.period = periodAtStart;
-      if (sendHistory) {
-        var cachedPayload = historyPayload(cached, activeSocketSymbol, periodAtStart);
-        if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
-          targetSocket.binaryEvent('settings/list', graphSettings());
-          targetSocket.binaryEvent('history/list/v2', cachedPayload);
-        }
-        broadcastBinary('settings/list', graphSettings());
-        broadcastBinary('history/list/v2', cachedPayload);
-        lastHistoryBroadcastAt = Date.now();
-        hideChartLoader();
-        emitSmoothQuote();
-      }
-      return Promise.resolve(cached);
-    }
-
-    if (sendHistory) {
-      showChartLoader(true);
-    }
-
-    // 2. Reuse in-flight network request if already fetching the exact same symbol & period
-    if (activeMarketPromise && activeMarketKey === cacheKey) {
-      return activeMarketPromise.then(function (snap) {
-        if (sendHistory && snap) {
-          var hPayload = historyPayload(snap, activeSocketSymbol, periodAtStart);
-          if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
-            targetSocket.binaryEvent('settings/list', graphSettings());
-            targetSocket.binaryEvent('history/list/v2', hPayload);
-          }
-          broadcastBinary('settings/list', graphSettings());
-          broadcastBinary('history/list/v2', hPayload);
-          hideChartLoader();
-        }
-        return snap;
+  function refreshMarket(sendHistory, socket, customCount) {
+    if (marketRequestRunning) {
+      if (!sendHistory) return Promise.resolve(marketSnapshot);
+      return new Promise(function (resolve) {
+        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 80);
       });
     }
-
+    var symbolAtStart = activeSymbol;
+    var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
+    var cached = snapshotCache[symbolAtStart + '_' + periodAtStart];
+    var hasLoadedCandles = (cached && Array.isArray(cached.candles) && cached.candles.length > 0) ||
+                           (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol) === symbolAtStart && number(marketSnapshot.period, 0) === periodAtStart && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0);
+    if (sendHistory && !hasLoadedCandles) {
+      showChartLoader(true);
+    }
+    marketRequestRunning = true;
+    var thisRequestId = ++currentMarketRequestId;
+    var targetCount = 200;
+    if (periodAtStart <= 30) targetCount = 600;       // 1s - 30s (Smooth micro-scalp)
+    else if (periodAtStart <= 60) targetCount = 800;  // 1m -> Exact 800 candles (13.3 hrs)
+    else if (periodAtStart <= 120) targetCount = 600; // 2m -> 600 candles (20 hrs)
+    else if (periodAtStart <= 180) targetCount = 500; // 3m -> 500 candles (25 hrs)
+    else if (periodAtStart <= 300) targetCount = 400; // 5m -> 400 candles (~1.4 days)
+    else if (periodAtStart <= 600) targetCount = 350; // 10m -> 350 candles (~2.4 days)
+    else if (periodAtStart <= 900) targetCount = 300; // 15m -> 300 candles (~3.1 days)
+    else if (periodAtStart <= 1800) targetCount = 250;// 30m -> 250 candles (~5.2 days)
+    else if (periodAtStart <= 3600) targetCount = 200;// 1h -> 200 candles (~8.3 days)
+    else targetCount = 150;
+    var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
       '&count=' + encodeURIComponent(String(countToFetch)) +
       '&history=' + (sendHistory ? '1' : '0');
 
-    activeMarketKey = cacheKey;
-    activeMarketPromise = jsonRequest(endpoint).then(function (snapshot) {
+    return jsonRequest(endpoint).then(function (snapshot) {
+      if (thisRequestId !== currentMarketRequestId && (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod)) {
+        return snapshot;
+      }
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       if (snapshot) {
         snapshot.period = periodAtStart;
       }
       if (snapshot && snapshot.asset && apiCandles.length > 0) {
-        snapshotCache[plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart] = snapshot;
+        var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
+        snapshotCache[cacheKey] = snapshot;
       }
       
       // If background quote poll (sendHistory=false) and candles not included, preserve existing candles only if period matches
@@ -1965,10 +1938,6 @@
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
-        if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
-          targetSocket.binaryEvent('settings/list', graphSettings());
-          targetSocket.binaryEvent('history/list/v2', hPayload);
-        }
         broadcastBinary('settings/list', graphSettings());
         broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
@@ -1977,21 +1946,21 @@
       }
       return snapshot;
     }).catch(function (error) {
-      hideChartLoader();
+      showNotice(error.message, true);
       return marketSnapshot;
     }).then(function (snapshot) {
-      activeMarketPromise = null;
-      activeMarketKey = '';
-      hideChartLoader();
+      marketRequestRunning = false;
+      if (sendHistory) {
+        hideChartLoader();
+      }
       return snapshot;
     }, function (error) {
-      activeMarketPromise = null;
-      activeMarketKey = '';
-      hideChartLoader();
+      marketRequestRunning = false;
+      if (sendHistory) {
+        hideChartLoader();
+      }
       throw error;
     });
-
-    return activeMarketPromise;
   }
 
   function checkTradeExpirations() {
@@ -2572,57 +2541,71 @@
     }
     if (event === 'settings/store') {
       var savedSettings = payload && payload.settings ? payload.settings : {};
-      if (typeof savedSettings === 'string') {
-        try { savedSettings = JSON.parse(savedSettings); } catch (e) { savedSettings = {}; }
-      }
-      if (savedSettings && savedSettings.zoom && typeof savedSettings.zoom === 'object') {
-        activeZoom = savedSettings.zoom;
-      } else if (payload && payload.zoom && typeof payload.zoom === 'object') {
-        activeZoom = payload.zoom;
-      }
       if (savedSettings.timePeriod || payload.timePeriod) {
         selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod || payload.timePeriod, 60));
       }
       if (savedSettings.currentExpirationTime || payload.currentExpirationTime) {
         selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
-      if (savedSettings.isAutoScrolling !== undefined) {
-        activeAutoScrolling = number(savedSettings.isAutoScrolling, 1);
-      } else if (payload.isAutoScrolling !== undefined) {
-        activeAutoScrolling = number(payload.isAutoScrolling, 1);
-      }
-
       var reqSymStore = extractSymbol(payload, activeSymbol);
-      // Strictly detect actual chart candlestick interval changes, not trade expiration durations
-      var hasChartPeriod = Boolean(
-        payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined ||
-        (savedSettings && (savedSettings.chartPeriod !== undefined || savedSettings.timeframe !== undefined)))
-      );
+      var hasChartPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
+                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
+      activeSymbol = reqSymStore;
+      activeSocketSymbol = socketSymbol(activeSymbol);
+      if (hasChartPeriod) {
+        activePeriod = reqPerStore;
+        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
+      }
 
       if (storeChanged) {
-        activeSymbol = reqSymStore;
-        activeSocketSymbol = socketSymbol(activeSymbol);
-        if (hasChartPeriod) {
-          activePeriod = reqPerStore;
-          try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
-        }
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
+        showChartLoader(true);
+        marketSnapshot = null;
+        snapshotCache = {};
         currentLivePrice = 0;
         naturalLivePrice = 0;
         targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
+      }
+
+      if (!marketSnapshot || storeChanged) {
         refreshMarket(true, socket);
       }
-      socket.binaryEvent('settings/list', graphSettings());
       return;
     }
     if (event === 'instruments/update') {
-      socket.binaryEvent('settings/list', graphSettings());
-      socket.binaryEvent('instruments/list', instrumentsList());
+      var reqSym = extractSymbol(payload, activeSymbol);
+      var hasInstPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
+                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
+      var reqPer = hasInstPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
+      var instChanged = reqSym !== activeSymbol || (hasInstPeriod && reqPer !== activePeriod);
+      activeSymbol = reqSym;
+      activeSocketSymbol = socketSymbol(activeSymbol);
+      if (hasInstPeriod) {
+        activePeriod = reqPer;
+        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
+      }
+
+      if (instChanged) {
+        lastEmittedTickPrices = {};
+        restDriftOffset = 0;
+        lastEmittedQuoteSec = 0;
+        showChartLoader(true);
+        marketSnapshot = null;
+        snapshotCache = {};
+        currentLivePrice = 0;
+        naturalLivePrice = 0;
+        targetLivePrice = 0;
+        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
+      }
+
+      if (!marketSnapshot || instChanged) {
+        refreshMarket(true, socket);
+      }
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
@@ -2658,7 +2641,7 @@
       var beforeTimeSec = payload && (payload.time || payload.end || payload.before) ? number(payload.time || payload.end || payload.before, 0) : 0;
       if (beforeTimeSec > 0 && (event === 'history/load' || event === 'history/load/v2' || event.indexOf('load') !== -1)) {
         var beforeMs = Math.round(beforeTimeSec * 1000);
-        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=250&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
+        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=120&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
           var olderPayload = historyPayload(olderSnapshot, activeSocketSymbol, activePeriod);
           if (payload && payload.index !== undefined) {
             olderPayload.index = payload.index;
@@ -2681,10 +2664,9 @@
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
-        hideChartLoader();
       }
 
-      var minRequiredCandles = activePeriod <= 180 ? 100 : 30;
+      var minRequiredCandles = activePeriod <= 30 ? 60 : (activePeriod <= 180 ? 35 : 20);
       var hasFullCandles = hasCandles && marketSnapshot.candles.length >= minRequiredCandles;
       if (!marketSnapshot || !isMatchingSymbol || !isMatchingPeriod || !hasFullCandles) {
         refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket);

@@ -965,8 +965,8 @@ function fetch_binance_all_prices(): array
     static $memoryCacheTime = 0.0;
     $now = microtime(true);
 
-    // 1. Same-request in-memory cache (< 10.0s)
-    if ($memoryCache !== null && ($now - $memoryCacheTime) < 10.0) {
+    // 1. Same-request in-memory cache (< 3.0s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 3.0) {
         return $memoryCache;
     }
 
@@ -976,10 +976,10 @@ function fetch_binance_all_prices(): array
     }
     $cacheFile = $cacheDir . '/binance_prices.json';
 
-    // 2. Cross-request persistent disk cache (< 10.0s)
+    // 2. Cross-request persistent disk cache (< 3.0s)
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 10.0) {
+        if (($now - $mtime) < 3.0) {
             $raw = @file_get_contents($cacheFile);
             if ($raw) {
                 $decoded = json_decode($raw, true);
@@ -1222,7 +1222,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     else if ($binanceInterval === '4h') $baseSec = 14400;
     else if ($binanceInterval === '1d') $baseSec = 86400;
 
-    $neededCount = min(1000, max(10, $count));
+    $klinesPerCandle = max(1, (int)ceil($intervalSeconds / $baseSec));
+    $neededCount = min(10000, max(10, $count * $klinesPerCandle));
 
     // 1. In-memory cache (< 15s) - return if cached count satisfies fetchable count
     if (isset($memoryKlines[$cacheKey], $memoryKlineTime[$cacheKey]) && ($now - $memoryKlineTime[$cacheKey]) < 15.0 && count($memoryKlines[$cacheKey]) >= $neededCount) {
@@ -1258,7 +1259,8 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
     $allKlines = [];
     $endTime = $endTimeMs !== null ? $endTimeMs : null;
 
-    if ($neededBatches === 1) {
+    for ($batch = 0; $batch < $neededBatches; $batch++) {
+        $batchSuccess = false;
         foreach (binance_api_hosts() as $host) {
             $url = $host . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
             if ($endTime !== null) {
@@ -1281,9 +1283,10 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             if ($httpCode === 200 && is_string($response)) {
                 $klines = json_decode($response, true);
                 if (is_array($klines) && !empty($klines)) {
+                    $batchResult = [];
                     foreach ($klines as $k) {
                         if (!is_array($k) || count($k) < 6) continue;
-                        $allKlines[] = [
+                        $batchResult[] = [
                             'openTime'  => (int)$k[0],
                             'open'      => (float)$k[1],
                             'high'      => (float)$k[2],
@@ -1292,74 +1295,21 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
                             'closeTime' => (int)$k[6],
                         ];
                     }
-                    if (!empty($allKlines)) break;
-                }
-            }
-        }
-    } else {
-        // Parallel multi-curl fetch for sub-second retrieval of 800-2000 klines
-        $hosts = binance_api_hosts();
-        $primaryHost = $hosts[0] ?? 'https://api.binance.com';
-        $mh = curl_multi_init();
-        $handles = [];
-        $nowMs = $endTimeMs !== null ? $endTimeMs : (int)floor(microtime(true) * 1000);
-        $batchStepMs = 1000 * $baseSec * 1000;
-
-        for ($batch = 0; $batch < $neededBatches; $batch++) {
-            $batchEnd = $nowMs - ($batch * $batchStepMs);
-            $url = $primaryHost . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000&endTime=" . $batchEnd;
-
-            $ch = curl_init();
-            curl_setopt($ch, CURLOPT_URL, $url);
-            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
-            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
-            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
-            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
-            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
-            curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
-
-            curl_multi_add_handle($mh, $ch);
-            $handles[$batch] = $ch;
-        }
-
-        $running = null;
-        do {
-            $status = curl_multi_exec($mh, $running);
-            if ($running) {
-                curl_multi_select($mh, 0.05);
-            }
-        } while ($running > 0 && $status === CURLM_OK);
-
-        $mergedByTime = [];
-        foreach ($handles as $ch) {
-            $response = curl_multi_getcontent($ch);
-            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
-            curl_multi_remove_handle($mh, $ch);
-            curl_close($ch);
-
-            if ($httpCode === 200 && is_string($response)) {
-                $klines = json_decode($response, true);
-                if (is_array($klines)) {
-                    foreach ($klines as $k) {
-                        if (!is_array($k) || count($k) < 6) continue;
-                        $ot = (int)$k[0];
-                        $mergedByTime[$ot] = [
-                            'openTime'  => $ot,
-                            'open'      => (float)$k[1],
-                            'high'      => (float)$k[2],
-                            'low'       => (float)$k[3],
-                            'close'     => (float)$k[4],
-                            'closeTime' => (int)$k[6],
-                        ];
+                    if (!empty($batchResult)) {
+                        $allKlines = array_merge($batchResult, $allKlines);
+                        // Next batch fetches older klines before current oldest openTime
+                        $endTime = (int)$batchResult[0]['openTime'] - 1;
+                        $batchSuccess = true;
+                        if (count($batchResult) < 1000) {
+                            break 2; // No more historical candles on Binance
+                        }
+                        break; // Host succeeded, move to next batch
                     }
                 }
             }
         }
-        curl_multi_close($mh);
-
-        if (!empty($mergedByTime)) {
-            ksort($mergedByTime);
-            $allKlines = array_values($mergedByTime);
+        if (!$batchSuccess) {
+            break;
         }
     }
 
