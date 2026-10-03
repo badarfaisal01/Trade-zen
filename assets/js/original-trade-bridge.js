@@ -468,25 +468,15 @@
       if (!loader) {
         loader = document.createElement('div');
         loader.id = 'tradeChartLoader';
-        loader.style.cssText = 'position:absolute;top:0;left:0;right:0;bottom:0;z-index:99999;background:rgba(15,18,25,0.78);backdrop-filter:blur(5px);-webkit-backdrop-filter:blur(5px);display:flex;flex-direction:column;align-items:center;justify-content:center;color:#e1e7f5;font-family:sans-serif;font-size:13px;pointer-events:none;transition:opacity 0.25s ease, visibility 0.25s ease;';
-        loader.innerHTML = '<div style="width:36px;height:36px;border:3px solid rgba(255,255,255,0.12);border-top-color:#00e5ff;border-radius:50%;animation:spinTradeLoader 0.7s linear infinite;margin-bottom:12px;"></div>' +
-                           '<span style="letter-spacing:0.5px;color:#cbd5e1;font-weight:500;">Loading market chart...</span>' +
-                           '<style>@keyframes spinTradeLoader { 0% { transform: rotate(0deg); } 100% { transform: rotate(360deg); } }</style>';
+        loader.style.cssText = 'position:fixed;top:0;left:0;right:0;height:3px;z-index:999999;background:linear-gradient(90deg,#00e5ff,#7c3aed,#00e5ff);background-size:200% 100%;animation:tradeChartProgress 1s linear infinite;pointer-events:none;transition:opacity 0.2s ease;';
+        loader.innerHTML = '<style>@keyframes tradeChartProgress { 0% { background-position: 0% 0%; } 100% { background-position: 200% 0%; } }</style>';
+        document.body.appendChild(loader);
       }
-      var parent = document.querySelector('.section-main__chart, .trading-chart, [class*="chart-container"], #graph') || document.body;
-      if (parent && loader.parentElement !== parent) {
-        var compStyle = window.getComputedStyle(parent);
-        if (compStyle.position === 'static') {
-          parent.style.position = 'relative';
-        }
-        parent.appendChild(loader);
-      }
-      loader.style.display = 'flex';
-      loader.style.visibility = 'visible';
+      loader.style.display = 'block';
       loader.style.opacity = '1';
 
       if (chartLoaderTimer) clearTimeout(chartLoaderTimer);
-      chartLoaderTimer = setTimeout(hideChartLoader, 3000);
+      chartLoaderTimer = setTimeout(hideChartLoader, 2000);
     } catch (e) {}
   }
 
@@ -503,9 +493,8 @@
         setTimeout(function () {
           if (loader && loader.style.opacity === '0') {
             loader.style.display = 'none';
-            loader.style.visibility = 'hidden';
           }
-        }, 250);
+        }, 200);
       }
     } catch (e) {}
   }
@@ -744,11 +733,27 @@
   }
 
   var currentBinanceStream = '';
+  var binanceFailCount = 0;
+  var binanceDisabledUntil = 0;
+
+  function safeCloseBinanceWs(ws) {
+    if (!ws) return;
+    try {
+      ws.onmessage = null;
+      ws.onerror = null;
+      ws.onclose = null;
+      ws.close();
+    } catch (e) {}
+  }
+
   function connectBinanceWs(streamSym) {
+    if (Date.now() < binanceDisabledUntil) {
+      return;
+    }
     var expectedAsset = findAsset(activeSymbol);
     if (!isAssetActive(expectedAsset)) {
       if (binanceWs) {
-        try { binanceWs.close(); } catch (e) {}
+        safeCloseBinanceWs(binanceWs);
         binanceWs = null;
       }
       currentBinanceStream = '';
@@ -756,7 +761,7 @@
     }
     if (!streamSym || !NativeWebSocket) {
       if (binanceWs) {
-        try { binanceWs.close(); } catch (e) {}
+        safeCloseBinanceWs(binanceWs);
         binanceWs = null;
       }
       currentBinanceStream = '';
@@ -766,17 +771,18 @@
       return;
     }
     if (binanceWs) {
-      try { binanceWs.close(); } catch (e) {}
+      safeCloseBinanceWs(binanceWs);
       binanceWs = null;
     }
     currentBinanceStream = streamSym;
     try {
       var ws = new NativeWebSocket('wss://stream.binance.com:9443/stream?streams=' + streamSym + '@aggTrade');
       binanceWs = ws;
+      var receivedAnyMsg = false;
       ws.onmessage = function (ev) {
         try {
           if (binanceWs !== ws || streamSym !== getBinanceStreamSymbol(activeSymbol)) {
-            try { ws.close(); } catch (e) {}
+            safeCloseBinanceWs(ws);
             return;
           }
           var msg = JSON.parse(ev.data);
@@ -784,11 +790,11 @@
           if (data && data.p) {
             var rawPrice = parseFloat(data.p);
             if (rawPrice > 0) {
+              receivedAnyMsg = true;
+              binanceFailCount = 0;
+              binanceDisabledUntil = 0;
               naturalLivePrice = rawPrice;
               lastBinanceTickMs = Date.now();
-              if (chartLoaderActive) {
-                return;
-              }
               var currAssetObj = findAsset(activeSymbol);
               if (!isAssetActive(currAssetObj)) {
                 return;
@@ -802,18 +808,37 @@
           }
         } catch (e) {}
       };
-      ws.onerror = function () {};
+      ws.onerror = function () {
+        binanceFailCount++;
+        if (binanceFailCount >= 2) {
+          binanceDisabledUntil = Date.now() + 300000;
+          if (binanceWs === ws) {
+            safeCloseBinanceWs(binanceWs);
+            binanceWs = null;
+            currentBinanceStream = '';
+          }
+        }
+      };
       ws.onclose = function () {
         if (binanceWs === ws) {
           binanceWs = null;
           currentBinanceStream = '';
+          if (!receivedAnyMsg) {
+            binanceFailCount++;
+            if (binanceFailCount >= 2) {
+              binanceDisabledUntil = Date.now() + 300000;
+              return;
+            }
+          }
           window.setTimeout(function () {
             var currStream = getBinanceStreamSymbol(activeSymbol);
-            if (currStream) connectBinanceWs(currStream);
-          }, 2500);
+            if (currStream && Date.now() >= binanceDisabledUntil) connectBinanceWs(currStream);
+          }, 10000);
         }
       };
-    } catch (e) {}
+    } catch (e) {
+      binanceFailCount++;
+    }
   }
 
   var lastBinanceTickMs = 0;
@@ -892,7 +917,6 @@
   function emitSmoothQuote() {
     checkTradeExpirations();
     if (!currentLivePrice || !activeSocketSymbol) return;
-    if (chartLoaderActive) return;
     var expectedAsset = findAsset(activeSymbol);
     if (!isAssetActive(expectedAsset)) {
       // Market is closed: freeze quote completely at close price
@@ -1876,17 +1900,10 @@
     }
     marketRequestRunning = true;
     var thisRequestId = ++currentMarketRequestId;
-    var targetCount = 220;
-    if (periodAtStart <= 15) targetCount = 300;
-    else if (periodAtStart <= 30) targetCount = 240;
-    else if (periodAtStart <= 60) targetCount = 180;
-    else if (periodAtStart <= 120) targetCount = 150;
-    else if (periodAtStart <= 180) targetCount = 130;
-    else if (periodAtStart <= 300) targetCount = 100;
-    else if (periodAtStart <= 600) targetCount = 80;
-    else if (periodAtStart <= 900) targetCount = 60;
-    else if (periodAtStart <= 1800) targetCount = 50;
-    else targetCount = 40;
+    var targetCount = 800;
+    if (periodAtStart <= 180) targetCount = 800;
+    else if (periodAtStart <= 1800) targetCount = 300;
+    else targetCount = 200;
     var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
@@ -2541,25 +2558,38 @@
     }
     if (event === 'settings/store') {
       var savedSettings = payload && payload.settings ? payload.settings : {};
+      if (typeof savedSettings === 'string') {
+        try { savedSettings = JSON.parse(savedSettings); } catch (e) { savedSettings = {}; }
+      }
+      if (savedSettings && savedSettings.zoom && typeof savedSettings.zoom === 'object') {
+        activeZoom = savedSettings.zoom;
+      } else if (payload && payload.zoom && typeof payload.zoom === 'object') {
+        activeZoom = payload.zoom;
+      }
       if (savedSettings.timePeriod || payload.timePeriod) {
         selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod || payload.timePeriod, 60));
       }
       if (savedSettings.currentExpirationTime || payload.currentExpirationTime) {
         selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
+      if (savedSettings.isAutoScrolling !== undefined) {
+        activeAutoScrolling = number(savedSettings.isAutoScrolling, 1);
+      } else if (payload.isAutoScrolling !== undefined) {
+        activeAutoScrolling = number(payload.isAutoScrolling, 1);
+      }
       var reqSymStore = extractSymbol(payload, activeSymbol);
       var hasChartPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
                                   (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
-      activeSymbol = reqSymStore;
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      if (hasChartPeriod) {
-        activePeriod = reqPerStore;
-        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
-      }
 
       if (storeChanged) {
+        activeSymbol = reqSymStore;
+        activeSocketSymbol = socketSymbol(activeSymbol);
+        if (hasChartPeriod) {
+          activePeriod = reqPerStore;
+          try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
+        }
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
@@ -2570,42 +2600,14 @@
         naturalLivePrice = 0;
         targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-      }
-
-      if (!marketSnapshot || storeChanged) {
         refreshMarket(true, socket);
       }
+      socket.binaryEvent('settings/list', graphSettings());
       return;
     }
     if (event === 'instruments/update') {
-      var reqSym = extractSymbol(payload, activeSymbol);
-      var hasInstPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
-                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
-      var reqPer = hasInstPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
-      var instChanged = reqSym !== activeSymbol || (hasInstPeriod && reqPer !== activePeriod);
-      activeSymbol = reqSym;
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      if (hasInstPeriod) {
-        activePeriod = reqPer;
-        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
-      }
-
-      if (instChanged) {
-        lastEmittedTickPrices = {};
-        restDriftOffset = 0;
-        lastEmittedQuoteSec = 0;
-        showChartLoader(true);
-        marketSnapshot = null;
-        snapshotCache = {};
-        currentLivePrice = 0;
-        naturalLivePrice = 0;
-        targetLivePrice = 0;
-        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-      }
-
-      if (!marketSnapshot || instChanged) {
-        refreshMarket(true, socket);
-      }
+      socket.binaryEvent('settings/list', graphSettings());
+      socket.binaryEvent('instruments/list', instrumentsList());
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
@@ -2641,7 +2643,7 @@
       var beforeTimeSec = payload && (payload.time || payload.end || payload.before) ? number(payload.time || payload.end || payload.before, 0) : 0;
       if (beforeTimeSec > 0 && (event === 'history/load' || event === 'history/load/v2' || event.indexOf('load') !== -1)) {
         var beforeMs = Math.round(beforeTimeSec * 1000);
-        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=120&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
+        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=250&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
           var olderPayload = historyPayload(olderSnapshot, activeSocketSymbol, activePeriod);
           if (payload && payload.index !== undefined) {
             olderPayload.index = payload.index;
@@ -2664,9 +2666,10 @@
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
+        hideChartLoader();
       }
 
-      var minRequiredCandles = activePeriod <= 30 ? 60 : (activePeriod <= 180 ? 35 : 20);
+      var minRequiredCandles = activePeriod <= 180 ? 100 : 30;
       var hasFullCandles = hasCandles && marketSnapshot.candles.length >= minRequiredCandles;
       if (!marketSnapshot || !isMatchingSymbol || !isMatchingPeriod || !hasFullCandles) {
         refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket);

@@ -1254,17 +1254,16 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
         }
     }
 
-    // Fetch in batches (max 5 batches to cover up to 5000 klines)
+    // Fetch in parallel batches (max 5 batches to cover up to 5000 klines)
     $neededBatches = max(1, min(5, (int)ceil($neededCount / 1000)));
     $allKlines = [];
-    $endTime = $endTimeMs !== null ? $endTimeMs : null;
+    $endMsRef = $endTimeMs !== null ? $endTimeMs : (int)(floor(microtime(true) * 1000));
 
-    for ($batch = 0; $batch < $neededBatches; $batch++) {
-        $batchSuccess = false;
+    if ($neededBatches === 1) {
         foreach (binance_api_hosts() as $host) {
             $url = $host . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
-            if ($endTime !== null) {
-                $url .= "&endTime=" . $endTime;
+            if ($endTimeMs !== null) {
+                $url .= "&endTime=" . $endTimeMs;
             }
 
             $ch = curl_init();
@@ -1283,10 +1282,9 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
             if ($httpCode === 200 && is_string($response)) {
                 $klines = json_decode($response, true);
                 if (is_array($klines) && !empty($klines)) {
-                    $batchResult = [];
                     foreach ($klines as $k) {
                         if (!is_array($k) || count($k) < 6) continue;
-                        $batchResult[] = [
+                        $allKlines[] = [
                             'openTime'  => (int)$k[0],
                             'open'      => (float)$k[1],
                             'high'      => (float)$k[2],
@@ -1295,21 +1293,73 @@ function fetch_binance_klines(string $symbol, int $intervalSeconds = 60, int $co
                             'closeTime' => (int)$k[6],
                         ];
                     }
-                    if (!empty($batchResult)) {
-                        $allKlines = array_merge($batchResult, $allKlines);
-                        // Next batch fetches older klines before current oldest openTime
-                        $endTime = (int)$batchResult[0]['openTime'] - 1;
-                        $batchSuccess = true;
-                        if (count($batchResult) < 1000) {
-                            break 2; // No more historical candles on Binance
-                        }
-                        break; // Host succeeded, move to next batch
-                    }
+                    if (!empty($allKlines)) break;
                 }
             }
         }
-        if (!$batchSuccess) {
-            break;
+    } else {
+        // Parallel multi-curl fetch for instant sub-200ms retrieval of 800-3000 klines
+        $hosts = binance_api_hosts();
+        $primaryHost = $hosts[0] ?? 'https://api.binance.com';
+        $mh = curl_multi_init();
+        $handles = [];
+        $batchStepMs = 1000 * $baseSec * 1000;
+
+        for ($batch = 0; $batch < $neededBatches; $batch++) {
+            $url = $primaryHost . "/api/v3/klines?symbol=" . urlencode($apiSymbol) . "&interval=" . $binanceInterval . "&limit=1000";
+            if ($batch === 0) {
+                if ($endTimeMs !== null) $url .= "&endTime=" . $endTimeMs;
+            } else {
+                $url .= "&endTime=" . ($endMsRef - ($batch * $batchStepMs));
+            }
+
+            $ch = curl_init();
+            curl_setopt($ch, CURLOPT_URL, $url);
+            curl_setopt($ch, CURLOPT_RETURNTRANSFER, true);
+            curl_setopt($ch, CURLOPT_CONNECTTIMEOUT, 2);
+            curl_setopt($ch, CURLOPT_TIMEOUT, 3);
+            curl_setopt($ch, CURLOPT_IPRESOLVE, CURL_IPRESOLVE_V4);
+            curl_setopt($ch, CURLOPT_SSL_VERIFYPEER, false);
+            curl_setopt($ch, CURLOPT_HTTPHEADER, binance_request_headers());
+
+            curl_multi_add_handle($mh, $ch);
+            $handles[$batch] = $ch;
+        }
+
+        do {
+            $status = curl_multi_exec($mh, $active);
+            if ($active) curl_multi_select($mh, 0.05);
+        } while ($active && $status == CURLM_OK);
+
+        $mergedByTime = [];
+        foreach ($handles as $ch) {
+            $response = curl_multi_getcontent($ch);
+            $httpCode = (int)curl_getinfo($ch, CURLINFO_HTTP_CODE);
+            if ($httpCode === 200 && is_string($response)) {
+                $klines = json_decode($response, true);
+                if (is_array($klines)) {
+                    foreach ($klines as $k) {
+                        if (!is_array($k) || count($k) < 6) continue;
+                        $ot = (int)$k[0];
+                        $mergedByTime[$ot] = [
+                            'openTime'  => $ot,
+                            'open'      => (float)$k[1],
+                            'high'      => (float)$k[2],
+                            'low'       => (float)$k[3],
+                            'close'     => (float)$k[4],
+                            'closeTime' => (int)$k[6],
+                        ];
+                    }
+                }
+            }
+            curl_multi_remove_handle($mh, $ch);
+            curl_close($ch);
+        }
+        curl_multi_close($mh);
+
+        if (!empty($mergedByTime)) {
+            ksort($mergedByTime);
+            $allKlines = array_values($mergedByTime);
         }
     }
 

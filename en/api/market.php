@@ -6,7 +6,7 @@ session_write_close();
 
 $symbol = strtoupper(trim((string)($_GET['symbol'] ?? 'EURUSD')));
 $interval = (int)($_GET['interval'] ?? 5);
-$count = min(3000, max(20, (int)($_GET['count'] ?? 250)));
+$count = min(3000, max(20, (int)($_GET['count'] ?? 800)));
 $includeCandles = (string)($_GET['history'] ?? '1') !== '0';
 $endMs = isset($_GET['endMs']) && is_numeric($_GET['endMs']) ? (int)$_GET['endMs'] : (isset($_GET['before']) && is_numeric($_GET['before']) ? (int)$_GET['before'] : null);
 
