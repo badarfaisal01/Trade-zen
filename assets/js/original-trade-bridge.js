@@ -571,7 +571,7 @@
         }
       } else {
         var settledMs = t.settledAt ? number(t.settledAt, 0) : exMs;
-        if (settledMs > 0 && (now - settledMs) < 2500) {
+        if (settledMs > 0 && (now - settledMs) < 6000) {
           if (!recentSettledTrade || settledMs > (recentSettledTrade.settledAt || recentSettledTrade.expiresAt || 0)) {
             recentSettledTrade = t;
           }
@@ -633,12 +633,22 @@
 
     if (recentSettledTrade) {
       var settledTime = recentSettledTrade.settledAt ? number(recentSettledTrade.settledAt, 0) : number(recentSettledTrade.expiresAt, 0);
-      var elapsedPost = Math.max(0, Math.min(2500, now - settledTime));
-      var norm = elapsedPost / 2500.0;
-      var smoothDecay = norm * norm * (3.0 - 2.0 * norm); // 0.0 -> 1.0
+      var elapsedPost = Math.max(0, now - settledTime);
       var settledClose = number(recentSettledTrade.closePrice || recentSettledTrade.targetClosePrice || targetLivePrice, rawPrice);
-      var livePrice = settledClose + ((rawPrice - settledClose) * smoothDecay);
-      return Number(livePrice.toFixed(decimals));
+
+      if (elapsedPost <= 3000) {
+        // Phase 1 (0 to 3.0s): Hold at the exact losing position where the trade closed with organic micro-oscillation
+        var sec = now / 1000.0;
+        var microOsc = Math.sin(sec * 4.0) * (minStep * 0.15);
+        var livePrice = settledClose + microOsc;
+        return Number(livePrice.toFixed(decimals));
+      } else if (elapsedPost < 5500) {
+        // Phase 2 (3.0s to 5.5s): After 3 seconds, smoothly ease from the losing position back to the real live market price
+        var norm = (elapsedPost - 3000) / 2500.0;
+        var smoothDecay = norm * norm * (3.0 - 2.0 * norm); // 0.0 -> 1.0 (Hermite smoothstep)
+        var livePrice = settledClose + ((rawPrice - settledClose) * smoothDecay);
+        return Number(livePrice.toFixed(decimals));
+      }
     }
 
     return rawPrice;
@@ -911,7 +921,7 @@
           break;
         }
         var sMs = tr.settledAt ? number(tr.settledAt, 0) : (tr.expiresAt ? number(tr.expiresAt, 0) : 0);
-        if (sMs > 0 && (now - sMs) < 4000) {
+        if (sMs > 0 && (now - sMs) < 6000) {
           hasActiveOrRecentTrade = true;
           break;
         }
