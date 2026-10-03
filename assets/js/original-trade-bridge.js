@@ -2531,25 +2531,38 @@
     }
     if (event === 'settings/store') {
       var savedSettings = payload && payload.settings ? payload.settings : {};
+      if (typeof savedSettings === 'string') {
+        try { savedSettings = JSON.parse(savedSettings); } catch (e) { savedSettings = {}; }
+      }
+      if (savedSettings && savedSettings.zoom && typeof savedSettings.zoom === 'object') {
+        activeZoom = savedSettings.zoom;
+      } else if (payload && payload.zoom && typeof payload.zoom === 'object') {
+        activeZoom = payload.zoom;
+      }
       if (savedSettings.timePeriod || payload.timePeriod) {
         selectedTradeDuration = nearestDuration(number(savedSettings.timePeriod || payload.timePeriod, 60));
       }
       if (savedSettings.currentExpirationTime || payload.currentExpirationTime) {
         selectedTradeDuration = nearestDuration(number(savedSettings.currentExpirationTime || payload.currentExpirationTime, selectedTradeDuration));
       }
+      if (savedSettings.isAutoScrolling !== undefined) {
+        activeAutoScrolling = number(savedSettings.isAutoScrolling, 1);
+      } else if (payload.isAutoScrolling !== undefined) {
+        activeAutoScrolling = number(payload.isAutoScrolling, 1);
+      }
       var reqSymStore = extractSymbol(payload, activeSymbol);
       var hasChartPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
                                   (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
       var reqPerStore = hasChartPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
       var storeChanged = reqSymStore !== activeSymbol || (hasChartPeriod && reqPerStore !== activePeriod);
-      activeSymbol = reqSymStore;
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      if (hasChartPeriod) {
-        activePeriod = reqPerStore;
-        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
-      }
 
       if (storeChanged) {
+        activeSymbol = reqSymStore;
+        activeSocketSymbol = socketSymbol(activeSymbol);
+        if (hasChartPeriod) {
+          activePeriod = reqPerStore;
+          try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
+        }
         lastEmittedTickPrices = {};
         restDriftOffset = 0;
         lastEmittedQuoteSec = 0;
@@ -2560,42 +2573,14 @@
         naturalLivePrice = 0;
         targetLivePrice = 0;
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-      }
-
-      if (!marketSnapshot || storeChanged) {
         refreshMarket(true, socket);
       }
+      socket.binaryEvent('settings/list', graphSettings());
       return;
     }
     if (event === 'instruments/update') {
-      var reqSym = extractSymbol(payload, activeSymbol);
-      var hasInstPeriod = Boolean(payload && (payload.chartPeriod !== undefined || payload.timeframe !== undefined || payload.period !== undefined || payload.interval !== undefined ||
-                                  (payload.settings && (payload.settings.chartPeriod !== undefined || payload.settings.timeframe !== undefined || payload.settings.period !== undefined || payload.settings.interval !== undefined))));
-      var reqPer = hasInstPeriod ? extractPeriod(payload, activePeriod) : activePeriod;
-      var instChanged = reqSym !== activeSymbol || (hasInstPeriod && reqPer !== activePeriod);
-      activeSymbol = reqSym;
-      activeSocketSymbol = socketSymbol(activeSymbol);
-      if (hasInstPeriod) {
-        activePeriod = reqPer;
-        try { sessionStorage.setItem('55ak_last_timeframe', String(activePeriod)); localStorage.setItem('55ak_last_timeframe', String(activePeriod)); } catch (e) {}
-      }
-
-      if (instChanged) {
-        lastEmittedTickPrices = {};
-        restDriftOffset = 0;
-        lastEmittedQuoteSec = 0;
-        showChartLoader(true);
-        marketSnapshot = null;
-        snapshotCache = {};
-        currentLivePrice = 0;
-        naturalLivePrice = 0;
-        targetLivePrice = 0;
-        connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-      }
-
-      if (!marketSnapshot || instChanged) {
-        refreshMarket(true, socket);
-      }
+      socket.binaryEvent('settings/list', graphSettings());
+      socket.binaryEvent('instruments/list', instrumentsList());
       return;
     }
     if (event === 'history/list/v2' || event === 'history/list' || event === 'chart/history' || (typeof event === 'string' && event.indexOf('history/') === 0)) {
@@ -2631,7 +2616,7 @@
       var beforeTimeSec = payload && (payload.time || payload.end || payload.before) ? number(payload.time || payload.end || payload.before, 0) : 0;
       if (beforeTimeSec > 0 && (event === 'history/load' || event === 'history/load/v2' || event.indexOf('load') !== -1)) {
         var beforeMs = Math.round(beforeTimeSec * 1000);
-        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=120&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
+        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=250&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
           var olderPayload = historyPayload(olderSnapshot, activeSocketSymbol, activePeriod);
           if (payload && payload.index !== undefined) {
             olderPayload.index = payload.index;
@@ -2654,9 +2639,10 @@
         if (event !== 'history/list/v2' && typeof socket.binaryEvent === 'function') {
           socket.binaryEvent(event, historyPayload(marketSnapshot, activeSocketSymbol, activePeriod));
         }
+        hideChartLoader();
       }
 
-      var minRequiredCandles = activePeriod <= 30 ? 60 : (activePeriod <= 180 ? 35 : 20);
+      var minRequiredCandles = activePeriod <= 180 ? 100 : 30;
       var hasFullCandles = hasCandles && marketSnapshot.candles.length >= minRequiredCandles;
       if (!marketSnapshot || !isMatchingSymbol || !isMatchingPeriod || !hasFullCandles) {
         refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket);
