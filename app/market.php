@@ -486,7 +486,7 @@ function market_price_at(array $asset, int $timestampMs, bool $withoutBias = fal
 function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800, ?int $endMs = null, ?int $userId = null): array
 {
     $intervalSeconds = max(1, min(86400, $intervalSeconds));
-    $count = max(400, min(3000, $count));
+    $count = max(20, min(3000, $count));
     $now = (int)floor(microtime(true) * 1000);
     if ($endMs !== null && ($now - $endMs) < 600000 && !isset($_GET['before'])) {
         $endMs = $now;

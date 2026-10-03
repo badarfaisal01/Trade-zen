@@ -1414,68 +1414,84 @@
     if (payload === undefined || payload === null) {
       return Math.max(1, Math.min(86400, number(fallback, 60)));
     }
-    var settings = payload.settings || {};
-    var val = undefined;
-    if (payload.chartPeriod !== undefined && payload.chartPeriod !== null) val = payload.chartPeriod;
-    else if (payload.timeframe !== undefined && payload.timeframe !== null) val = payload.timeframe;
-    else if (payload.period !== undefined && payload.period !== null) val = payload.period;
-    else if (payload.interval !== undefined && payload.interval !== null) val = payload.interval;
-    else if (settings.chartPeriod !== undefined && settings.chartPeriod !== null) val = settings.chartPeriod;
-    else if (settings.timeframe !== undefined && settings.timeframe !== null) val = settings.timeframe;
-    else if (settings.period !== undefined && settings.period !== null) val = settings.period;
-    else if (settings.interval !== undefined && settings.interval !== null) val = settings.interval;
-    else if (typeof payload === 'number' || typeof payload === 'string') val = payload;
+    var settings = (typeof payload === 'object' && payload && payload.settings) ? payload.settings : {};
+    
+    // 1. First check explicit Quotex enum fields (chartPeriod, chartPeriodRaw)
+    var enumVal = undefined;
+    if (payload.chartPeriod !== undefined && payload.chartPeriod !== null) enumVal = payload.chartPeriod;
+    else if (payload.chartPeriodRaw !== undefined && payload.chartPeriodRaw !== null) enumVal = payload.chartPeriodRaw;
+    else if (settings.chartPeriod !== undefined && settings.chartPeriod !== null) enumVal = settings.chartPeriod;
+    else if (settings.chartPeriodRaw !== undefined && settings.chartPeriodRaw !== null) enumVal = settings.chartPeriodRaw;
 
-    if (val === undefined || val === null || val === '') {
-      return Math.max(1, Math.min(86400, number(fallback, 60)));
-    }
-
-    if (typeof val === 'string') {
-      var s = val.trim();
-      var enumMatch = s.match(/^Period_(\d+)$/i);
-      if (enumMatch) {
-        var num = parseInt(enumMatch[1], 10);
-        if (!isNaN(num) && num > 0) return Math.max(1, Math.min(86400, num));
+    if (enumVal !== undefined && enumVal !== null && enumVal !== '') {
+      if (typeof enumVal === 'string') {
+        var sEnum = enumVal.trim();
+        var enumMatch = sEnum.match(/^Period_(\d+)$/i);
+        if (enumMatch) {
+          var numEnum = parseInt(enumMatch[1], 10);
+          if (!isNaN(numEnum) && numEnum > 0) return Math.max(1, Math.min(86400, numEnum));
+        }
+        var parsedEnum = parseInt(sEnum, 10);
+        if (!isNaN(parsedEnum)) enumVal = parsedEnum;
       }
-      if (/^\d+[smhd]$/i.test(s)) {
-        var unit = s.slice(-1).toLowerCase();
-        var numVal = parseInt(s.slice(0, -1), 10);
-        if (unit === 's') return Math.max(1, Math.min(86400, numVal));
-        if (unit === 'm') return Math.max(1, Math.min(86400, numVal * 60));
-        if (unit === 'h') return Math.max(1, Math.min(86400, numVal * 3600));
-        if (unit === 'd') return Math.max(1, Math.min(86400, numVal * 86400));
-      }
-      var parsed = parseInt(s, 10);
-      if (!isNaN(parsed)) val = parsed;
-    }
-
-    if (typeof val === 'number' && isFinite(val)) {
-      // Map Quotex/React chart enum values (0..14) to candle duration in seconds
-      var enumToSec = {
-        0: 5,      // Period_5
-        1: 10,     // Period_10
-        2: 15,     // Period_15
-        3: 30,     // Period_30
-        4: 60,     // Period_60 (1m)
-        6: 300,    // Period_300 (5m)
-        7: 600,    // Period_600 (10m)
-        8: 900,    // Period_900 (15m)
-        9: 1800,   // Period_1800 (30m)
-        10: 3600,  // Period_3600 (1h)
-        11: 3600,  // Period_14400 (4h - fallback to 1h)
-        12: 3600,  // Period_86400 (1d - fallback to 1h)
-        13: 120,   // Period_120 (2m)
-        14: 180    // Period_180 (3m)
-      };
-      if (val in enumToSec) {
-        return Math.min(3600, enumToSec[val]);
-      }
-      if (val > 0) {
-        return Math.max(1, Math.min(3600, val));
+      if (typeof enumVal === 'number' && isFinite(enumVal)) {
+        var enumToSec = {
+          0: 5,      // Period_5
+          1: 10,     // Period_10
+          2: 15,     // Period_15
+          3: 30,     // Period_30
+          4: 60,     // Period_60 (1m)
+          6: 300,    // Period_300 (5m)
+          7: 600,    // Period_600 (10m)
+          8: 900,    // Period_900 (15m)
+          9: 1800,   // Period_1800 (30m)
+          10: 3600,  // Period_3600 (1h)
+          11: 3600,  // Period_14400 (4h - fallback to 1h)
+          12: 3600,  // Period_86400 (1d - fallback to 1h)
+          13: 120,   // Period_120 (2m)
+          14: 180    // Period_180 (3m)
+        };
+        if (enumVal in enumToSec) {
+          return enumToSec[enumVal];
+        }
       }
     }
 
-    return Math.max(1, Math.min(3600, number(fallback, 60)));
+    // 2. Check explicit timeframe/interval/period in seconds
+    var secVal = undefined;
+    if (payload.timeframe !== undefined && payload.timeframe !== null) secVal = payload.timeframe;
+    else if (payload.period !== undefined && payload.period !== null) secVal = payload.period;
+    else if (payload.interval !== undefined && payload.interval !== null) secVal = payload.interval;
+    else if (settings.timeframe !== undefined && settings.timeframe !== null) secVal = settings.timeframe;
+    else if (settings.period !== undefined && settings.period !== null) secVal = settings.period;
+    else if (settings.interval !== undefined && settings.interval !== null) secVal = settings.interval;
+    else if (typeof payload === 'number' || typeof payload === 'string') secVal = payload;
+
+    if (secVal !== undefined && secVal !== null && secVal !== '') {
+      if (typeof secVal === 'string') {
+        var s = secVal.trim();
+        var matchEnum = s.match(/^Period_(\d+)$/i);
+        if (matchEnum) {
+          var n = parseInt(matchEnum[1], 10);
+          if (!isNaN(n) && n > 0) return Math.max(1, Math.min(86400, n));
+        }
+        if (/^\d+[smhd]$/i.test(s)) {
+          var unit = s.slice(-1).toLowerCase();
+          var numVal = parseInt(s.slice(0, -1), 10);
+          if (unit === 's') return Math.max(1, Math.min(86400, numVal));
+          if (unit === 'm') return Math.max(1, Math.min(86400, numVal * 60));
+          if (unit === 'h') return Math.max(1, Math.min(86400, numVal * 3600));
+          if (unit === 'd') return Math.max(1, Math.min(86400, numVal * 86400));
+        }
+        var parsed = parseInt(s, 10);
+        if (!isNaN(parsed)) secVal = parsed;
+      }
+      if (typeof secVal === 'number' && isFinite(secVal) && secVal > 0) {
+        return Math.max(1, Math.min(86400, secVal));
+      }
+    }
+
+    return Math.max(1, Math.min(86400, number(fallback, 60)));
   }
 
   function extractSymbol(payload, fallback) {
@@ -1612,28 +1628,12 @@
     return 10;
   }
 
-  function getZoomForPeriod(periodEnum) {
-    var defaultZoomMap = {
-      0: 0,
-      1: 10,
-      2: 19,
-      3: 38,
-      4: 80,
-      13: 158,
-      14: 237,
-      6: 400,
-      7: 500,
-      8: 600,
-      9: 700,
-      10: 800
-    };
-    var z = defaultZoomMap[periodEnum] !== undefined ? defaultZoomMap[periodEnum] : 80;
+  function defaultZoomObject() {
     return {
-      0: z,
-      1: z,
-      2: z,
-      3: z,
-      4: z
+      0: { count: 0, value: 0, secondWidth: 3.5 },
+      1: { count: 0, value: 0, secondWidth: 3.5 },
+      2: { count: 0, value: 0, secondWidth: 3.5 },
+      3: { count: 0, value: 0, secondWidth: 3.5 }
     };
   }
 
@@ -1641,7 +1641,6 @@
     var asset = marketSnapshot && marketSnapshot.asset ? marketSnapshot.asset : {symbol: activeSymbol, price: 0};
     var startingAmount = Math.max(user.minAmount, Math.min(user.maxAmount, 10));
     var periodEnum = secToChartPeriodEnum(activePeriod);
-    var zoomObj = getZoomForPeriod(periodEnum);
     return [{
       chart_id: 'graph',
       settings: JSON.stringify({
@@ -1663,7 +1662,7 @@
         dealPercentValue: 1,
         dealPercentValueStr: '1%',
         gridOpacity: 8,
-        zoom: zoomObj
+        zoom: defaultZoomObject()
       })
     }];
   }
@@ -2574,7 +2573,7 @@
       }
 
       if (!marketSnapshot || storeChanged) {
-        refreshMarket(true, socket, chartHistoryCount);
+        refreshMarket(true, socket);
       }
       return;
     }
@@ -2605,7 +2604,7 @@
       }
 
       if (!marketSnapshot || instChanged) {
-        refreshMarket(true, socket, chartHistoryCount);
+        refreshMarket(true, socket);
       }
       return;
     }
@@ -2634,7 +2633,7 @@
         targetLivePrice = 0;
 
         connectBinanceWs(getBinanceStreamSymbol(activeSymbol));
-        refreshMarket(true, socket, chartHistoryCount);
+        refreshMarket(true, socket);
         emitClockTick();
         return;
       }
@@ -2642,7 +2641,7 @@
       var beforeTimeSec = payload && (payload.time || payload.end || payload.before) ? number(payload.time || payload.end || payload.before, 0) : 0;
       if (beforeTimeSec > 0 && (event === 'history/load' || event === 'history/load/v2' || event.indexOf('load') !== -1)) {
         var beforeMs = Math.round(beforeTimeSec * 1000);
-        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=' + encodeURIComponent(String(chartHistoryCount)) + '&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
+        jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(activeSymbol) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=120&history=1&endMs=' + beforeMs).then(function (olderSnapshot) {
           var olderPayload = historyPayload(olderSnapshot, activeSocketSymbol, activePeriod);
           if (payload && payload.index !== undefined) {
             olderPayload.index = payload.index;
@@ -2667,9 +2666,10 @@
         }
       }
 
-      var hasFullCandles = hasCandles && marketSnapshot.candles.length >= 200;
+      var minRequiredCandles = activePeriod <= 30 ? 60 : (activePeriod <= 180 ? 35 : 20);
+      var hasFullCandles = hasCandles && marketSnapshot.candles.length >= minRequiredCandles;
       if (!marketSnapshot || !isMatchingSymbol || !isMatchingPeriod || !hasFullCandles) {
-        refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket, chartHistoryCount);
+        refreshMarket(!hasCandles || !isMatchingSymbol || !isMatchingPeriod, socket);
       }
       return;
     }
