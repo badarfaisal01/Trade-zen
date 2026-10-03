@@ -965,8 +965,8 @@ function fetch_binance_all_prices(): array
     static $memoryCacheTime = 0.0;
     $now = microtime(true);
 
-    // 1. Same-request in-memory cache (< 3.0s)
-    if ($memoryCache !== null && ($now - $memoryCacheTime) < 3.0) {
+    // 1. Same-request in-memory cache (< 6.0s)
+    if ($memoryCache !== null && ($now - $memoryCacheTime) < 6.0) {
         return $memoryCache;
     }
 
@@ -976,10 +976,10 @@ function fetch_binance_all_prices(): array
     }
     $cacheFile = $cacheDir . '/binance_prices.json';
 
-    // 2. Cross-request persistent disk cache (< 3.0s)
+    // 2. Cross-request persistent disk cache (< 6.0s)
     if (file_exists($cacheFile)) {
         $mtime = (float)@filemtime($cacheFile);
-        if (($now - $mtime) < 3.0) {
+        if (($now - $mtime) < 6.0) {
             $raw = @file_get_contents($cacheFile);
             if ($raw) {
                 $decoded = json_decode($raw, true);

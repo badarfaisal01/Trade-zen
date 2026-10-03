@@ -1904,7 +1904,7 @@
     if (periodAtStart <= 180) targetCount = 800;
     else if (periodAtStart <= 1800) targetCount = 300;
     else targetCount = 200;
-    var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
+    var countToFetch = sendHistory ? (customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount) : 1;
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
       '&count=' + encodeURIComponent(String(countToFetch)) +
@@ -2155,32 +2155,6 @@
     });
   }
 
-  var prewarmTimer = null;
-  function prewarmSnapshots() {
-    if (prewarmTimer) return;
-    prewarmTimer = window.setTimeout(function () {
-      var assets = (marketSnapshot && Array.isArray(marketSnapshot.assets) && marketSnapshot.assets.length)
-        ? marketSnapshot.assets
-        : bootstrapAssets;
-      var symbolsToWarm = assets.slice(0, 4).map(function (a) { return plainSymbol(a.symbol); });
-      if (!symbolsToWarm.length) {
-        symbolsToWarm = ['BTCUSD', 'EURUSD', 'ETHUSD', 'SOLUSD'];
-      }
-      symbolsToWarm.forEach(function (sym, idx) {
-        var s = plainSymbol(sym);
-        if (s !== activeSymbol && !snapshotCache[s + '_' + activePeriod]) {
-          window.setTimeout(function () {
-            jsonRequest('/en/api/market.php?symbol=' + encodeURIComponent(s) + '&interval=' + encodeURIComponent(String(activePeriod)) + '&count=' + encodeURIComponent(String(chartHistoryCount)) + '&history=1').then(function (snap) {
-              if (snap && snap.asset && Array.isArray(snap.candles) && snap.candles.length) {
-                snapshotCache[plainSymbol(snap.asset.symbol) + '_' + activePeriod] = snap;
-              }
-            }).catch(function () {});
-          }, (idx + 1) * 800);
-        }
-      });
-    }, 1500);
-  }
-
   function startPolling() {
     if (!clockTimer) {
       clockTimer = window.setInterval(emitClockTick, 250);
@@ -2199,7 +2173,6 @@
         checkTradeExpirations();
       }, 100);
     }
-    prewarmSnapshots();
   }
 
   function nearestDuration(requestedSeconds) {
