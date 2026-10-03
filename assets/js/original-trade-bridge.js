@@ -14,7 +14,8 @@
       var origGetContext = HTMLCanvasElement.prototype.getContext;
       HTMLCanvasElement.prototype.getContext = function (type, options) {
         if (type === '2d') {
-          options = Object.assign({willReadFrequently: true}, options || {});
+          options = (typeof options === 'object' && options !== null) ? options : {};
+          options.willReadFrequently = true;
         }
         return origGetContext.call(this, type, options);
       };
@@ -1857,43 +1858,70 @@
     });
   }
 
-  var currentMarketRequestId = 0;
+  var activeMarketPromise = null;
+  var activeMarketKey = '';
 
-  function refreshMarket(sendHistory, socket, customCount) {
-    if (marketRequestRunning) {
-      if (!sendHistory) return Promise.resolve(marketSnapshot);
-      return new Promise(function (resolve) {
-        window.setTimeout(function () { resolve(refreshMarket(true, socket, customCount)); }, 80);
-      });
-    }
+  function refreshMarket(sendHistory, targetSocket, customCount) {
     var symbolAtStart = activeSymbol;
     var periodAtStart = Math.max(1, Math.min(86400, number(activePeriod, 60)));
-    var cached = snapshotCache[symbolAtStart + '_' + periodAtStart];
-    var hasLoadedCandles = (cached && Array.isArray(cached.candles) && cached.candles.length > 0) ||
-                           (marketSnapshot && marketSnapshot.asset && plainSymbol(marketSnapshot.asset.symbol) === symbolAtStart && number(marketSnapshot.period, 0) === periodAtStart && Array.isArray(marketSnapshot.candles) && marketSnapshot.candles.length > 0);
-    if (sendHistory && !hasLoadedCandles) {
-      showChartLoader(true);
-    }
-    marketRequestRunning = true;
-    var thisRequestId = ++currentMarketRequestId;
     var targetCount = chartHistoryCount;
     var countToFetch = customCount !== undefined && customCount !== null ? number(customCount, targetCount) : targetCount;
+    var cacheKey = symbolAtStart + '_' + periodAtStart;
+
+    // 1. Instant cache hit - deliver immediately with 0ms delay
+    var cached = snapshotCache[cacheKey];
+    if (cached && Array.isArray(cached.candles) && cached.candles.length > 0) {
+      marketSnapshot = cached;
+      marketSnapshot.period = periodAtStart;
+      if (sendHistory) {
+        var cachedPayload = historyPayload(cached, activeSocketSymbol, periodAtStart);
+        if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
+          targetSocket.binaryEvent('settings/list', graphSettings());
+          targetSocket.binaryEvent('history/list/v2', cachedPayload);
+        }
+        broadcastBinary('settings/list', graphSettings());
+        broadcastBinary('history/list/v2', cachedPayload);
+        lastHistoryBroadcastAt = Date.now();
+        hideChartLoader();
+        emitSmoothQuote();
+      }
+      return Promise.resolve(cached);
+    }
+
+    if (sendHistory) {
+      showChartLoader(true);
+    }
+
+    // 2. Reuse in-flight network request if already fetching the exact same symbol & period
+    if (activeMarketPromise && activeMarketKey === cacheKey) {
+      return activeMarketPromise.then(function (snap) {
+        if (sendHistory && snap) {
+          var hPayload = historyPayload(snap, activeSocketSymbol, periodAtStart);
+          if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
+            targetSocket.binaryEvent('settings/list', graphSettings());
+            targetSocket.binaryEvent('history/list/v2', hPayload);
+          }
+          broadcastBinary('settings/list', graphSettings());
+          broadcastBinary('history/list/v2', hPayload);
+          hideChartLoader();
+        }
+        return snap;
+      });
+    }
+
     var endpoint = '/en/api/market.php?symbol=' + encodeURIComponent(symbolAtStart) +
       '&interval=' + encodeURIComponent(String(periodAtStart)) +
       '&count=' + encodeURIComponent(String(countToFetch)) +
       '&history=' + (sendHistory ? '1' : '0');
 
-    return jsonRequest(endpoint).then(function (snapshot) {
-      if (thisRequestId !== currentMarketRequestId && (symbolAtStart !== activeSymbol || periodAtStart !== activePeriod)) {
-        return snapshot;
-      }
+    activeMarketKey = cacheKey;
+    activeMarketPromise = jsonRequest(endpoint).then(function (snapshot) {
       var apiCandles = snapshot && Array.isArray(snapshot.candles) ? snapshot.candles : [];
       if (snapshot) {
         snapshot.period = periodAtStart;
       }
       if (snapshot && snapshot.asset && apiCandles.length > 0) {
-        var cacheKey = plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart;
-        snapshotCache[cacheKey] = snapshot;
+        snapshotCache[plainSymbol(snapshot.asset.symbol) + '_' + periodAtStart] = snapshot;
       }
       
       // If background quote poll (sendHistory=false) and candles not included, preserve existing candles only if period matches
@@ -1928,6 +1956,10 @@
 
       if (sendHistory) {
         var hPayload = historyPayload(snapshot, activeSocketSymbol, periodAtStart);
+        if (targetSocket && typeof targetSocket.binaryEvent === 'function') {
+          targetSocket.binaryEvent('settings/list', graphSettings());
+          targetSocket.binaryEvent('history/list/v2', hPayload);
+        }
         broadcastBinary('settings/list', graphSettings());
         broadcastBinary('history/list/v2', hPayload);
         lastHistoryBroadcastAt = Date.now();
@@ -1936,21 +1968,21 @@
       }
       return snapshot;
     }).catch(function (error) {
-      showNotice(error.message, true);
+      hideChartLoader();
       return marketSnapshot;
     }).then(function (snapshot) {
-      marketRequestRunning = false;
-      if (sendHistory) {
-        hideChartLoader();
-      }
+      activeMarketPromise = null;
+      activeMarketKey = '';
+      hideChartLoader();
       return snapshot;
     }, function (error) {
-      marketRequestRunning = false;
-      if (sendHistory) {
-        hideChartLoader();
-      }
+      activeMarketPromise = null;
+      activeMarketKey = '';
+      hideChartLoader();
       throw error;
     });
+
+    return activeMarketPromise;
   }
 
   function checkTradeExpirations() {
