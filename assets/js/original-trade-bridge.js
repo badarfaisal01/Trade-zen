@@ -163,9 +163,22 @@
           var origCandlestickDrawPoints = hc.seriesTypes.candlestick.prototype.drawPoints;
           hc.seriesTypes.candlestick.prototype.drawPoints = function () {
             var series = this;
+            var restoredPoints = [];
             if (series && series.points && Array.isArray(series.points)) {
+              var isReversed = series.yAxis && series.yAxis.reversed;
+              var WICK_SCALE = 0.5; // Downsize wicks visually to 0.5x for natural, clean look
+
               series.points.forEach(function (r) {
                 if (r && void 0 !== r.plotY && r.plotOpen !== undefined && r.plotClose !== undefined) {
+                  restoredPoints.push({
+                    point: r,
+                    open: r.plotOpen,
+                    close: r.plotClose,
+                    high: r.plotHigh,
+                    yBottom: r.yBottom,
+                    low: r.plotLow
+                  });
+
                   var diff = Math.abs(r.plotOpen - r.plotClose);
                   if (diff < 3.0) {
                     var mid = (r.plotOpen + r.plotClose) / 2;
@@ -177,10 +190,56 @@
                       r.plotClose = mid + 1.5;
                     }
                   }
+
+                  var bodyTop = Math.min(r.plotOpen, r.plotClose);
+                  var bodyBottom = Math.max(r.plotOpen, r.plotClose);
+
+                  if (!isReversed) {
+                    if (r.plotHigh !== undefined && r.plotHigh < bodyTop) {
+                      var topWick = bodyTop - r.plotHigh;
+                      r.plotHigh = bodyTop - topWick * WICK_SCALE;
+                    }
+                    if (r.yBottom !== undefined && r.yBottom > bodyBottom) {
+                      var bottomWick = r.yBottom - bodyBottom;
+                      r.yBottom = bodyBottom + bottomWick * WICK_SCALE;
+                      if (r.plotLow !== undefined) {
+                        r.plotLow = r.yBottom;
+                      }
+                    }
+                  } else {
+                    if (r.plotHigh !== undefined && r.plotHigh > bodyBottom) {
+                      var bottomWickRev = r.plotHigh - bodyBottom;
+                      r.plotHigh = bodyBottom + bottomWickRev * WICK_SCALE;
+                    }
+                    if (r.yBottom !== undefined && r.yBottom < bodyTop) {
+                      var topWickRev = bodyTop - r.yBottom;
+                      r.yBottom = bodyTop - topWickRev * WICK_SCALE;
+                      if (r.plotLow !== undefined) {
+                        r.plotLow = r.yBottom;
+                      }
+                    }
+                  }
                 }
               });
             }
-            return origCandlestickDrawPoints.apply(this, arguments);
+
+            var result;
+            try {
+              result = origCandlestickDrawPoints.apply(this, arguments);
+            } finally {
+              for (var i = 0; i < restoredPoints.length; i++) {
+                var item = restoredPoints[i];
+                var p = item.point;
+                p.plotOpen = item.open;
+                p.plotClose = item.close;
+                p.plotHigh = item.high;
+                p.yBottom = item.yBottom;
+                if (item.low !== undefined) {
+                  p.plotLow = item.low;
+                }
+              }
+            }
+            return result;
           };
         }
 
