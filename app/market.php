@@ -670,13 +670,10 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         $cHigh = round(max($cOpen, $cClose, $targetHigh), $decimals);
                         $cLow = round(max($minStep, min($cOpen, $cClose, $targetLow)), $decimals);
                     } else {
-                        // Enrich candle if flat (zero-wick or zero-body from illiquid feeds like PAXG/Gold)
+                        // Enrich candle with natural 1m price action and realistic varied wicks
                         $noiseClose = market_noise($seed + 41, $sec);
-                        $noiseWickH = abs(market_noise($seed + 73, $sec));
-                        $noiseWickL = abs(market_noise($seed + 97, $sec));
-
                         $macroDelta = $targetClose - $cOpen;
-                        $typicalStep = max($minStep * 2.5, $cOpen * ($isCurrency ? 0.000035 : ($volatility * 0.1)));
+                        $typicalStep = max($minStep * 2.0, $cOpen * ($isCurrency ? 0.000035 : ($volatility * 0.1)));
                         $microNoise = ($noiseClose * $typicalStep * 0.65);
                         $cCloseRaw = $cOpen + $macroDelta + $microNoise;
 
@@ -687,20 +684,68 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                         $cClose = round($cCloseRaw, $decimals);
 
                         $bodySpan = abs($cClose - $cOpen);
-                        // Add clean, small, well-defined wicks
-                        $wickUp = max($minStep * 0.8, ($bodySpan * 0.25) + ($noiseWickH * $typicalStep * 0.45));
-                        $wickDown = max($minStep * 0.8, ($bodySpan * 0.25) + ($noiseWickL * $typicalStep * 0.45));
+                        $maxBody = max($cOpen, $cClose);
+                        $minBodyVal = min($cOpen, $cClose);
 
-                        $cHigh = round(max($cOpen, $cClose, (float)$targetHigh) + $wickUp, $decimals);
-                        $cLow  = round(max($minStep, min($cOpen, $cClose, (float)$targetLow) - $wickDown), $decimals);
+                        // Natural 1m wick distribution: upper-only, lower-only, asymmetrical, or shaved
+                        $bucketIdx = (int)($t / 60000);
+                        $pHash = fmod(abs(sin(($seed * 17) + ($bucketIdx * 12.9898)) * 43758.5453), 1.0);
+                        $lenHash1 = fmod(abs(cos(($seed * 29) + ($bucketIdx * 26.6514)) * 28461.1274), 1.0);
+                        $lenHash2 = fmod(abs(sin(($seed * 43) + ($bucketIdx * 41.3121)) * 19283.4721), 1.0);
+
+                        if ($pHash < 0.26) {
+                            // Upper wick only: High has wick, Low has NO wick (flat bottom)
+                            $wickUp = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodySpan * 0.15));
+                            $cHigh = round($maxBody + $wickUp, $decimals);
+                            $cLow  = round($minBodyVal, $decimals);
+                        } elseif ($pHash < 0.52) {
+                            // Lower wick only: Low has wick, High has NO wick (flat top)
+                            $wickDown = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodySpan * 0.15));
+                            $cHigh = round($maxBody, $decimals);
+                            $cLow  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+                        } elseif ($pHash < 0.86) {
+                            // Both wicks: distinct, asymmetrical lengths
+                            $wickUp = max($minStep, ($typicalStep * (0.12 + $lenHash1 * 0.75)) + ($bodySpan * 0.1));
+                            $wickDown = max($minStep, ($typicalStep * (0.12 + $lenHash2 * 0.75)) + ($bodySpan * 0.1));
+                            $cHigh = round($maxBody + $wickUp, $decimals);
+                            $cLow  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+                        } else {
+                            // Marubozu / Solid body with flat top and bottom
+                            $cHigh = round($maxBody, $decimals);
+                            $cLow  = round($minBodyVal, $decimals);
+                        }
                     }
                 } else {
-                    // Bucket missing: continuous organic candle
+                    // Bucket missing: continuous organic candle with natural wicks
                     $noiseVal = market_noise($seed, $sec);
                     $cClose = round(max($minStep * 10.0, $cOpen * (1.0 + $noiseVal * $volatility * 0.05)), $decimals);
-                    $minWick = max($minStep * 0.5, $cOpen * $volatility * 0.005);
-                    $cHigh  = round(max($cOpen, $cClose) + $minWick * 0.25, $decimals);
-                    $cLow   = round(max($minStep, min($cOpen, $cClose) - $minWick * 0.25), $decimals);
+                    $bodySpan = abs($cClose - $cOpen);
+                    $maxBody = max($cOpen, $cClose);
+                    $minBodyVal = min($cOpen, $cClose);
+                    $typicalStep = max($minStep * 2.0, $cOpen * ($isCurrency ? 0.000035 : ($volatility * 0.1)));
+
+                    $bucketIdx = (int)($t / 60000);
+                    $pHash = fmod(abs(sin(($seed * 17) + ($bucketIdx * 12.9898)) * 43758.5453), 1.0);
+                    $lenHash1 = fmod(abs(cos(($seed * 29) + ($bucketIdx * 26.6514)) * 28461.1274), 1.0);
+                    $lenHash2 = fmod(abs(sin(($seed * 43) + ($bucketIdx * 41.3121)) * 19283.4721), 1.0);
+
+                    if ($pHash < 0.26) {
+                        $wickUp = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodySpan * 0.15));
+                        $cHigh = round($maxBody + $wickUp, $decimals);
+                        $cLow  = round($minBodyVal, $decimals);
+                    } elseif ($pHash < 0.52) {
+                        $wickDown = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodySpan * 0.15));
+                        $cHigh = round($maxBody, $decimals);
+                        $cLow  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+                    } elseif ($pHash < 0.86) {
+                        $wickUp = max($minStep, ($typicalStep * (0.12 + $lenHash1 * 0.75)) + ($bodySpan * 0.1));
+                        $wickDown = max($minStep, ($typicalStep * (0.12 + $lenHash2 * 0.75)) + ($bodySpan * 0.1));
+                        $cHigh = round($maxBody + $wickUp, $decimals);
+                        $cLow  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+                    } else {
+                        $cHigh = round($maxBody, $decimals);
+                        $cLow  = round($minBodyVal, $decimals);
+                    }
                 }
             } else {
                 // Sub-minute candle (5s, 10s, 15s, 30s) - TradingView compact microstructure
@@ -759,11 +804,15 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
                 }
             }
 
-            // Guarantee minimum candle span so no candle is a 0-pixel invisible line
-            $minSpan = max($minStep * 3.0, $cOpen * ($isCurrency ? 0.00004 : ($volatility * 0.1)));
-            if (($cHigh - $cLow) < $minSpan) {
-                $cHigh = round(max($cOpen, $cClose) + $minSpan * 0.5, $decimals);
-                $cLow  = round(max($minStep, min($cOpen, $cClose) - $minSpan * 0.5), $decimals);
+            // Guarantee minimum candle span only if candle is a 0-pixel flat horizontal line
+            if (($cHigh - $cLow) < $minStep) {
+                $bucketIdx = (int)($t / 60000);
+                $pHash = fmod(abs(sin(($seed * 17) + ($bucketIdx * 12.9898)) * 43758.5453), 1.0);
+                if ($pHash < 0.5) {
+                    $cHigh = round($cHigh + $minStep * 2.0, $decimals);
+                } else {
+                    $cLow = round(max($minStep, $cLow - $minStep * 2.0), $decimals);
+                }
             }
 
             $cEnd = min($t + $intervalMs - 1, $endMs);
@@ -857,20 +906,35 @@ function market_candles(array $asset, int $intervalSeconds = 5, int $count = 800
 
         // Elegant, natural candle wicks: distinct upper and lower shadows, crisp and realistic
         $bodyHeight = abs($close - $open);
-        $noiseUpper = abs(market_noise($seed + 99, (int)($time / 1000)));
-        $noiseLower = abs(market_noise($seed + 101, (int)($time / 1000)));
+        $maxBody = max($open, $close);
+        $minBodyVal = min($open, $close);
+        $typicalStep = max($minStep * 2.0, $open * $vol * 0.25);
 
-        $wickUpper = max(0.0, min($bodyHeight * 0.25, $bodyHeight * 0.10 * $noiseUpper + ($open * $vol * 0.01 * $noiseUpper)));
-        $wickLower = max(0.0, min($bodyHeight * 0.25, $bodyHeight * 0.10 * $noiseLower + ($open * $vol * 0.01 * $noiseLower)));
+        $candleMin = (int)($time / 60000);
+        $pHash = fmod(abs(sin(($seed * 17) + ($candleMin * 12.9898)) * 43758.5453), 1.0);
+        $lenHash1 = fmod(abs(cos(($seed * 29) + ($candleMin * 26.6514)) * 28461.1274), 1.0);
+        $lenHash2 = fmod(abs(sin(($seed * 43) + ($candleMin * 41.3121)) * 19283.4721), 1.0);
 
-        $high = round(max($open, $close) + $wickUpper, $decimals);
-        $low  = round(max($minStep, min($open, $close) - $wickLower), $decimals);
-
-        if ($high <= max($open, $close)) {
-            $high = round(max($open, $close) + ($noiseUpper > 0.4 ? $minStep : 0.0), $decimals);
-        }
-        if ($low >= min($open, $close)) {
-            $low = round(max($minStep, min($open, $close) - ($noiseLower > 0.4 ? $minStep : 0.0)), $decimals);
+        if ($pHash < 0.26) {
+            // Upper wick only: High has wick, Low has NO wick (flat bottom)
+            $wickUp = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodyHeight * 0.15));
+            $high = round($maxBody + $wickUp, $decimals);
+            $low  = round($minBodyVal, $decimals);
+        } elseif ($pHash < 0.52) {
+            // Lower wick only: Low has wick, High has NO wick (flat top)
+            $wickDown = max($minStep, ($typicalStep * (0.25 + $lenHash1 * 0.95)) + ($bodyHeight * 0.15));
+            $high = round($maxBody, $decimals);
+            $low  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+        } elseif ($pHash < 0.86) {
+            // Both wicks with natural asymmetrical variation
+            $wickUp = max($minStep, ($typicalStep * (0.12 + $lenHash1 * 0.75)) + ($bodyHeight * 0.1));
+            $wickDown = max($minStep, ($typicalStep * (0.12 + $lenHash2 * 0.75)) + ($bodyHeight * 0.1));
+            $high = round($maxBody + $wickUp, $decimals);
+            $low  = round(max($minStep, $minBodyVal - $wickDown), $decimals);
+        } else {
+            // Marubozu / Solid body with flat top and bottom
+            $high = round($maxBody, $decimals);
+            $low  = round($minBodyVal, $decimals);
         }
 
         $p1 = $close >= $open ? $low : $high;

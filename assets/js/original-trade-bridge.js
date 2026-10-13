@@ -166,7 +166,6 @@
             var restoredPoints = [];
             if (series && series.points && Array.isArray(series.points)) {
               var isReversed = series.yAxis && series.yAxis.reversed;
-              var WICK_SCALE = 0.5; // Downsize wicks visually to 0.5x for natural, clean look
 
               series.points.forEach(function (r) {
                 if (r && void 0 !== r.plotY && r.plotOpen !== undefined && r.plotClose !== undefined) {
@@ -194,29 +193,70 @@
                   var bodyTop = Math.min(r.plotOpen, r.plotClose);
                   var bodyBottom = Math.max(r.plotOpen, r.plotClose);
 
+                  var pointTime = r.x !== undefined ? r.x : (r.time !== undefined ? r.time : 0);
+                  var candleMin = Math.floor(pointTime / 60000);
+                  var pHash = Math.abs(Math.sin(candleMin * 12.9898 + 78.233) * 43758.5453) % 1;
+
                   if (!isReversed) {
-                    if (r.plotHigh !== undefined && r.plotHigh < bodyTop) {
-                      var topWick = bodyTop - r.plotHigh;
-                      r.plotHigh = bodyTop - topWick * WICK_SCALE;
-                    }
-                    if (r.yBottom !== undefined && r.yBottom > bodyBottom) {
-                      var bottomWick = r.yBottom - bodyBottom;
-                      r.yBottom = bodyBottom + bottomWick * WICK_SCALE;
-                      if (r.plotLow !== undefined) {
-                        r.plotLow = r.yBottom;
-                      }
+                    var rawTopWick = (r.plotHigh !== undefined && r.plotHigh < bodyTop) ? (bodyTop - r.plotHigh) : 0;
+                    var rawBottomWick = (r.yBottom !== undefined && r.yBottom > bodyBottom) ? (r.yBottom - bodyBottom) : 0;
+
+                    var isFlatTop = rawTopWick <= 0.75 || (pHash >= 0.26 && pHash < 0.52 && rawTopWick < 8.0);
+                    var isFlatBottom = rawBottomWick <= 0.75 || (pHash < 0.26 && rawBottomWick < 8.0);
+                    var isMarubozu = (pHash >= 0.88 && rawTopWick < 5.0 && rawBottomWick < 5.0);
+
+                    if (isMarubozu || (isFlatTop && isFlatBottom)) {
+                      r.plotHigh = bodyTop;
+                      r.yBottom = bodyBottom;
+                      if (r.plotLow !== undefined) r.plotLow = bodyBottom;
+                    } else if (isFlatTop) {
+                      // No top wick (clean shaved high), render bottom wick only
+                      r.plotHigh = bodyTop;
+                      var bScale = 0.45 + ((pHash * 7.1) % 0.35);
+                      r.yBottom = bodyBottom + Math.max(0, rawBottomWick * bScale);
+                      if (r.plotLow !== undefined) r.plotLow = r.yBottom;
+                    } else if (isFlatBottom) {
+                      // No bottom wick (clean shaved low), render top wick only
+                      r.yBottom = bodyBottom;
+                      if (r.plotLow !== undefined) r.plotLow = bodyBottom;
+                      var tScale = 0.45 + ((pHash * 5.3) % 0.35);
+                      r.plotHigh = bodyTop - Math.max(0, rawTopWick * tScale);
+                    } else {
+                      // Both wicks with asymmetrical scaling
+                      var tScaleBoth = 0.35 + ((pHash * 9.2) % 0.4);
+                      var bScaleBoth = 0.35 + (((1 - pHash) * 8.7) % 0.4);
+                      r.plotHigh = bodyTop - Math.max(0, rawTopWick * tScaleBoth);
+                      r.yBottom = bodyBottom + Math.max(0, rawBottomWick * bScaleBoth);
+                      if (r.plotLow !== undefined) r.plotLow = r.yBottom;
                     }
                   } else {
-                    if (r.plotHigh !== undefined && r.plotHigh > bodyBottom) {
-                      var bottomWickRev = r.plotHigh - bodyBottom;
-                      r.plotHigh = bodyBottom + bottomWickRev * WICK_SCALE;
-                    }
-                    if (r.yBottom !== undefined && r.yBottom < bodyTop) {
-                      var topWickRev = bodyTop - r.yBottom;
-                      r.yBottom = bodyTop - topWickRev * WICK_SCALE;
-                      if (r.plotLow !== undefined) {
-                        r.plotLow = r.yBottom;
-                      }
+                    var rawBottomWickRev = (r.plotHigh !== undefined && r.plotHigh > bodyBottom) ? (r.plotHigh - bodyBottom) : 0;
+                    var rawTopWickRev = (r.yBottom !== undefined && r.yBottom < bodyTop) ? (bodyTop - r.yBottom) : 0;
+
+                    var isFlatBottomRev = rawBottomWickRev <= 0.75 || (pHash < 0.26 && rawBottomWickRev < 8.0);
+                    var isFlatTopRev = rawTopWickRev <= 0.75 || (pHash >= 0.26 && pHash < 0.52 && rawTopWickRev < 8.0);
+                    var isMarubozuRev = (pHash >= 0.88 && rawTopWickRev < 5.0 && rawBottomWickRev < 5.0);
+
+                    if (isMarubozuRev || (isFlatTopRev && isFlatBottomRev)) {
+                      r.plotHigh = bodyBottom;
+                      r.yBottom = bodyTop;
+                      if (r.plotLow !== undefined) r.plotLow = bodyTop;
+                    } else if (isFlatTopRev) {
+                      r.yBottom = bodyTop;
+                      if (r.plotLow !== undefined) r.plotLow = bodyTop;
+                      var bScaleRev = 0.45 + ((pHash * 7.1) % 0.35);
+                      r.plotHigh = bodyBottom + Math.max(0, rawBottomWickRev * bScaleRev);
+                    } else if (isFlatBottomRev) {
+                      r.plotHigh = bodyBottom;
+                      var tScaleRev = 0.45 + ((pHash * 5.3) % 0.35);
+                      r.yBottom = bodyTop - Math.max(0, rawTopWickRev * tScaleRev);
+                      if (r.plotLow !== undefined) r.plotLow = r.yBottom;
+                    } else {
+                      var tScaleBothRev = 0.35 + ((pHash * 9.2) % 0.4);
+                      var bScaleBothRev = 0.35 + (((1 - pHash) * 8.7) % 0.4);
+                      r.plotHigh = bodyBottom + Math.max(0, rawBottomWickRev * bScaleBothRev);
+                      r.yBottom = bodyTop - Math.max(0, rawTopWickRev * tScaleBothRev);
+                      if (r.plotLow !== undefined) r.plotLow = r.yBottom;
                     }
                   }
                 }
