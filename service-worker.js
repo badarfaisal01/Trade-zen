@@ -22,7 +22,13 @@ const CORE = [
 ];
 
 self.addEventListener('install', event => {
-  event.waitUntil(caches.open(CACHE).then(cache => cache.addAll(CORE)).then(() => self.skipWaiting()));
+  event.waitUntil(
+    caches.open(CACHE).then(cache => {
+      return Promise.allSettled(
+        CORE.map(url => cache.add(url).catch(err => console.warn('SW cache miss:', url, err)))
+      );
+    }).then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', event => {

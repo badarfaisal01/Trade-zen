@@ -699,6 +699,7 @@ INSERT IGNORE INTO schema_migrations (version, applied_at) VALUES
 ('4.4.6', NOW()),
 ('4.5.0', NOW()),
 ('4.6.0', NOW()),
-('4.7.0', NOW());
+('4.7.0', NOW()),
+('4.9.10', NOW());
 
 SET FOREIGN_KEY_CHECKS = 1;

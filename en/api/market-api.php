@@ -1,7 +1,7 @@
 <?php
 declare(strict_types=1);
 
-require dirname(__DIR__) . '/app/bootstrap.php';
+require dirname(__DIR__, 2) . '/app/bootstrap.php';
 
 // Fetch real market price from configured API
 $symbol = trim((string)($_GET['symbol'] ?? ''));

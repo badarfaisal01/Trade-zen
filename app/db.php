@@ -8,7 +8,28 @@ function database_config_path(): string
 
 function is_installed(): bool
 {
-    return is_file(database_config_path()) && is_file(dirname(__DIR__) . '/storage/installed.lock');
+    $lockFile = dirname(__DIR__) . '/storage/installed.lock';
+    if (is_file($lockFile)) {
+        return true;
+    }
+
+    $hasConfig = is_file(database_config_path()) || ((string)env('DB_DATABASE', '') !== '' && (string)env('DB_USERNAME', '') !== '');
+    if (!$hasConfig) {
+        return false;
+    }
+
+    try {
+        $pdo = db();
+        $stmt = $pdo->query("SHOW TABLES LIKE 'users'");
+        if ($stmt && $stmt->fetchColumn()) {
+            @touch($lockFile);
+            return true;
+        }
+    } catch (Throwable $e) {
+        return false;
+    }
+
+    return false;
 }
 
 function db(): PDO

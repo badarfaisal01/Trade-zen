@@ -10,7 +10,7 @@ if (!$user) {
 
 // Auto-settle any expired trades for the current user
 try {
-    settle_due_trades((int)$user['id']);
+    settle_open_trades((int)$user['id']);
 } catch (Throwable $e) {
     // Settle gracefully
 }
@@ -35,7 +35,13 @@ $rows = $stmt->fetchAll(PDO::FETCH_ASSOC);
 $trades = [];
 foreach ($rows as $r) {
     $createdAtTs = strtotime((string)$r['created_at']);
-    $duration = (int)($r['duration_seconds'] ?? ((float)$r['duration_minutes'] * 60));
+    $duration = (int)($r['duration_seconds'] ?? 0);
+    if ($duration <= 0 && !empty($r['expires_at']) && !empty($r['created_at'])) {
+        $duration = max(0, strtotime((string)$r['expires_at']) - $createdAtTs);
+    }
+    if ($duration <= 0 && isset($r['duration_minutes'])) {
+        $duration = (int)((float)$r['duration_minutes'] * 60);
+    }
     $closeTime = $createdAtTs + $duration;
     $leftSeconds = max(0, $closeTime - $now);
 
