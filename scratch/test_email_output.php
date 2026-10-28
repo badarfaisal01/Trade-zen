@@ -3,8 +3,8 @@ require __DIR__ . '/../app/bootstrap.php';
 
 $testUser = [
     'id' => 101,
-    'name' => 'Badar Techinn360',
-    'email' => 'badar@example.com',
+    'name' => 'Test User',
+    'email' => 'test@example.com',
     'currency' => 'USD',
     'demo_balance' => 1000.00
 ];

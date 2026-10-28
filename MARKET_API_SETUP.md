@@ -43,8 +43,8 @@ METALS_API_KEY=your_actual_key_here
 
 **Example:**
 ```env
-TWELVEDATA_API_KEY=abc123def456ghi789
-METALS_API_KEY=xyz789uvw456rst123
+TWELVEDATA_API_KEY=your_twelvedata_api_key_here
+METALS_API_KEY=your_metals_api_key_here
 ```
 
 ---
@@ -53,8 +53,8 @@ METALS_API_KEY=xyz789uvw456rst123
 
 1. **Log in to Admin Dashboard**
    - URL: `http://localhost/admin/`
-   - Email: `admin@55ak.xyz`
-   - Password: `12345678`
+   - Email: `admin@example.com`
+   - Password: `<your_admin_password>`
 
 2. **Navigate to Market APIs**
    - Look for **"Market APIs"** in the left sidebar menu
